@@ -1,0 +1,14 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "IyTBSNEYuU2lFhMYdYF2L"
+uri = "file://artifacts/game-lobby/public/assets/cyberpunk-bg.png"
+type = "image"
+title = "Cyberpunk neon-lit Asian cityscape background"
+
+[[generated]]
+id = "7230x2v481LujWmMpUGE5"
+uri = "file://artifacts/game-lobby/public/assets/character-model.png"
+type = "image"
+title = "Cyberpunk player character standing"

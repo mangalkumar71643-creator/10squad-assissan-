@@ -1,6 +1,5 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
   description: API specification
@@ -10,6 +9,12 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: lobby
+    description: Game lobby operations
+  - name: matchmaking
+    description: Matchmaking operations
+  - name: players
+    description: Player profile operations
 paths:
   /healthz:
     get:
@@ -24,6 +29,134 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /players/me:
+    get:
+      operationId: getCurrentPlayer
+      tags: [players]
+      summary: Get current player profile
+      description: Returns the current player's profile
+      responses:
+        "200":
+          description: Player profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+
+  /players/me/characters:
+    get:
+      operationId: getPlayerCharacters
+      tags: [players]
+      summary: Get player character collection
+      description: Returns all characters owned by the player
+      responses:
+        "200":
+          description: Player characters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Character"
+
+  /players/{id}:
+    get:
+      operationId: getPlayerById
+      tags: [players]
+      summary: Get player by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Player profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+
+  /lobby:
+    get:
+      operationId: getLobby
+      tags: [lobby]
+      summary: Get current lobby state
+      description: Returns the current lobby state
+      responses:
+        "200":
+          description: Lobby state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lobby"
+
+  /lobby/slots:
+    get:
+      operationId: getLobbySlots
+      tags: [lobby]
+      summary: Get lobby teammate slots
+      description: Returns all slots in the lobby
+      responses:
+        "200":
+          description: Lobby slots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LobbySlot"
+
+  /matchmaking:
+    post:
+      operationId: startMatchmaking
+      tags: [matchmaking]
+      summary: Start matchmaking
+      description: Puts the player in the matchmaking queue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MatchmakingInput"
+      responses:
+        "200":
+          description: Matchmaking started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatchmakingStatus"
+
+  /matchmaking/status:
+    get:
+      operationId: getMatchmakingStatus
+      tags: [matchmaking]
+      summary: Get matchmaking status
+      description: Returns current matchmaking status
+      responses:
+        "200":
+          description: Matchmaking status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatchmakingStatus"
+
+  /matchmaking/cancel:
+    post:
+      operationId: cancelMatchmaking
+      tags: [matchmaking]
+      summary: Cancel matchmaking
+      description: Cancels the current matchmaking
+      responses:
+        "200":
+          description: Matchmaking cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatchmakingStatus"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +167,106 @@ components:
       required:
         - status
 
+    Player:
+      type: object
+      required: [id, username, avatar, level, gold, diamonds, tokens]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        avatar:
+          type: string
+        level:
+          type: integer
+        gold:
+          type: integer
+        diamonds:
+          type: integer
+        tokens:
+          type: integer
+        rank:
+          type: string
+        title:
+          type: string
+        character:
+          type: string
+
+    Character:
+      type: object
+      required: [id, name, image, rarity, unlocked]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        image:
+          type: string
+        rarity:
+          type: string
+          enum: [common, rare, epic, legendary]
+        unlocked:
+          type: boolean
+        selected:
+          type: boolean
+
+    Lobby:
+      type: object
+      required: [id, name, gameMode, maxPlayers, currentPlayers]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        gameMode:
+          type: string
+        maxPlayers:
+          type: integer
+        currentPlayers:
+          type: integer
+        slots:
+          type: array
+          items:
+            $ref: "#/components/schemas/LobbySlot"
+
+    LobbySlot:
+      type: object
+      required: [id, position, status]
+      properties:
+        id:
+          type: string
+        position:
+          type: integer
+        status:
+          type: string
+          enum: [empty, occupied, ready]
+        player:
+          type: ["object", "null"]
+          $ref: "#/components/schemas/Player"
+        character:
+          type: ["string", "null"]
+
+    MatchmakingInput:
+      type: object
+      required: [gameMode]
+      properties:
+        gameMode:
+          type: string
+        playerCount:
+          type: integer
+
+    MatchmakingStatus:
+      type: object
+      required: [status, queueTime, estimatedWait]
+      properties:
+        status:
+          type: string
+          enum: [idle, searching, found, ready]
+        queueTime:
+          type: integer
+        estimatedWait:
+          type: integer
+        playersFound:
+          type: integer
+        totalPlayers:
+          type: integer
