@@ -102,6 +102,7 @@ function CircleStat({ value, label, color, icon }: { value: string; label: strin
 export default function Lobby() {
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState<"gear" | "abilities">("gear");
+  const [loadoutOpen, setLoadoutOpen] = useState(false);
   const { data: player, isLoading } = useGetCurrentPlayer();
   const { data: lobby } = useGetLobby();
 
@@ -173,63 +174,179 @@ export default function Lobby() {
       {/* ── MAIN AREA ── */}
       <div className="relative z-10 flex flex-1 min-h-0">
 
-        {/* ══ LEFT: LOADOUT PANEL ══ */}
-        <div className="w-[32%] flex flex-col bg-[#0d1117]/75 backdrop-blur-md border-r border-white/10">
+        {/* ══ LEFT: LOADOUT DRAWER (Free Fire style) ══ */}
 
-          {/* Panel header */}
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10 bg-black/30">
-            <Shield className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="font-black text-[11px] tracking-[0.2em] uppercase text-white">LOADOUT</span>
+        {/* Backdrop overlay — tap outside to close */}
+        {loadoutOpen && (
+          <div
+            className="absolute inset-0 z-30"
+            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(2px)" }}
+            onClick={() => setLoadoutOpen(false)}
+          />
+        )}
+
+        {/* Small vertical tab button (always visible when closed) */}
+        {!loadoutOpen && (
+          <button
+            onClick={() => setLoadoutOpen(true)}
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-40 flex flex-col items-center justify-center gap-1.5 py-4 px-2 rounded-r-xl cursor-pointer select-none"
+            style={{
+              background: "linear-gradient(135deg, rgba(0,210,255,0.18) 0%, rgba(120,0,255,0.18) 100%)",
+              border: "1px solid rgba(0,210,255,0.45)",
+              borderLeft: "none",
+              boxShadow: "4px 0 20px rgba(0,210,255,0.25), inset -1px 0 8px rgba(0,210,255,0.1)",
+            }}
+          >
+            <Shield className="w-4 h-4 text-cyan-400" />
+            <span
+              className="font-black text-[9px] tracking-[0.25em] uppercase text-cyan-300"
+              style={{
+                writingMode: "vertical-rl",
+                textOrientation: "mixed",
+                transform: "rotate(180deg)",
+                textShadow: "0 0 8px rgba(0,210,255,0.8)",
+              }}
+            >
+              LOADOUT
+            </span>
+            <ChevronDown className="w-3.5 h-3.5 text-cyan-400 rotate-[-90deg]" />
+          </button>
+        )}
+
+        {/* Slide-in drawer panel */}
+        <div
+          className="absolute left-0 top-0 h-full z-40 flex flex-col"
+          style={{
+            width: "72vw",
+            maxWidth: "320px",
+            background: "linear-gradient(135deg, rgba(10,13,25,0.97) 0%, rgba(15,10,35,0.97) 100%)",
+            backdropFilter: "blur(16px)",
+            borderRight: "1px solid rgba(0,210,255,0.3)",
+            boxShadow: loadoutOpen ? "8px 0 40px rgba(0,210,255,0.2), 2px 0 12px rgba(0,0,0,0.8)" : "none",
+            transform: loadoutOpen ? "translateX(0)" : "translateX(-100%)",
+            transition: "transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+        >
+          {/* Drawer header */}
+          <div className="flex items-center justify-between px-3 py-2.5 border-b shrink-0"
+            style={{ borderColor: "rgba(0,210,255,0.2)", background: "rgba(0,0,0,0.4)" }}>
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-cyan-400" style={{ filter: "drop-shadow(0 0 6px rgba(0,210,255,0.8))" }} />
+              <span className="font-black text-[12px] tracking-[0.25em] uppercase text-white"
+                style={{ textShadow: "0 0 10px rgba(0,210,255,0.6)" }}>
+                LOADOUT
+              </span>
+            </div>
+            {/* Close button */}
+            <button
+              onClick={() => setLoadoutOpen(false)}
+              className="w-7 h-7 rounded-md flex items-center justify-center transition-all"
+              style={{
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.12)",
+              }}
+            >
+              <ChevronDown className="w-4 h-4 text-gray-300 rotate-90" />
+            </button>
           </div>
 
           {/* GEAR / ABILITIES tabs */}
-          <div className="flex border-b border-white/10">
+          <div className="flex border-b shrink-0" style={{ borderColor: "rgba(0,210,255,0.15)" }}>
             {(["gear", "abilities"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
                   activeTab === tab
-                    ? "text-white bg-white/15 border-b-2 border-white"
+                    ? "text-cyan-300 border-b-2 border-cyan-400"
                     : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
                 }`}
+                style={activeTab === tab ? {
+                  background: "rgba(0,210,255,0.08)",
+                  textShadow: "0 0 8px rgba(0,210,255,0.6)",
+                } : {}}
               >
                 {tab}
               </button>
             ))}
           </div>
 
-          {/* WEAPONS label */}
-          <div className="px-3 pt-2 pb-1">
-            <span className="text-[8px] font-bold text-gray-400 uppercase tracking-[0.25em]">WEAPONS</span>
-          </div>
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
 
-          {/* 4x2 weapon grid */}
-          <div className="px-2 pb-2">
-            <div className="grid grid-cols-4 gap-1.5">
-              {WEAPONS.map((w, i) => (
-                <div key={i} className="flex flex-col items-center gap-0.5 cursor-pointer group">
-                  <div className={`w-full aspect-square border rounded-md flex items-center justify-center relative ${w.border} ${w.bg} ${w.glow} hover:scale-105 transition-transform`}>
-                    <span className="text-lg leading-none">{w.icon}</span>
+            {/* WEAPONS label */}
+            <div className="px-3 pt-3 pb-1 flex items-center gap-2">
+              <Swords className="w-3 h-3 text-cyan-400/70" />
+              <span className="text-[8px] font-bold text-gray-400 uppercase tracking-[0.3em]">WEAPONS</span>
+              <div className="flex-1 h-px" style={{ background: "linear-gradient(to right, rgba(0,210,255,0.3), transparent)" }} />
+            </div>
+
+            {/* 4x2 weapon grid */}
+            <div className="px-2.5 pb-3">
+              <div className="grid grid-cols-4 gap-2">
+                {WEAPONS.map((w, i) => (
+                  <div key={i} className="flex flex-col items-center gap-1 cursor-pointer group">
+                    <div className={`w-full aspect-square border rounded-lg flex items-center justify-center relative ${w.border} ${w.bg} ${w.glow} group-hover:scale-110 transition-transform`}>
+                      <span className="text-xl leading-none">{w.icon}</span>
+                      {w.rarity === "legendary" && (
+                        <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-orange-400"
+                          style={{ boxShadow: "0 0 4px rgba(249,115,22,0.8)" }} />
+                      )}
+                    </div>
+                    <span className="text-[7px] font-mono text-gray-400 truncate w-full text-center">{w.name}</span>
                   </div>
-                  <span className="text-[7px] font-mono text-gray-400 truncate w-full text-center">{w.name}</span>
+                ))}
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div className="mx-3 border-t" style={{ borderColor: "rgba(0,210,255,0.1)" }} />
+
+            {/* STATS label */}
+            <div className="px-3 pt-3 pb-1 flex items-center gap-2">
+              <Target className="w-3 h-3 text-purple-400/70" />
+              <span className="text-[8px] font-bold text-gray-400 uppercase tracking-[0.3em]">STATS</span>
+              <div className="flex-1 h-px" style={{ background: "linear-gradient(to right, rgba(168,85,247,0.3), transparent)" }} />
+            </div>
+
+            {/* Stats row */}
+            <div className="flex items-center justify-around px-2 py-2">
+              <CircleStat value="4.2" label="K/D" color="#4ade80" />
+              <CircleStat value="38" label="WIN%" color="#facc15" />
+              <CircleStat value="1,247" label="KILLS" color="#a855f7" icon="⚡" />
+            </div>
+
+            {/* Divider */}
+            <div className="mx-3 border-t" style={{ borderColor: "rgba(0,210,255,0.1)" }} />
+
+            {/* MATCH HISTORY teaser */}
+            <div className="px-3 pt-3 pb-1 flex items-center gap-2">
+              <Crosshair className="w-3 h-3 text-orange-400/70" />
+              <span className="text-[8px] font-bold text-gray-400 uppercase tracking-[0.3em]">LAST MATCHES</span>
+              <div className="flex-1 h-px" style={{ background: "linear-gradient(to right, rgba(249,115,22,0.3), transparent)" }} />
+            </div>
+            <div className="px-2.5 pb-3 flex flex-col gap-1.5">
+              {[
+                { map: "Space Heist", kills: 8, rank: "#2", result: "TOP 2", color: "#facc15" },
+                { map: "City Hunt",   kills: 5, rank: "#1", result: "WIN",   color: "#4ade80" },
+                { map: "Neon Vault",  kills: 3, rank: "#7", result: "TOP 10", color: "#60a5fa" },
+              ].map((m, i) => (
+                <div key={i} className="flex items-center justify-between px-2.5 py-2 rounded-lg"
+                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                  <div>
+                    <p className="text-[9px] font-bold text-white">{m.map}</p>
+                    <p className="text-[7px] font-mono text-gray-500">{m.kills} kills · {m.rank}</p>
+                  </div>
+                  <span className="text-[9px] font-black" style={{ color: m.color, textShadow: `0 0 8px ${m.color}` }}>
+                    {m.result}
+                  </span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Divider */}
-          <div className="mx-3 border-t border-white/10" />
-
-          {/* Stats row */}
-          <div className="flex items-center justify-around px-2 py-2">
-            <CircleStat value="4.2" label="K/D" color="#4ade80" />
-            <CircleStat value="38" label="WIN%" color="#facc15" />
-            <CircleStat value="1,247" label="KILLS" color="#a855f7" icon="⚡" />
-          </div>
-
-          {/* Squad */}
-          <div className="mt-auto px-3 py-2 border-t border-white/10 bg-black/30">
+          {/* Squad footer */}
+          <div className="px-3 py-2.5 shrink-0" style={{ borderTop: "1px solid rgba(0,210,255,0.15)", background: "rgba(0,0,0,0.4)" }}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Shield className="w-3 h-3 text-cyan-400" />
@@ -239,7 +356,8 @@ export default function Lobby() {
               </div>
               <div className="flex gap-1">
                 {Array.from({ length: lobby?.maxPlayers ?? 5 }).map((_, i) => (
-                  <div key={i} className={`w-2 h-2 rounded-full border ${i < (lobby?.currentPlayers ?? 1) ? "bg-cyan-400 border-cyan-400" : "border-white/25"}`} />
+                  <div key={i} className={`w-2 h-2 rounded-full border ${i < (lobby?.currentPlayers ?? 1) ? "bg-cyan-400 border-cyan-400" : "border-white/25"}`}
+                    style={i < (lobby?.currentPlayers ?? 1) ? { boxShadow: "0 0 4px rgba(0,210,255,0.7)" } : {}} />
                 ))}
               </div>
             </div>
