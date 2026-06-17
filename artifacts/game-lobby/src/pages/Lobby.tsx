@@ -134,7 +134,7 @@ export default function Lobby() {
         </div>
 
         {/* ── MAIN 3-COLUMN AREA ── */}
-        <div className="absolute inset-0 top-[11%] bottom-[13%] flex z-10">
+        <div className="absolute inset-0 top-[11%] bottom-0 flex z-10">
 
           {/* ══ LEFT: LOADOUT PANEL ══ */}
           <div className="w-[30%] h-full flex flex-col bg-black/55 backdrop-blur-md border-r border-white/10">
@@ -172,7 +172,7 @@ export default function Lobby() {
             </div>
 
             {/* Slots grid */}
-            <div className="flex-1 p-2.5 overflow-hidden">
+            <div className="flex-1 p-2.5 pb-[16%] overflow-hidden">
               <div className="grid grid-cols-4 gap-2 h-full content-start">
                 {currentSlots.map((slot, i) => {
                   const s = RARITY_STYLE[slot.rarity];
@@ -249,14 +249,14 @@ export default function Lobby() {
               </div>
 
               {/* Character model */}
-              <div className="relative flex-1 h-full flex items-end justify-center max-w-[55%]">
+              <div className="relative flex-1 h-full flex items-end justify-center max-w-[75%]">
                 {/* Platform glow */}
-                <div className="absolute bottom-[3%] left-1/2 -translate-x-1/2 w-[70%] h-[6%] bg-cyan-400/30 blur-[25px] rounded-full" />
-                <div className="absolute bottom-[3%] left-1/2 -translate-x-1/2 w-[45%] h-[3%] bg-cyan-400/50 blur-[12px] rounded-full" />
+                <div className="absolute bottom-[3%] left-1/2 -translate-x-1/2 w-[80%] h-[6%] bg-cyan-400/30 blur-[25px] rounded-full" />
+                <div className="absolute bottom-[3%] left-1/2 -translate-x-1/2 w-[55%] h-[3%] bg-cyan-400/50 blur-[12px] rounded-full" />
                 <img
                   src="/assets/character-model.png"
                   alt="Character"
-                  className="h-[96%] w-auto object-contain drop-shadow-[0_0_20px_rgba(0,255,255,0.4)] animate-hologram z-10 relative"
+                  className="h-full w-auto object-contain drop-shadow-[0_0_30px_rgba(0,255,255,0.5)] animate-hologram z-10 relative"
                 />
               </div>
 
@@ -299,7 +299,7 @@ export default function Lobby() {
             </div>
 
             {/* Friends list */}
-            <div className="flex-1 flex flex-col gap-1 p-2 overflow-hidden">
+            <div className="flex-1 flex flex-col gap-1 p-2 pb-[16%] overflow-hidden">
               {FRIENDS.map((f, i) => (
                 <div
                   key={i}
