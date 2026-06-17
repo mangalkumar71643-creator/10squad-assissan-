@@ -250,55 +250,102 @@ export default function Lobby() {
         <div className="flex-1 relative flex flex-col items-center overflow-hidden">
 
           {/* Player name + rank */}
-          <div className="relative z-10 mt-2 flex flex-col items-center gap-1">
-            <div className="flex items-center gap-2 bg-black/60 border border-white/15 px-4 py-1.5 rounded-full backdrop-blur-sm">
-              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-purple-600 flex items-center justify-center">
+          <div className="relative z-20 mt-2 flex flex-col items-center gap-1">
+            <div className="flex items-center gap-2 bg-black/70 border border-cyan-400/30 px-4 py-1.5 rounded-full backdrop-blur-sm"
+              style={{ boxShadow: "0 0 18px rgba(0,210,255,0.25), inset 0 0 10px rgba(0,210,255,0.06)" }}>
+              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-400 to-purple-600 flex items-center justify-center"
+                style={{ boxShadow: "0 0 8px rgba(0,210,255,0.6)" }}>
                 <User className="w-3 h-3 text-white" />
               </div>
-              <span className="font-black text-sm tracking-[0.12em] uppercase">{player?.username ?? "PROJECT_10"}</span>
-              <ChevronDown className="w-4 h-4 text-gray-400" />
+              <span className="font-black text-sm tracking-[0.15em] uppercase text-white"
+                style={{ textShadow: "0 0 12px rgba(0,210,255,0.7)" }}>
+                {player?.username ?? "PROJECT_10"}
+              </span>
+              <ChevronDown className="w-4 h-4 text-cyan-400/70" />
             </div>
-            <div className="flex items-center gap-2 text-[10px] font-mono">
+            <div className="flex items-center gap-2 text-[10px] font-mono"
+              style={{ textShadow: "0 0 8px rgba(0,210,255,0.6)" }}>
               <span className="text-cyan-400">◆</span>
               <span className="text-cyan-300 uppercase tracking-wider font-bold">{player?.rank ?? "DIAMOND"}</span>
-              <span className="text-gray-500">|</span>
+              <span className="text-gray-500 mx-1">|</span>
               <span className="text-white font-bold">LVL {player?.level ?? 42}</span>
             </div>
           </div>
 
-          {/* Characters area */}
-          <div className="flex-1 w-full relative flex items-end justify-center">
-            {/* Platform glow */}
-            <div className="absolute bottom-[8%] left-1/2 -translate-x-1/2 w-[60%] h-[8%] bg-cyan-400/20 blur-[30px] rounded-full" />
-            <div className="absolute bottom-[8%] left-1/2 -translate-x-1/2 w-[35%] h-[4%] bg-cyan-400/40 blur-[15px] rounded-full" />
-            {/* Circular platform ring */}
-            <div className="absolute bottom-[8%] left-1/2 -translate-x-1/2 w-[50%] aspect-[3/1] border border-cyan-400/30 rounded-full" />
+          {/* Characters area — full remaining height */}
+          <div className="flex-1 w-full relative overflow-hidden">
 
-            {/* Squad character (small, left) */}
-            <div className="absolute left-[8%] bottom-[8%] flex flex-col items-center">
-              <div className="h-[42%] relative" style={{ height: "42%" }}>
-                <img
-                  src="/assets/character-model.png"
-                  alt="Squad member"
-                  className="h-full w-auto object-contain opacity-70 grayscale-[30%] scale-x-[-1] drop-shadow-[0_0_8px_rgba(150,150,255,0.3)]"
-                  style={{ maxHeight: "180px" }}
-                />
-              </div>
+            {/* Ambient background glow */}
+            <div className="absolute inset-0 pointer-events-none">
+              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full h-[70%]"
+                style={{ background: "radial-gradient(ellipse at 50% 100%, rgba(0,180,255,0.18) 0%, rgba(120,0,255,0.10) 45%, transparent 70%)" }} />
             </div>
 
-            {/* Main character (large, center) */}
-            <img
-              src="/assets/character-model.png"
-              alt="Character"
-              className="relative z-10 w-auto object-contain drop-shadow-[0_0_30px_rgba(0,200,255,0.6)] animate-hologram"
-              style={{ height: "88%", maxHeight: "88%" }}
-            />
+            {/* Squad member (small, left) */}
+            <div className="absolute left-[4%] bottom-0 z-10 flex items-end"
+              style={{ height: "55%" }}>
+              <img
+                src="/assets/character-model.png"
+                alt="Squad member"
+                className="h-full w-auto object-contain scale-x-[-1]"
+                style={{
+                  filter: "brightness(0.55) saturate(0.6) drop-shadow(0 0 6px rgba(100,100,255,0.4))",
+                  opacity: 0.8,
+                }}
+              />
+            </div>
 
-            {/* Add squad member button (right) */}
-            <div className="absolute right-[8%] bottom-[20%] flex flex-col items-center gap-1">
-              <button className="w-10 h-10 rounded-full border-2 border-white/25 bg-black/40 flex items-center justify-center hover:border-cyan-400/70 hover:bg-cyan-400/10 transition-all backdrop-blur-sm">
-                <Plus className="w-5 h-5 text-white/50" />
-              </button>
+            {/* Add squad slot (right) */}
+            <button className="absolute right-[6%] bottom-[22%] z-10 w-11 h-11 rounded-full border-2 border-white/20 bg-black/50 flex items-center justify-center hover:border-cyan-400/60 hover:bg-cyan-400/10 transition-all backdrop-blur-sm"
+              style={{ boxShadow: "0 0 12px rgba(0,210,255,0.15)" }}>
+              <Plus className="w-5 h-5 text-white/40" />
+            </button>
+
+            {/* PLATFORM — glowing disc */}
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-10" style={{ width: "65%", height: "22%" }}>
+              {/* Outer diffuse glow */}
+              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full h-[55%] rounded-full"
+                style={{ background: "radial-gradient(ellipse, rgba(0,210,255,0.35) 0%, transparent 70%)", filter: "blur(12px)" }} />
+              {/* Mid ring glow */}
+              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[72%] h-[35%] rounded-full"
+                style={{ background: "radial-gradient(ellipse, rgba(0,210,255,0.55) 0%, transparent 65%)", filter: "blur(6px)" }} />
+              {/* Solid bright core line */}
+              <div className="absolute bottom-[3%] left-1/2 -translate-x-1/2 w-[50%] h-[10%] rounded-full"
+                style={{ background: "radial-gradient(ellipse, rgba(180,240,255,0.9) 0%, rgba(0,210,255,0.6) 50%, transparent 100%)", filter: "blur(3px)" }} />
+              {/* Outer ring SVG */}
+              <svg className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full" viewBox="0 0 200 60" style={{ overflow: "visible" }}>
+                <ellipse cx="100" cy="45" rx="95" ry="14"
+                  fill="none" stroke="rgba(0,210,255,0.5)" strokeWidth="1"
+                  style={{ filter: "drop-shadow(0 0 4px rgba(0,210,255,0.8))" }} />
+                <ellipse cx="100" cy="45" rx="68" ry="10"
+                  fill="none" stroke="rgba(0,210,255,0.3)" strokeWidth="0.5"
+                  strokeDasharray="8 4" />
+              </svg>
+            </div>
+
+            {/* MAIN CHARACTER — perfectly centered */}
+            <div className="absolute inset-0 flex items-end justify-center z-20 pb-[3%]">
+              <img
+                src="/assets/character-model.png"
+                alt="Character"
+                className="w-auto object-contain animate-hologram"
+                style={{
+                  height: "92%",
+                  filter: "drop-shadow(0 0 25px rgba(0,210,255,0.7)) drop-shadow(0 0 60px rgba(120,0,255,0.45)) drop-shadow(0 0 8px rgba(255,255,255,0.3))",
+                  animation: "holographic 3s ease-in-out infinite, char-float 4s ease-in-out infinite",
+                }}
+              />
+            </div>
+
+            {/* Scan line effect */}
+            <div className="absolute inset-x-0 z-30 pointer-events-none overflow-hidden" style={{ top: 0, bottom: 0 }}>
+              <div style={{
+                position: "absolute",
+                left: 0, right: 0,
+                height: "2px",
+                background: "linear-gradient(90deg, transparent, rgba(0,210,255,0.4), transparent)",
+                animation: "scan-line 4s linear infinite",
+              }} />
             </div>
           </div>
         </div>
