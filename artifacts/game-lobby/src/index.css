@@ -93,6 +93,24 @@
     50%       { transform: translateY(-8px); }
   }
 
+  --animate-idle-breathe: idle-breathe 4s ease-in-out infinite;
+
+  @keyframes idle-breathe {
+    0%   { transform: translateY(0px)   translateX(0px)   rotate(0deg)    scaleX(1)     scaleY(1); }
+    8%   { transform: translateY(-3px)  translateX(1px)   rotate(0.3deg)  scaleX(1.008) scaleY(1.012); }
+    16%  { transform: translateY(-5px)  translateX(2px)   rotate(0.5deg)  scaleX(1.012) scaleY(1.018); }
+    25%  { transform: translateY(-4px)  translateX(1.5px) rotate(0.4deg)  scaleX(1.010) scaleY(1.015); }
+    33%  { transform: translateY(-2px)  translateX(0.5px) rotate(0.15deg) scaleX(1.004) scaleY(1.007); }
+    42%  { transform: translateY(0px)   translateX(0px)   rotate(0deg)    scaleX(1)     scaleY(1); }
+    50%  { transform: translateY(-2px)  translateX(-1px)  rotate(-0.3deg) scaleX(1.006) scaleY(1.010); }
+    58%  { transform: translateY(-5px)  translateX(-2px)  rotate(-0.5deg) scaleX(1.012) scaleY(1.018); }
+    66%  { transform: translateY(-4px)  translateX(-1.5px)rotate(-0.4deg) scaleX(1.010) scaleY(1.014); }
+    75%  { transform: translateY(-2px)  translateX(-0.5px)rotate(-0.2deg) scaleX(1.005) scaleY(1.008); }
+    83%  { transform: translateY(-1px)  translateX(0px)   rotate(-0.1deg) scaleX(1.002) scaleY(1.004); }
+    92%  { transform: translateY(0px)   translateX(0.5px) rotate(0.1deg)  scaleX(1.001) scaleY(1.002); }
+    100% { transform: translateY(0px)   translateX(0px)   rotate(0deg)    scaleX(1)     scaleY(1); }
+  }
+
   @keyframes ring-pulse {
     0%, 100% { opacity: 0.3; box-shadow: 0 0 15px rgba(0,210,255,0.2); }
     50%       { opacity: 0.8; box-shadow: 0 0 40px rgba(0,210,255,0.6); }
