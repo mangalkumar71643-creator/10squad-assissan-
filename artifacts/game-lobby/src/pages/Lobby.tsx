@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useLocation } from "wouter";
 import { useGetCurrentPlayer, useGetLobby, useGetLobbySlots } from "@workspace/api-client-react";
+import InstallPrompt from "@/components/InstallPrompt";
 import {
   ChevronLeft, ChevronDown, Plus, Diamond, Coins, Hexagon,
   Settings, Bell, Mail, Users, User, Crosshair, Shield,
@@ -82,6 +83,7 @@ export default function Lobby() {
 
   return (
     <div className="h-screen w-screen bg-black flex items-center justify-center overflow-hidden">
+      <InstallPrompt />
       <div className="relative overflow-hidden text-white font-sans w-full h-full" style={{ aspectRatio: "16/9", maxWidth: "177.78vh", margin: "0 auto" }}>
 
         {/* ── BACKGROUND ── */}
