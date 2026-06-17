@@ -328,12 +328,10 @@ export default function Lobby() {
               <img
                 src="/assets/character-model.png"
                 alt="Character"
-                className="w-auto object-contain"
+                className="w-auto object-contain animate-char-idle"
                 style={{
                   height: "92%",
                   filter: "drop-shadow(0 0 25px rgba(0,210,255,0.7)) drop-shadow(0 0 60px rgba(120,0,255,0.45)) drop-shadow(0 0 8px rgba(255,255,255,0.3))",
-                  animation: "holographic 3s ease-in-out infinite, idle-breathe 4s ease-in-out infinite",
-                  transformOrigin: "bottom center",
                 }}
               />
             </div>
