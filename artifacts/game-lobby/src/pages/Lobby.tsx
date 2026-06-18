@@ -190,7 +190,7 @@ export default function Lobby() {
         {!loadoutOpen && (
           <button
             onClick={() => setLoadoutOpen(true)}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-40 flex flex-row items-center justify-between gap-3 rounded-r-2xl cursor-pointer select-none"
+            className="absolute left-0 bottom-0 z-40 flex flex-row items-center justify-between gap-3 rounded-tr-2xl cursor-pointer select-none"
             style={{
               width: "148px",
               paddingTop: "10px",
