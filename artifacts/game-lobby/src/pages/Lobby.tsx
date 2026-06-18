@@ -185,31 +185,46 @@ export default function Lobby() {
           />
         )}
 
-        {/* Small vertical tab button (always visible when closed) */}
+        {/* Horizontal wide tab button (always visible when closed) */}
         {!loadoutOpen && (
           <button
             onClick={() => setLoadoutOpen(true)}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-40 flex flex-col items-center justify-center gap-1.5 py-4 px-2 rounded-r-xl cursor-pointer select-none"
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-40 flex flex-row items-center justify-between gap-3 rounded-r-2xl cursor-pointer select-none"
             style={{
-              background: "linear-gradient(135deg, rgba(0,210,255,0.18) 0%, rgba(120,0,255,0.18) 100%)",
-              border: "1px solid rgba(0,210,255,0.45)",
+              width: "148px",
+              paddingTop: "10px",
+              paddingBottom: "10px",
+              paddingLeft: "14px",
+              paddingRight: "12px",
+              background: "linear-gradient(105deg, rgba(0,0,0,0.75) 0%, rgba(0,30,50,0.85) 60%, rgba(0,210,255,0.12) 100%)",
+              border: "1px solid rgba(0,210,255,0.5)",
               borderLeft: "none",
-              boxShadow: "4px 0 20px rgba(0,210,255,0.25), inset -1px 0 8px rgba(0,210,255,0.1)",
+              boxShadow: "6px 0 28px rgba(0,210,255,0.22), inset 0 1px 0 rgba(0,210,255,0.15), inset 0 -1px 0 rgba(0,210,255,0.08)",
             }}
           >
-            <Shield className="w-4 h-4 text-cyan-400" />
+            {/* Left: icon */}
+            <Shield
+              className="w-4 h-4 shrink-0"
+              style={{ color: "#00d2ff", filter: "drop-shadow(0 0 6px rgba(0,210,255,0.9))" }}
+            />
+
+            {/* Center: label */}
             <span
-              className="font-black text-[9px] tracking-[0.25em] uppercase text-cyan-300"
+              className="font-black text-[11px] tracking-[0.22em] uppercase flex-1"
               style={{
-                writingMode: "vertical-rl",
-                textOrientation: "mixed",
-                transform: "rotate(180deg)",
-                textShadow: "0 0 8px rgba(0,210,255,0.8)",
+                color: "#a5f3fc",
+                textShadow: "0 0 10px rgba(0,210,255,0.85)",
+                letterSpacing: "0.22em",
               }}
             >
               LOADOUT
             </span>
-            <ChevronDown className="w-3.5 h-3.5 text-cyan-400 rotate-[-90deg]" />
+
+            {/* Right: chevron */}
+            <ChevronDown
+              className="w-4 h-4 shrink-0 -rotate-90"
+              style={{ color: "#00d2ff", filter: "drop-shadow(0 0 4px rgba(0,210,255,0.7))" }}
+            />
           </button>
         )}
 
