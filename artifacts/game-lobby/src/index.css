@@ -192,35 +192,26 @@
   100% { top: 0%;   opacity: 0; }
 }
 
-/* ── PUBG/Free Fire style idle breathing animation ── */
+/* ── Free Fire style — character stays still, only chest/shoulders breathe ── */
 @keyframes idle-breathe {
-  0%   { transform: translateY(0px)    translateX(0px)    rotate(0deg)     scaleX(1)      scaleY(1); }
-  8%   { transform: translateY(-2px)   translateX(1px)    rotate(0.25deg)  scaleX(1.006)  scaleY(1.010); }
-  16%  { transform: translateY(-5px)   translateX(2px)    rotate(0.5deg)   scaleX(1.012)  scaleY(1.018); }
-  25%  { transform: translateY(-4px)   translateX(1.5px)  rotate(0.4deg)   scaleX(1.010)  scaleY(1.015); }
-  33%  { transform: translateY(-2px)   translateX(0.5px)  rotate(0.15deg)  scaleX(1.004)  scaleY(1.007); }
-  42%  { transform: translateY(0px)    translateX(0px)    rotate(0deg)     scaleX(1)      scaleY(1); }
-  50%  { transform: translateY(-2px)   translateX(-1px)   rotate(-0.25deg) scaleX(1.006)  scaleY(1.010); }
-  58%  { transform: translateY(-5px)   translateX(-2px)   rotate(-0.5deg)  scaleX(1.012)  scaleY(1.018); }
-  66%  { transform: translateY(-4px)   translateX(-1.5px) rotate(-0.4deg)  scaleX(1.010)  scaleY(1.014); }
-  75%  { transform: translateY(-2px)   translateX(-0.5px) rotate(-0.2deg)  scaleX(1.005)  scaleY(1.008); }
-  83%  { transform: translateY(-1px)   translateX(0px)    rotate(-0.1deg)  scaleX(1.002)  scaleY(1.004); }
-  92%  { transform: translateY(0px)    translateX(0.5px)  rotate(0.1deg)   scaleX(1.001)  scaleY(1.002); }
-  100% { transform: translateY(0px)    translateX(0px)    rotate(0deg)     scaleX(1)      scaleY(1); }
+  0%   { transform: scaleY(1.000) scaleX(1.000) translateY(0px); }
+  35%  { transform: scaleY(1.016) scaleX(1.005) translateY(-2px); }
+  70%  { transform: scaleY(1.010) scaleX(1.003) translateY(-1px); }
+  100% { transform: scaleY(1.000) scaleX(1.000) translateY(0px); }
 }
 
-/* PUBG/Free Fire idle + holographic glow combined */
+/* Helper classes */
 .animate-idle-breathe {
-  animation: idle-breathe 4s ease-in-out infinite;
-  transform-origin: bottom center;
+  animation: idle-breathe 3.4s ease-in-out infinite;
+  transform-origin: center 28%;
 }
 
 .animate-hologram-glow {
   animation: holographic 3s ease-in-out infinite;
 }
 
-/* Combined: both run simultaneously */
+/* Combined: chest breathing + glow at same time */
 .animate-char-idle {
-  animation: idle-breathe 4s ease-in-out infinite, holographic 3s ease-in-out infinite;
-  transform-origin: bottom center;
+  animation: idle-breathe 3.4s ease-in-out infinite, holographic 3s ease-in-out infinite;
+  transform-origin: center 28%;
 }
