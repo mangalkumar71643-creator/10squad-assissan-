@@ -103,6 +103,7 @@ export default function Lobby() {
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState<"gear" | "abilities">("gear");
   const [loadoutOpen, setLoadoutOpen] = useState(false);
+  const [socialOpen, setSocialOpen] = useState(false);
   const { data: player, isLoading } = useGetCurrentPlayer();
   const { data: lobby } = useGetLobby();
 
@@ -482,34 +483,117 @@ export default function Lobby() {
           </div>
         </div>
 
-        {/* ══ RIGHT: SOCIAL PANEL ══ */}
-        <div className="w-[28%] flex flex-col bg-[#0d1117]/75 backdrop-blur-md border-l border-white/10">
+        {/* ══ RIGHT: SOCIAL DRAWER (Free Fire style) ══ */}
 
-          {/* Header */}
-          <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 bg-black/30">
-            <span className="font-black text-[11px] tracking-[0.2em] uppercase text-white">SOCIAL</span>
+        {/* Backdrop overlay */}
+        {socialOpen && (
+          <div
+            className="absolute inset-0 z-30"
+            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(2px)" }}
+            onClick={() => setSocialOpen(false)}
+          />
+        )}
+
+        {/* Wide horizontal tab button (right edge) */}
+        {!socialOpen && (
+          <button
+            onClick={() => setSocialOpen(true)}
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-40 flex flex-row items-center justify-between gap-3 rounded-l-2xl cursor-pointer select-none"
+            style={{
+              width: "138px",
+              paddingTop: "10px",
+              paddingBottom: "10px",
+              paddingLeft: "12px",
+              paddingRight: "14px",
+              background: "linear-gradient(255deg, rgba(0,0,0,0.75) 0%, rgba(0,40,20,0.85) 60%, rgba(0,255,120,0.10) 100%)",
+              border: "1px solid rgba(0,255,120,0.45)",
+              borderRight: "none",
+              boxShadow: "-6px 0 28px rgba(0,255,120,0.18), inset 0 1px 0 rgba(0,255,120,0.12), inset 0 -1px 0 rgba(0,255,120,0.06)",
+            }}
+          >
+            {/* Left: chevron */}
+            <ChevronDown
+              className="w-4 h-4 shrink-0 rotate-90"
+              style={{ color: "#4ade80", filter: "drop-shadow(0 0 4px rgba(74,222,128,0.7))" }}
+            />
+
+            {/* Center: label */}
+            <span
+              className="font-black text-[11px] tracking-[0.22em] uppercase flex-1 text-center"
+              style={{
+                color: "#86efac",
+                textShadow: "0 0 10px rgba(74,222,128,0.85)",
+              }}
+            >
+              SOCIAL
+            </span>
+
+            {/* Right: online dot */}
+            <span className="shrink-0 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"
+                style={{ boxShadow: "0 0 6px rgba(74,222,128,0.9)" }} />
+              <span className="text-[9px] font-bold text-green-400">
+                {FRIENDS.filter(f => f.online).length}
+              </span>
+            </span>
+          </button>
+        )}
+
+        {/* Slide-in drawer from right */}
+        <div
+          className="absolute right-0 top-0 h-full z-40 flex flex-col"
+          style={{
+            width: "72vw",
+            maxWidth: "300px",
+            background: "linear-gradient(225deg, rgba(10,13,25,0.97) 0%, rgba(8,20,15,0.97) 100%)",
+            backdropFilter: "blur(16px)",
+            borderLeft: "1px solid rgba(0,255,120,0.25)",
+            boxShadow: socialOpen ? "-8px 0 40px rgba(0,255,120,0.15), -2px 0 12px rgba(0,0,0,0.8)" : "none",
+            transform: socialOpen ? "translateX(0)" : "translateX(100%)",
+            transition: "transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+        >
+          {/* Drawer header */}
+          <div className="flex items-center justify-between px-3 py-2.5 border-b shrink-0"
+            style={{ borderColor: "rgba(0,255,120,0.18)", background: "rgba(0,0,0,0.4)" }}>
+            {/* Close button */}
+            <button
+              onClick={() => setSocialOpen(false)}
+              className="w-7 h-7 rounded-md flex items-center justify-center transition-all"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
+            >
+              <ChevronDown className="w-4 h-4 text-gray-300 -rotate-90" />
+            </button>
+
+            <span className="font-black text-[12px] tracking-[0.25em] uppercase text-white"
+              style={{ textShadow: "0 0 10px rgba(74,222,128,0.5)" }}>
+              SOCIAL
+            </span>
+
             <span className="text-[8px] font-mono text-green-400 bg-green-400/10 border border-green-400/25 px-2 py-0.5 rounded-full">
               {FRIENDS.filter(f => f.online).length} Online
             </span>
           </div>
 
-          {/* Friends */}
-          <div className="flex-1 flex flex-col p-2 gap-1.5 overflow-hidden">
+          {/* Friends list */}
+          <div className="flex-1 flex flex-col p-2.5 gap-2 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
             {FRIENDS.map((f, i) => (
               <div
                 key={i}
-                className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer group ${
+                className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all cursor-pointer group ${
                   f.online
-                    ? "bg-white/5 border-white/10 hover:bg-cyan-400/8 hover:border-cyan-400/30"
+                    ? "bg-white/5 border-white/10 hover:bg-green-400/8 hover:border-green-400/25"
                     : "bg-black/20 border-white/5"
                 }`}
               >
                 {/* Avatar */}
                 <div className="relative shrink-0">
-                  <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${f.avatarFrom} ${f.avatarTo} flex items-center justify-center border-2 ${f.online ? "border-white/30" : "border-white/10"}`}>
-                    <span className="font-black text-sm text-white">{f.initials}</span>
+                  <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${f.avatarFrom} ${f.avatarTo} flex items-center justify-center border-2 ${f.online ? "border-white/30" : "border-white/10"}`}
+                    style={f.online ? { boxShadow: "0 0 10px rgba(74,222,128,0.3)" } : {}}>
+                    <span className="font-black text-base text-white">{f.initials}</span>
                   </div>
-                  <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#0d1117] ${f.online ? "bg-green-400" : "bg-gray-600"}`} />
+                  <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#0d1117] ${f.online ? "bg-green-400" : "bg-gray-600"}`}
+                    style={f.online ? { boxShadow: "0 0 5px rgba(74,222,128,0.8)" } : {}} />
                 </div>
 
                 {/* Info */}
@@ -517,15 +601,42 @@ export default function Lobby() {
                   <p className="text-[11px] font-bold text-white leading-none truncate">{f.shortName}</p>
                   <p className={`text-[8px] font-mono mt-0.5 truncate ${f.online ? "text-gray-400" : "text-gray-600"}`}>{f.status}</p>
                   {f.rank && (
-                    <span className={`inline-block mt-0.5 text-[7px] font-bold px-1.5 py-px rounded border ${f.rankBg} ${f.rankColor}`}>
+                    <span className={`inline-block mt-1 text-[7px] font-bold px-1.5 py-px rounded border ${f.rankBg} ${f.rankColor}`}>
                       {f.rank}
                     </span>
                   )}
                 </div>
+
+                {/* Invite button (online only) */}
+                {f.online && f.status.startsWith("ONLINE") && (
+                  <button className="shrink-0 text-[8px] font-bold px-2 py-1 rounded-md transition-all"
+                    style={{
+                      background: "rgba(74,222,128,0.12)",
+                      border: "1px solid rgba(74,222,128,0.35)",
+                      color: "#4ade80",
+                    }}>
+                    INVITE
+                  </button>
+                )}
               </div>
             ))}
           </div>
+
+          {/* Footer: add friend */}
+          <div className="px-3 py-2.5 shrink-0"
+            style={{ borderTop: "1px solid rgba(0,255,120,0.15)", background: "rgba(0,0,0,0.4)" }}>
+            <button className="w-full flex items-center justify-center gap-2 py-2 rounded-lg transition-all"
+              style={{
+                background: "rgba(74,222,128,0.08)",
+                border: "1px dashed rgba(74,222,128,0.3)",
+                color: "#4ade80",
+              }}>
+              <Plus className="w-3.5 h-3.5" />
+              <span className="text-[9px] font-bold uppercase tracking-wider">Add Friend</span>
+            </button>
+          </div>
         </div>
+
       </div>
 
       {/* ── BOTTOM BAR ── */}
