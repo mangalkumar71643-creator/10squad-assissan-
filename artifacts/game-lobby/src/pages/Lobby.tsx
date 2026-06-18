@@ -498,7 +498,7 @@ export default function Lobby() {
         {!socialOpen && (
           <button
             onClick={() => setSocialOpen(true)}
-            className="absolute right-0 top-1/2 -translate-y-1/2 z-40 flex flex-row items-center justify-between gap-3 rounded-l-2xl cursor-pointer select-none"
+            className="absolute right-0 bottom-0 z-40 flex flex-row items-center justify-between gap-3 rounded-tl-2xl cursor-pointer select-none"
             style={{
               width: "138px",
               paddingTop: "10px",
