@@ -415,19 +415,6 @@ export default function Lobby() {
                 style={{ background: "radial-gradient(ellipse at 50% 100%, rgba(0,180,255,0.18) 0%, rgba(120,0,255,0.10) 45%, transparent 70%)" }} />
             </div>
 
-            {/* Squad member (small, left) */}
-            <div className="absolute left-[4%] bottom-0 z-10 flex items-end"
-              style={{ height: "55%" }}>
-              <img
-                src="/assets/character-model.png"
-                alt="Squad member"
-                className="h-full w-auto object-contain scale-x-[-1]"
-                style={{
-                  filter: "brightness(0.55) saturate(0.6) drop-shadow(0 0 6px rgba(100,100,255,0.4))",
-                  opacity: 0.8,
-                }}
-              />
-            </div>
 
             {/* Add squad slot (right) */}
             <button className="absolute right-[6%] bottom-[22%] z-10 w-11 h-11 rounded-full border-2 border-white/20 bg-black/50 flex items-center justify-center hover:border-cyan-400/60 hover:bg-cyan-400/10 transition-all backdrop-blur-sm"
