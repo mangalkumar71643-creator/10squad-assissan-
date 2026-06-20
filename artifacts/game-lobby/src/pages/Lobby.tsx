@@ -8,19 +8,19 @@ import {
 } from "lucide-react";
 import CharacterCanvas from "@/components/CharacterCanvas";
 
-const CHAR_CARDS = [
-  {
-    id: "phantom",
-    name: "PHANTOM",
-    title: "Shadow Operative",
-    tag: "LEGENDARY",
-    ability: "Cloak Strike",
-    accentColor: "#f97316",
-    borderColor: "rgba(249,115,22,0.7)",
-    glowColor: "rgba(249,115,22,0.25)",
-    tagBg: "rgba(249,115,22,0.18)",
-    previewImg: "/assets/char-phantom.jpg",
-  },
+const CHARACTER_SLOTS = [
+  { id: "hacker-girl-1", name: "HACKER-GIRL", borderType: "orange" },
+  { id: "ninja-x-1",     name: "NINJA-X",     borderType: "gray" },
+  { id: "tank-unit-1",   name: "TANK-UNIT",   borderType: "gray" },
+  { id: "tank-unit-2",   name: "TANK-UNIT",   borderType: "orange" },
+  { id: "support-mage",  name: "Support-Mage",borderType: "gray" },
+  { id: "ghost-1",       name: "GHOST",       borderType: "gray" },
+  { id: "ghost-2",       name: "GHOST",       borderType: "cyan" },
+  { id: "eerics",        name: "EERICS",      borderType: "gray" },
+  { id: "hacker-girl-2", name: "HACKER-GIRL", borderType: "gray" },
+  { id: "sanpot-mage",   name: "SANPOT-MAGE", borderType: "gray" },
+  { id: "ninja-x-2",     name: "NINJA-X",     borderType: "gray" },
+  { id: "ninja-x-3",     name: "NINJA-X",     borderType: "gray" },
 ];
 
 const WEAPONS = [
@@ -73,7 +73,7 @@ export default function Lobby() {
   const { data: player, isLoading } = useGetCurrentPlayer();
   const { data: lobby } = useGetLobby();
 
-  if (isLoading) {
+  if (isLoading && !player) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-black">
         <div className="flex flex-col items-center gap-4">
@@ -192,97 +192,112 @@ export default function Lobby() {
         <div
           className="absolute left-0 top-0 h-full z-40 flex flex-col"
           style={{
-            width: "78vw",
-            maxWidth: "320px",
-            background: "linear-gradient(135deg, rgba(8,10,20,0.98) 0%, rgba(15,8,30,0.98) 100%)",
+            width: "82vw",
+            maxWidth: "340px",
+            background: "linear-gradient(180deg, #1a1f2e 0%, #141820 50%, #0f1218 100%)",
             backdropFilter: "blur(20px)",
-            borderRight: "1px solid rgba(168,85,247,0.3)",
-            boxShadow: charOpen ? "8px 0 40px rgba(168,85,247,0.15), 2px 0 12px rgba(0,0,0,0.9)" : "none",
+            borderRight: "2px solid rgba(80,100,140,0.5)",
+            boxShadow: charOpen ? "8px 0 40px rgba(0,0,0,0.8)" : "none",
             transform: charOpen ? "translateX(0)" : "translateX(-100%)",
             transition: "transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)",
           }}
         >
+          {/* Tech grid overlay */}
+          <div className="absolute inset-0 pointer-events-none opacity-[0.04]"
+            style={{
+              backgroundImage: "linear-gradient(rgba(150,180,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(150,180,255,1) 1px, transparent 1px)",
+              backgroundSize: "32px 32px",
+            }} />
+
           {/* Header */}
-          <div className="flex items-center justify-between px-3 py-2.5 border-b shrink-0"
-            style={{ borderColor: "rgba(168,85,247,0.2)", background: "rgba(0,0,0,0.5)" }}>
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-purple-400" style={{ filter: "drop-shadow(0 0 6px rgba(168,85,247,0.8))" }} />
-              <span className="font-black text-[12px] tracking-[0.25em] uppercase text-white"
-                style={{ textShadow: "0 0 10px rgba(168,85,247,0.5)" }}>
-                CHARACTER
-              </span>
-            </div>
+          <div className="relative flex items-center justify-between px-4 py-3 shrink-0"
+            style={{
+              background: "linear-gradient(90deg, rgba(30,40,60,0.9) 0%, rgba(20,28,45,0.9) 100%)",
+              borderBottom: "1px solid rgba(80,120,180,0.35)",
+            }}>
+            {/* Accent bar left */}
+            <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-r"
+              style={{ background: "linear-gradient(180deg, #00d4ff 0%, #0066aa 100%)" }} />
+            <span className="font-black text-[15px] tracking-[0.12em] text-white pl-2">
+              Character List
+            </span>
             <button
               onClick={() => setCharOpen(false)}
-              className="w-7 h-7 rounded-md flex items-center justify-center"
-              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
+              className="w-7 h-7 rounded flex items-center justify-center"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)" }}
             >
               <ChevronDown className="w-4 h-4 text-gray-300 rotate-90" />
             </button>
           </div>
 
-          {/* Character list */}
-          <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3" style={{ scrollbarWidth: "none" }}>
-            {CHAR_CARDS.map((char) => {
-              const isSelected = selectedChar === char.id;
-              return (
-                <button
-                  key={char.id}
-                  onClick={() => { setSelectedChar(char.id); setCharOpen(false); }}
-                  className="w-full rounded-2xl overflow-hidden text-left active:scale-95 transition-transform"
-                  style={{
-                    border: `1.5px solid ${isSelected ? char.borderColor : "rgba(255,255,255,0.1)"}`,
-                    boxShadow: isSelected ? `0 0 22px ${char.glowColor}, 0 2px 12px rgba(0,0,0,0.6)` : "0 2px 8px rgba(0,0,0,0.4)",
-                    background: isSelected
-                      ? "linear-gradient(135deg, rgba(30,15,5,0.98) 0%, rgba(40,20,5,0.98) 100%)"
-                      : "rgba(255,255,255,0.04)",
-                  }}
-                >
-                  {/* 3D preview area */}
-                  <div className="relative w-full" style={{ height: "200px", background: "linear-gradient(180deg, rgba(10,8,20,0.9) 0%, rgba(20,12,5,0.9) 100%)" }}>
-                    <Suspense fallback={
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-8 h-8 border-2 border-orange-500/50 border-t-transparent rounded-full animate-spin" />
-                      </div>
-                    }>
-                      <CharacterCanvas characterId={char.id} />
-                    </Suspense>
-                    {/* Rarity tag */}
-                    <div className="absolute top-2 left-2">
-                      <span className="text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider"
-                        style={{ background: char.tagBg, color: char.accentColor, border: `1px solid ${char.borderColor}` }}>
-                        {char.tag}
-                      </span>
-                    </div>
-                    {/* Selected checkmark */}
-                    {isSelected && (
-                      <div className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center"
-                        style={{ background: char.accentColor }}>
-                        <Check className="w-3 h-3 text-white" />
-                      </div>
-                    )}
-                  </div>
+          {/* 3-column character grid */}
+          <div className="flex-1 overflow-y-auto px-3 py-3" style={{ scrollbarWidth: "none" }}>
+            <div className="grid grid-cols-3 gap-2.5">
+              {CHARACTER_SLOTS.map((slot) => {
+                const isSelected = selectedChar === slot.id;
+                const borderColor =
+                  isSelected
+                    ? "#00d4ff"
+                    : slot.borderType === "orange"
+                    ? "#d97706"
+                    : slot.borderType === "cyan"
+                    ? "#00d4ff"
+                    : "rgba(80,100,130,0.55)";
+                const glowColor =
+                  isSelected
+                    ? "0 0 14px rgba(0,212,255,0.85), 0 0 28px rgba(0,212,255,0.35)"
+                    : slot.borderType === "cyan"
+                    ? "0 0 10px rgba(0,212,255,0.5)"
+                    : slot.borderType === "orange"
+                    ? "0 0 10px rgba(217,119,6,0.4)"
+                    : "none";
 
-                  {/* Info row */}
-                  <div className="px-3 py-2.5 flex items-center justify-between"
-                    style={{ borderTop: `1px solid ${char.borderColor}40` }}>
-                    <div>
-                      <p className="font-black text-[13px] tracking-wider text-white">{char.name}</p>
-                      <p className="text-[9px] font-mono mt-0.5" style={{ color: char.accentColor }}>{char.title}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg"
+                return (
+                  <button
+                    key={slot.id}
+                    onClick={() => { setSelectedChar(slot.id); setCharOpen(false); }}
+                    className="flex flex-col items-center active:scale-95 transition-transform"
+                  >
+                    {/* Square card area */}
+                    <div
+                      className="w-full aspect-square rounded-lg relative overflow-hidden"
                       style={{
-                        background: isSelected ? char.accentColor : "rgba(255,255,255,0.06)",
-                        border: `1px solid ${isSelected ? char.accentColor : "rgba(255,255,255,0.1)"}`,
-                      }}>
-                      <span className="text-[9px] font-black uppercase tracking-wider text-white">
-                        {isSelected ? "EQUIPPED" : "SELECT"}
-                      </span>
+                        border: `2px solid ${borderColor}`,
+                        boxShadow: glowColor,
+                        background: "linear-gradient(135deg, #1c2235 0%, #141820 100%)",
+                      }}
+                    >
+                      {/* Inner panel effect */}
+                      <div className="absolute inset-[3px] rounded"
+                        style={{ background: "linear-gradient(135deg, rgba(30,40,60,0.6) 0%, rgba(10,14,22,0.8) 100%)", border: "1px solid rgba(80,110,160,0.2)" }} />
+
+                      {/* Corner rivets */}
+                      {[["top-1 left-1"],["top-1 right-1"],["bottom-1 left-1"],["bottom-1 right-1"]].map(([pos], i) => (
+                        <div key={i} className={`absolute ${pos} w-1.5 h-1.5 rounded-full`}
+                          style={{ background: isSelected ? "#00d4ff" : "rgba(100,130,170,0.5)" }} />
+                      ))}
+
+                      {/* Selected glow overlay */}
+                      {isSelected && (
+                        <div className="absolute inset-0 rounded"
+                          style={{ background: "radial-gradient(ellipse at center, rgba(0,212,255,0.08) 0%, transparent 70%)" }} />
+                      )}
                     </div>
-                  </div>
-                </button>
-              );
-            })}
+
+                    {/* Name label */}
+                    <span
+                      className="mt-1.5 text-center font-bold text-[9px] uppercase tracking-wide leading-tight"
+                      style={{
+                        color: isSelected ? "#00d4ff" : slot.borderType === "orange" ? "#fbbf24" : "#94a3b8",
+                        textShadow: isSelected ? "0 0 8px rgba(0,212,255,0.8)" : "none",
+                      }}
+                    >
+                      {slot.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
