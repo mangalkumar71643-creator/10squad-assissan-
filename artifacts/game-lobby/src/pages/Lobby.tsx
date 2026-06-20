@@ -4,9 +4,108 @@ import { useGetCurrentPlayer, useGetLobby, useGetLobbySlots } from "@workspace/a
 import InstallPrompt from "@/components/InstallPrompt";
 import {
   ChevronLeft, ChevronDown, Plus, Diamond, Coins, Hexagon,
-  Settings, Mail, User, Shield, Zap, Swords, Target, Crosshair
+  Settings, Mail, User, Shield, Zap, Swords, Target, Crosshair, Users
 } from "lucide-react";
 
+
+const CHARACTERS = [
+  {
+    id: "phantom",
+    name: "PHANTOM",
+    title: "Shadow Operative",
+    rarity: "legendary",
+    ability: "Cloak Strike",
+    abilityDesc: "Turns invisible for 3s when flanking",
+    borderColor: "rgba(249,115,22,0.8)",
+    glowColor: "rgba(249,115,22,0.6)",
+    bgFrom: "#1a0a00",
+    bgTo: "#2d1500",
+    accentColor: "#f97316",
+    tag: "LEGENDARY",
+    tagBg: "rgba(249,115,22,0.2)",
+    filter: "drop-shadow(0 0 25px rgba(249,115,22,0.8)) drop-shadow(0 0 60px rgba(249,115,22,0.4))",
+  },
+  {
+    id: "nova",
+    name: "NOVA",
+    title: "Cyber Sniper",
+    rarity: "epic",
+    ability: "Eagle Eye",
+    abilityDesc: "Marks enemies through walls for 5s",
+    borderColor: "rgba(168,85,247,0.8)",
+    glowColor: "rgba(168,85,247,0.6)",
+    bgFrom: "#0d0020",
+    bgTo: "#1a0035",
+    accentColor: "#a855f7",
+    tag: "EPIC",
+    tagBg: "rgba(168,85,247,0.2)",
+    filter: "drop-shadow(0 0 25px rgba(168,85,247,0.8)) drop-shadow(0 0 60px rgba(168,85,247,0.4))",
+  },
+  {
+    id: "frost",
+    name: "FROST",
+    title: "Ice Breaker",
+    rarity: "rare",
+    ability: "Cryo Burst",
+    abilityDesc: "Slows nearby enemies by 40% for 2s",
+    borderColor: "rgba(96,165,250,0.8)",
+    glowColor: "rgba(96,165,250,0.6)",
+    bgFrom: "#001020",
+    bgTo: "#001830",
+    accentColor: "#60a5fa",
+    tag: "RARE",
+    tagBg: "rgba(96,165,250,0.2)",
+    filter: "drop-shadow(0 0 25px rgba(96,165,250,0.8)) drop-shadow(0 0 60px rgba(96,165,250,0.4))",
+  },
+  {
+    id: "viper",
+    name: "VIPER",
+    title: "Toxic Enforcer",
+    rarity: "epic",
+    ability: "Poison Cloud",
+    abilityDesc: "Deploys toxic gas dealing 8 DMG/s",
+    borderColor: "rgba(74,222,128,0.8)",
+    glowColor: "rgba(74,222,128,0.6)",
+    bgFrom: "#001500",
+    bgTo: "#002200",
+    accentColor: "#4ade80",
+    tag: "EPIC",
+    tagBg: "rgba(74,222,128,0.2)",
+    filter: "drop-shadow(0 0 25px rgba(74,222,128,0.8)) drop-shadow(0 0 60px rgba(74,222,128,0.4))",
+  },
+  {
+    id: "blaze",
+    name: "BLAZE",
+    title: "Inferno Assault",
+    rarity: "legendary",
+    ability: "Firestorm",
+    abilityDesc: "Leaves fire trail dealing 15 DMG/s",
+    borderColor: "rgba(251,191,36,0.8)",
+    glowColor: "rgba(251,191,36,0.6)",
+    bgFrom: "#1a1000",
+    bgTo: "#2a1a00",
+    accentColor: "#fbbf24",
+    tag: "LEGENDARY",
+    tagBg: "rgba(251,191,36,0.2)",
+    filter: "drop-shadow(0 0 25px rgba(251,191,36,0.8)) drop-shadow(0 0 60px rgba(251,191,36,0.4))",
+  },
+  {
+    id: "steel",
+    name: "STEEL",
+    title: "Iron Guardian",
+    rarity: "rare",
+    ability: "Iron Shield",
+    abilityDesc: "+50 armor for 4s when health < 30%",
+    borderColor: "rgba(148,163,184,0.8)",
+    glowColor: "rgba(148,163,184,0.5)",
+    bgFrom: "#0a0a0a",
+    bgTo: "#181818",
+    accentColor: "#94a3b8",
+    tag: "RARE",
+    tagBg: "rgba(148,163,184,0.15)",
+    filter: "drop-shadow(0 0 20px rgba(148,163,184,0.6)) drop-shadow(0 0 50px rgba(148,163,184,0.3))",
+  },
+];
 
 const WEAPONS = [
   { icon: "🔫", name: "W416", rarity: "legendary", border: "border-orange-500/80", bg: "bg-orange-950/60", glow: "shadow-[0_0_10px_rgba(249,115,22,0.5)]" },
@@ -53,6 +152,8 @@ export default function Lobby() {
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState<"gear" | "abilities">("gear");
   const [loadoutOpen, setLoadoutOpen] = useState(false);
+  const [charOpen, setCharOpen] = useState(false);
+  const [selectedCharId, setSelectedCharId] = useState("phantom");
   const { data: player, isLoading } = useGetCurrentPlayer();
   const { data: lobby } = useGetLobby();
 
@@ -135,8 +236,174 @@ export default function Lobby() {
           />
         )}
 
+        {/* CHARACTER tab button — above loadout */}
+        {!loadoutOpen && !charOpen && (
+          <button
+            onClick={() => setCharOpen(true)}
+            className="absolute left-0 z-40 flex flex-row items-center justify-between gap-3 rounded-tr-2xl cursor-pointer select-none"
+            style={{
+              bottom: "56px",
+              width: "148px",
+              paddingTop: "9px",
+              paddingBottom: "9px",
+              paddingLeft: "14px",
+              paddingRight: "12px",
+              background: `linear-gradient(105deg, rgba(0,0,0,0.75) 0%, rgba(${selectedCharId === "phantom" ? "40,15,0" : selectedCharId === "nova" ? "20,0,40" : selectedCharId === "frost" ? "0,20,40" : selectedCharId === "viper" ? "0,30,10" : selectedCharId === "blaze" ? "40,25,0" : "15,15,15"},0.85) 60%, ${CHARACTERS.find(c=>c.id===selectedCharId)?.accentColor ?? "#00d2ff"}20 100%)`,
+              border: `1px solid ${CHARACTERS.find(c=>c.id===selectedCharId)?.borderColor ?? "rgba(0,210,255,0.5)"}`,
+              borderLeft: "none",
+              boxShadow: `6px 0 28px ${CHARACTERS.find(c=>c.id===selectedCharId)?.glowColor ?? "rgba(0,210,255,0.22)"}`,
+            }}
+          >
+            <Users
+              className="w-4 h-4 shrink-0"
+              style={{ color: CHARACTERS.find(c=>c.id===selectedCharId)?.accentColor ?? "#00d2ff", filter: `drop-shadow(0 0 5px ${CHARACTERS.find(c=>c.id===selectedCharId)?.accentColor ?? "#00d2ff"})` }}
+            />
+            <span
+              className="font-black text-[10px] tracking-[0.18em] uppercase flex-1"
+              style={{
+                color: CHARACTERS.find(c=>c.id===selectedCharId)?.accentColor ?? "#a5f3fc",
+                textShadow: `0 0 10px ${CHARACTERS.find(c=>c.id===selectedCharId)?.accentColor ?? "#00d2ff"}`,
+              }}
+            >
+              {CHARACTERS.find(c=>c.id===selectedCharId)?.name ?? "PHANTOM"}
+            </span>
+            <ChevronDown
+              className="w-4 h-4 shrink-0 -rotate-90"
+              style={{ color: CHARACTERS.find(c=>c.id===selectedCharId)?.accentColor ?? "#00d2ff" }}
+            />
+          </button>
+        )}
+
+        {/* CHARACTER SELECTION DRAWER */}
+        {charOpen && (
+          <div
+            className="absolute inset-0 z-30"
+            style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)" }}
+            onClick={() => setCharOpen(false)}
+          />
+        )}
+        <div
+          className="absolute left-0 top-0 h-full z-40 flex flex-col"
+          style={{
+            width: "78vw",
+            maxWidth: "340px",
+            background: "linear-gradient(135deg, rgba(8,10,20,0.98) 0%, rgba(12,8,28,0.98) 100%)",
+            backdropFilter: "blur(20px)",
+            borderRight: `1px solid ${CHARACTERS.find(c=>c.id===selectedCharId)?.borderColor ?? "rgba(0,210,255,0.3)"}`,
+            boxShadow: charOpen ? `8px 0 40px ${CHARACTERS.find(c=>c.id===selectedCharId)?.glowColor ?? "rgba(0,210,255,0.2)"}, 2px 0 12px rgba(0,0,0,0.9)` : "none",
+            transform: charOpen ? "translateX(0)" : "translateX(-100%)",
+            transition: "transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-3 py-2.5 border-b shrink-0"
+            style={{ borderColor: "rgba(255,255,255,0.08)", background: "rgba(0,0,0,0.5)" }}>
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4" style={{ color: CHARACTERS.find(c=>c.id===selectedCharId)?.accentColor }} />
+              <span className="font-black text-[12px] tracking-[0.25em] uppercase text-white">CHARACTER</span>
+            </div>
+            <button
+              onClick={() => setCharOpen(false)}
+              className="w-7 h-7 rounded-md flex items-center justify-center"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
+            >
+              <ChevronDown className="w-4 h-4 text-gray-300 rotate-90" />
+            </button>
+          </div>
+
+          {/* Selected character preview */}
+          {(() => {
+            const sel = CHARACTERS.find(c => c.id === selectedCharId)!;
+            return (
+              <div className="mx-3 mt-3 mb-2 rounded-xl overflow-hidden shrink-0"
+                style={{ background: `linear-gradient(135deg, ${sel.bgFrom} 0%, ${sel.bgTo} 100%)`, border: `1px solid ${sel.borderColor}`, boxShadow: `0 0 20px ${sel.glowColor}` }}>
+                <div className="flex items-center gap-3 px-3 py-2.5">
+                  <div className="w-12 h-12 rounded-full overflow-hidden border-2 shrink-0 flex items-center justify-center"
+                    style={{ borderColor: sel.borderColor, background: "rgba(0,0,0,0.4)" }}>
+                    <img src="/assets/character-model.png" alt={sel.name} className="h-full w-auto object-cover scale-150 translate-y-2" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-black text-[14px] tracking-wider text-white">{sel.name}</span>
+                      <span className="text-[7px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider"
+                        style={{ background: sel.tagBg, color: sel.accentColor, border: `1px solid ${sel.borderColor}` }}>
+                        {sel.tag}
+                      </span>
+                    </div>
+                    <p className="text-[9px] font-mono mt-0.5" style={{ color: sel.accentColor }}>{sel.title}</p>
+                  </div>
+                </div>
+                <div className="px-3 pb-2.5">
+                  <div className="flex items-start gap-2 px-2.5 py-2 rounded-lg"
+                    style={{ background: "rgba(0,0,0,0.35)", border: `1px solid ${sel.borderColor}40` }}>
+                    <Zap className="w-3 h-3 mt-0.5 shrink-0" style={{ color: sel.accentColor }} />
+                    <div>
+                      <p className="text-[9px] font-black text-white">{sel.ability}</p>
+                      <p className="text-[8px] font-mono text-gray-400 mt-0.5">{sel.abilityDesc}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Divider label */}
+          <div className="px-3 pb-1 flex items-center gap-2 shrink-0">
+            <span className="text-[8px] font-bold text-gray-500 uppercase tracking-[0.3em]">SELECT CHARACTER</span>
+            <div className="flex-1 h-px bg-white/8" />
+          </div>
+
+          {/* Character list */}
+          <div className="flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-2" style={{ scrollbarWidth: "none" }}>
+            {CHARACTERS.map((char) => {
+              const isSelected = char.id === selectedCharId;
+              return (
+                <button
+                  key={char.id}
+                  onClick={() => { setSelectedCharId(char.id); setCharOpen(false); }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all active:scale-95"
+                  style={{
+                    background: isSelected
+                      ? `linear-gradient(135deg, ${char.bgFrom} 0%, ${char.bgTo} 100%)`
+                      : "rgba(255,255,255,0.04)",
+                    border: `1.5px solid ${isSelected ? char.borderColor : "rgba(255,255,255,0.08)"}`,
+                    boxShadow: isSelected ? `0 0 16px ${char.glowColor}` : "none",
+                  }}
+                >
+                  {/* Avatar */}
+                  <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 flex items-center justify-center"
+                    style={{
+                      border: `1.5px solid ${isSelected ? char.borderColor : "rgba(255,255,255,0.15)"}`,
+                      background: `linear-gradient(135deg, ${char.bgFrom}, ${char.bgTo})`,
+                    }}>
+                    <img src="/assets/character-model.png" alt={char.name} className="h-full w-auto object-cover scale-150 translate-y-2" />
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`font-black text-[11px] tracking-wider ${isSelected ? "text-white" : "text-gray-300"}`}>{char.name}</span>
+                      <span className="text-[7px] font-bold px-1 py-px rounded"
+                        style={{ background: char.tagBg, color: char.accentColor }}>
+                        {char.tag}
+                      </span>
+                    </div>
+                    <p className="text-[8px] font-mono mt-0.5" style={{ color: isSelected ? char.accentColor : "rgba(156,163,175,0.7)" }}>{char.title}</p>
+                    <p className="text-[7px] text-gray-500 mt-0.5 truncate">{char.ability} · {char.abilityDesc}</p>
+                  </div>
+
+                  {/* Selected indicator */}
+                  {isSelected && (
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: char.accentColor, boxShadow: `0 0 6px ${char.accentColor}` }} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Horizontal wide tab button (always visible when closed) */}
-        {!loadoutOpen && (
+        {!loadoutOpen && !charOpen && (
           <button
             onClick={() => setLoadoutOpen(true)}
             className="absolute left-0 bottom-0 z-40 flex flex-row items-center justify-between gap-3 rounded-tr-2xl cursor-pointer select-none"
@@ -372,7 +639,8 @@ export default function Lobby() {
                 className="w-auto object-contain animate-char-idle"
                 style={{
                   height: "92%",
-                  filter: "drop-shadow(0 0 25px rgba(0,210,255,0.7)) drop-shadow(0 0 60px rgba(120,0,255,0.45)) drop-shadow(0 0 8px rgba(255,255,255,0.3))",
+                  filter: CHARACTERS.find(c => c.id === selectedCharId)?.filter ?? "drop-shadow(0 0 25px rgba(0,210,255,0.7)) drop-shadow(0 0 60px rgba(120,0,255,0.45)) drop-shadow(0 0 8px rgba(255,255,255,0.3))",
+                  transition: "filter 0.5s ease",
                 }}
               />
             </div>
