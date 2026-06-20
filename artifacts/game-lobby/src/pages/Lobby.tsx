@@ -95,48 +95,6 @@ export default function Lobby() {
         <div className="absolute inset-0 bg-gradient-to-r from-[#0a0d14]/70 via-transparent to-[#0a0d14]/70" />
       </div>
 
-      {/* ── TOP BAR ── */}
-      <div className="relative z-20 flex items-center justify-between px-3 py-2 bg-[#0d1117]/80 backdrop-blur-md border-b border-white/10 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <button className="w-7 h-7 rounded-md border border-white/20 bg-white/5 flex items-center justify-center hover:border-cyan-400/60 transition-all">
-            <ChevronLeft className="w-4 h-4 text-white" />
-          </button>
-          <div>
-            <p className="font-black text-[13px] tracking-[0.15em] uppercase text-white leading-none">PRE-GAME LOBBY</p>
-            <p className="text-[8px] font-mono text-cyan-400/70 tracking-widest mt-0.5 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block animate-pulse" />
-              N-AMER-01 · 24MS
-            </p>
-          </div>
-        </div>
-
-        {/* Currencies */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-black/50 border border-yellow-500/30 px-2.5 py-1 rounded-full">
-            <Coins className="w-3.5 h-3.5 text-yellow-400" />
-            <span className="font-bold text-[11px] text-white">{(player?.gold ?? 33228).toLocaleString()}</span>
-          </div>
-          <div className="flex items-center gap-1.5 bg-black/50 border border-cyan-500/30 px-2.5 py-1 rounded-full">
-            <Diamond className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="font-bold text-[11px] text-white">{(player?.diamonds ?? 8240).toLocaleString()}</span>
-          </div>
-          <div className="flex items-center gap-1.5 bg-black/50 border border-purple-500/30 px-2.5 py-1 rounded-full">
-            <Hexagon className="w-3.5 h-3.5 text-purple-400" />
-            <span className="font-bold text-[11px] text-white">{(player?.tokens ?? 268).toLocaleString()}</span>
-            <button className="text-purple-400 hover:text-purple-300"><Plus className="w-3 h-3" /></button>
-          </div>
-        </div>
-
-        {/* Icons */}
-        <div className="flex items-center gap-2">
-          <button className="w-8 h-8 rounded-md border border-white/15 bg-white/5 flex items-center justify-center hover:border-cyan-400/50 transition-all">
-            <Mail className="w-4 h-4 text-gray-300" />
-          </button>
-          <button className="w-8 h-8 rounded-md border border-white/15 bg-white/5 flex items-center justify-center hover:border-cyan-400/50 transition-all">
-            <Settings className="w-4 h-4 text-gray-300" />
-          </button>
-        </div>
-      </div>
 
       {/* ── MAIN AREA ── */}
       <div className="relative z-10 flex flex-1 min-h-0">
