@@ -1,11 +1,27 @@
-import React, { useState } from "react";
+import React, { useState, Suspense } from "react";
 import { useLocation } from "wouter";
 import { useGetCurrentPlayer, useGetLobby, useGetLobbySlots } from "@workspace/api-client-react";
 import InstallPrompt from "@/components/InstallPrompt";
 import {
   ChevronLeft, ChevronDown, Plus, Diamond, Coins, Hexagon,
-  Settings, Mail, User, Shield, Zap, Swords, Target, Crosshair, Users
+  Settings, Mail, User, Shield, Zap, Swords, Target, Crosshair, Users, Check
 } from "lucide-react";
+import CharacterCanvas from "@/components/CharacterCanvas";
+
+const CHAR_CARDS = [
+  {
+    id: "phantom",
+    name: "PHANTOM",
+    title: "Shadow Operative",
+    tag: "LEGENDARY",
+    ability: "Cloak Strike",
+    accentColor: "#f97316",
+    borderColor: "rgba(249,115,22,0.7)",
+    glowColor: "rgba(249,115,22,0.25)",
+    tagBg: "rgba(249,115,22,0.18)",
+    previewImg: "/assets/char-phantom.jpg",
+  },
+];
 
 const WEAPONS = [
   { icon: "🔫", name: "W416", rarity: "legendary", border: "border-orange-500/80", bg: "bg-orange-950/60", glow: "shadow-[0_0_10px_rgba(249,115,22,0.5)]" },
@@ -53,6 +69,7 @@ export default function Lobby() {
   const [activeTab, setActiveTab] = useState<"gear" | "abilities">("gear");
   const [loadoutOpen, setLoadoutOpen] = useState(false);
   const [charOpen, setCharOpen] = useState(false);
+  const [selectedChar, setSelectedChar] = useState<string | null>(null);
   const { data: player, isLoading } = useGetCurrentPlayer();
   const { data: lobby } = useGetLobby();
 
@@ -204,16 +221,68 @@ export default function Lobby() {
             </button>
           </div>
 
-          {/* Empty state */}
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6">
-            <div className="w-16 h-16 rounded-full flex items-center justify-center"
-              style={{ background: "rgba(168,85,247,0.08)", border: "1px dashed rgba(168,85,247,0.3)" }}>
-              <Users className="w-7 h-7 text-purple-500/50" />
-            </div>
-            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest text-center">No Characters</p>
-            <p className="text-[9px] font-mono text-gray-600 text-center leading-relaxed">
-              Characters will appear here once added
-            </p>
+          {/* Character list */}
+          <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3" style={{ scrollbarWidth: "none" }}>
+            {CHAR_CARDS.map((char) => {
+              const isSelected = selectedChar === char.id;
+              return (
+                <button
+                  key={char.id}
+                  onClick={() => { setSelectedChar(char.id); setCharOpen(false); }}
+                  className="w-full rounded-2xl overflow-hidden text-left active:scale-95 transition-transform"
+                  style={{
+                    border: `1.5px solid ${isSelected ? char.borderColor : "rgba(255,255,255,0.1)"}`,
+                    boxShadow: isSelected ? `0 0 22px ${char.glowColor}, 0 2px 12px rgba(0,0,0,0.6)` : "0 2px 8px rgba(0,0,0,0.4)",
+                    background: isSelected
+                      ? "linear-gradient(135deg, rgba(30,15,5,0.98) 0%, rgba(40,20,5,0.98) 100%)"
+                      : "rgba(255,255,255,0.04)",
+                  }}
+                >
+                  {/* 3D preview area */}
+                  <div className="relative w-full" style={{ height: "200px", background: "linear-gradient(180deg, rgba(10,8,20,0.9) 0%, rgba(20,12,5,0.9) 100%)" }}>
+                    <Suspense fallback={
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-8 h-8 border-2 border-orange-500/50 border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    }>
+                      <CharacterCanvas characterId={char.id} />
+                    </Suspense>
+                    {/* Rarity tag */}
+                    <div className="absolute top-2 left-2">
+                      <span className="text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider"
+                        style={{ background: char.tagBg, color: char.accentColor, border: `1px solid ${char.borderColor}` }}>
+                        {char.tag}
+                      </span>
+                    </div>
+                    {/* Selected checkmark */}
+                    {isSelected && (
+                      <div className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center"
+                        style={{ background: char.accentColor }}>
+                        <Check className="w-3 h-3 text-white" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Info row */}
+                  <div className="px-3 py-2.5 flex items-center justify-between"
+                    style={{ borderTop: `1px solid ${char.borderColor}40` }}>
+                    <div>
+                      <p className="font-black text-[13px] tracking-wider text-white">{char.name}</p>
+                      <p className="text-[9px] font-mono mt-0.5" style={{ color: char.accentColor }}>{char.title}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg"
+                      style={{
+                        background: isSelected ? char.accentColor : "rgba(255,255,255,0.06)",
+                        border: `1px solid ${isSelected ? char.accentColor : "rgba(255,255,255,0.1)"}`,
+                      }}>
+                      <span className="text-[9px] font-black uppercase tracking-wider text-white">
+                        {isSelected ? "EQUIPPED" : "SELECT"}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -446,17 +515,31 @@ export default function Lobby() {
               </svg>
             </div>
 
-            {/* MAIN CHARACTER — perfectly centered with idle breathing */}
-            <div className="absolute inset-0 flex items-end justify-center z-20 pb-[3%]">
-              <img
-                src="/assets/character-model.png"
-                alt="Character"
-                className="w-auto object-contain animate-char-idle"
-                style={{
-                  height: "92%",
-                  filter: "drop-shadow(0 0 25px rgba(0,210,255,0.7)) drop-shadow(0 0 60px rgba(120,0,255,0.45)) drop-shadow(0 0 8px rgba(255,255,255,0.3))",
-                }}
-              />
+            {/* MAIN CHARACTER — 3D if selected, else 2D PNG */}
+            <div className="absolute inset-0 z-20">
+              {selectedChar ? (
+                <Suspense fallback={
+                  <div className="absolute inset-0 flex items-end justify-center pb-[3%]">
+                    <img src="/assets/character-model.png" alt="Character"
+                      className="w-auto object-contain animate-char-idle"
+                      style={{ height: "92%", filter: "drop-shadow(0 0 25px rgba(0,210,255,0.7)) drop-shadow(0 0 60px rgba(120,0,255,0.45))" }} />
+                  </div>
+                }>
+                  <CharacterCanvas characterId={selectedChar} />
+                </Suspense>
+              ) : (
+                <div className="absolute inset-0 flex items-end justify-center pb-[3%]">
+                  <img
+                    src="/assets/character-model.png"
+                    alt="Character"
+                    className="w-auto object-contain animate-char-idle"
+                    style={{
+                      height: "92%",
+                      filter: "drop-shadow(0 0 25px rgba(0,210,255,0.7)) drop-shadow(0 0 60px rgba(120,0,255,0.45)) drop-shadow(0 0 8px rgba(255,255,255,0.3))",
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Scan line effect */}
