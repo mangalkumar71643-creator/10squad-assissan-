@@ -332,29 +332,6 @@ export default function Lobby() {
         {/* ══ CENTER: CHARACTER ══ */}
         <div className="flex-1 relative flex flex-col items-center overflow-hidden">
 
-          {/* Player name + rank */}
-          <div className="relative z-20 mt-2 flex flex-col items-center gap-1">
-            <div className="flex items-center gap-2 bg-black/70 border border-cyan-400/30 px-4 py-1.5 rounded-full backdrop-blur-sm"
-              style={{ boxShadow: "0 0 18px rgba(0,210,255,0.25), inset 0 0 10px rgba(0,210,255,0.06)" }}>
-              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-400 to-purple-600 flex items-center justify-center"
-                style={{ boxShadow: "0 0 8px rgba(0,210,255,0.6)" }}>
-                <User className="w-3 h-3 text-white" />
-              </div>
-              <span className="font-black text-sm tracking-[0.15em] uppercase text-white"
-                style={{ textShadow: "0 0 12px rgba(0,210,255,0.7)" }}>
-                {player?.username ?? "PROJECT_10"}
-              </span>
-              <ChevronDown className="w-4 h-4 text-cyan-400/70" />
-            </div>
-            <div className="flex items-center gap-2 text-[10px] font-mono"
-              style={{ textShadow: "0 0 8px rgba(0,210,255,0.6)" }}>
-              <span className="text-cyan-400">◆</span>
-              <span className="text-cyan-300 uppercase tracking-wider font-bold">{player?.rank ?? "DIAMOND"}</span>
-              <span className="text-gray-500 mx-1">|</span>
-              <span className="text-white font-bold">LVL {player?.level ?? 42}</span>
-            </div>
-          </div>
-
           {/* Characters area — full remaining height */}
           <div className="flex-1 w-full relative overflow-hidden">
 
