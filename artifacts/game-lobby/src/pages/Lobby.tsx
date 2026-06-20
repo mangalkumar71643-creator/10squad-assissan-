@@ -534,7 +534,7 @@ export default function Lobby() {
             <div className="absolute inset-0 z-20">
               {selectedChar ? (
                 <Suspense fallback={
-                  <div className="absolute inset-0 flex items-end justify-center pb-[1%]">
+                  <div className="absolute inset-0 flex items-end justify-center pb-0">
                     <img src="/assets/character-model.png" alt="Character"
                       className="w-auto object-contain animate-char-idle"
                       style={{ height: "108%", filter: "drop-shadow(0 0 25px rgba(0,210,255,0.7)) drop-shadow(0 0 60px rgba(120,0,255,0.45))" }} />
@@ -543,7 +543,7 @@ export default function Lobby() {
                   <CharacterCanvas characterId={selectedChar} />
                 </Suspense>
               ) : (
-                <div className="absolute inset-0 flex items-end justify-center pb-[1%]">
+                <div className="absolute inset-0 flex items-end justify-center pb-0">
                   <img
                     src="/assets/character-model.png"
                     alt="Character"
