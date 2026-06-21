@@ -72,6 +72,12 @@ export default function Lobby() {
   const [charOpen, setCharOpen] = useState(false);
   const [selectedChar, setSelectedChar] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [fps, setFps] = useState<"60"|"90"|"120">("60");
+  const [audio, setAudio] = useState<"On"|"Off">("On");
+  const [sensitivity, setSensitivity] = useState<"Medium"|"High">("Medium");
+  const [language, setLanguage] = useState<"Hindi"|"English">("Hindi");
+  const [notifications, setNotifications] = useState<"On"|"Off">("On");
+  const [expandedSetting, setExpandedSetting] = useState<string|null>(null);
   const { data: player, isLoading } = useGetCurrentPlayer();
   const { data: lobby } = useGetLobby();
 
@@ -660,38 +666,220 @@ export default function Lobby() {
 
             {/* Menu items */}
             <div className="flex-1 overflow-y-auto py-2">
-              {[
-                { icon: <Gauge className="w-4 h-4" />,   label: "FPS",           sub: "60 FPS" },
-                { icon: <Volume2 className="w-4 h-4" />, label: "Audio",         sub: "On" },
-                { icon: <Sliders className="w-4 h-4" />, label: "Sensitivity",   sub: "Medium" },
-                { icon: <RotateCcw className="w-4 h-4" />, label: "Gyroscope",   sub: "Off" },
-                { icon: <Globe className="w-4 h-4" />,   label: "Language",      sub: "Hindi" },
-                { icon: <Bell className="w-4 h-4" />,    label: "Notifications", sub: "On" },
-                { icon: <Lock className="w-4 h-4" />,    label: "Privacy",       sub: "" },
-                { icon: <Info className="w-4 h-4" />,    label: "About",         sub: "v1.0.0" },
-              ].map((item, i) => (
-                <button key={i}
-                  className="w-full flex items-center justify-between px-5 py-3.5 active:bg-white/5 transition-colors"
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0"
-                      style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.18)", color: "#00d4ff" }}>
-                      {item.icon}
-                    </div>
-                    <span className="text-[13px] font-semibold text-white/90 tracking-wide">
-                      {item.label}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {item.sub && (
-                      <span className="text-[11px] font-mono" style={{ color: "rgba(0,212,255,0.6)" }}>
-                        {item.sub}
-                      </span>
+
+              {/* ── FPS ── */}
+              {(() => {
+                const open = expandedSetting === "fps";
+                return (
+                  <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <button className="w-full flex items-center justify-between px-5 py-3.5 active:bg-white/5 transition-colors"
+                      onClick={() => setExpandedSetting(open ? null : "fps")}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0"
+                          style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.18)", color: "#00d4ff" }}>
+                          <Gauge className="w-4 h-4" />
+                        </div>
+                        <span className="text-[13px] font-semibold text-white/90 tracking-wide">FPS</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-mono" style={{ color: "rgba(0,212,255,0.7)" }}>{fps} FPS</span>
+                        <ChevronRight className="w-4 h-4 transition-transform" style={{ color: "rgba(255,255,255,0.25)", transform: open ? "rotate(90deg)" : "none" }} />
+                      </div>
+                    </button>
+                    {open && (
+                      <div className="flex gap-2 px-5 pb-3.5">
+                        {(["60","90","120"] as const).map(v => (
+                          <button key={v} onClick={() => setFps(v)}
+                            className="flex-1 py-2 rounded-lg text-[12px] font-black tracking-wider transition-all active:scale-95"
+                            style={{
+                              background: fps === v ? "rgba(0,212,255,0.18)" : "rgba(255,255,255,0.05)",
+                              border: fps === v ? "1px solid rgba(0,212,255,0.7)" : "1px solid rgba(255,255,255,0.1)",
+                              color: fps === v ? "#00d4ff" : "#94a3b8",
+                              boxShadow: fps === v ? "0 0 10px rgba(0,212,255,0.25)" : "none",
+                            }}>{v}</button>
+                        ))}
+                      </div>
                     )}
-                    <ChevronRight className="w-4 h-4" style={{ color: "rgba(255,255,255,0.25)" }} />
                   </div>
-                </button>
-              ))}
+                );
+              })()}
+
+              {/* ── Audio ── */}
+              {(() => {
+                const open = expandedSetting === "audio";
+                return (
+                  <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <button className="w-full flex items-center justify-between px-5 py-3.5 active:bg-white/5 transition-colors"
+                      onClick={() => setExpandedSetting(open ? null : "audio")}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0"
+                          style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.18)", color: "#00d4ff" }}>
+                          <Volume2 className="w-4 h-4" />
+                        </div>
+                        <span className="text-[13px] font-semibold text-white/90 tracking-wide">Audio</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-mono" style={{ color: audio === "On" ? "rgba(0,212,255,0.7)" : "rgba(255,255,255,0.3)" }}>{audio}</span>
+                        <ChevronRight className="w-4 h-4 transition-transform" style={{ color: "rgba(255,255,255,0.25)", transform: open ? "rotate(90deg)" : "none" }} />
+                      </div>
+                    </button>
+                    {open && (
+                      <div className="flex gap-2 px-5 pb-3.5">
+                        {(["On","Off"] as const).map(v => (
+                          <button key={v} onClick={() => setAudio(v)}
+                            className="flex-1 py-2 rounded-lg text-[12px] font-black tracking-wider transition-all active:scale-95"
+                            style={{
+                              background: audio === v ? "rgba(0,212,255,0.18)" : "rgba(255,255,255,0.05)",
+                              border: audio === v ? "1px solid rgba(0,212,255,0.7)" : "1px solid rgba(255,255,255,0.1)",
+                              color: audio === v ? "#00d4ff" : "#94a3b8",
+                              boxShadow: audio === v ? "0 0 10px rgba(0,212,255,0.25)" : "none",
+                            }}>{v}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Sensitivity ── */}
+              {(() => {
+                const open = expandedSetting === "sensitivity";
+                return (
+                  <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <button className="w-full flex items-center justify-between px-5 py-3.5 active:bg-white/5 transition-colors"
+                      onClick={() => setExpandedSetting(open ? null : "sensitivity")}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0"
+                          style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.18)", color: "#00d4ff" }}>
+                          <Sliders className="w-4 h-4" />
+                        </div>
+                        <span className="text-[13px] font-semibold text-white/90 tracking-wide">Sensitivity</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-mono" style={{ color: "rgba(0,212,255,0.7)" }}>{sensitivity}</span>
+                        <ChevronRight className="w-4 h-4 transition-transform" style={{ color: "rgba(255,255,255,0.25)", transform: open ? "rotate(90deg)" : "none" }} />
+                      </div>
+                    </button>
+                    {open && (
+                      <div className="flex gap-2 px-5 pb-3.5">
+                        {(["Medium","High"] as const).map(v => (
+                          <button key={v} onClick={() => setSensitivity(v)}
+                            className="flex-1 py-2 rounded-lg text-[12px] font-black tracking-wider transition-all active:scale-95"
+                            style={{
+                              background: sensitivity === v ? "rgba(0,212,255,0.18)" : "rgba(255,255,255,0.05)",
+                              border: sensitivity === v ? "1px solid rgba(0,212,255,0.7)" : "1px solid rgba(255,255,255,0.1)",
+                              color: sensitivity === v ? "#00d4ff" : "#94a3b8",
+                              boxShadow: sensitivity === v ? "0 0 10px rgba(0,212,255,0.25)" : "none",
+                            }}>{v}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Language ── */}
+              {(() => {
+                const open = expandedSetting === "language";
+                return (
+                  <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <button className="w-full flex items-center justify-between px-5 py-3.5 active:bg-white/5 transition-colors"
+                      onClick={() => setExpandedSetting(open ? null : "language")}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0"
+                          style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.18)", color: "#00d4ff" }}>
+                          <Globe className="w-4 h-4" />
+                        </div>
+                        <span className="text-[13px] font-semibold text-white/90 tracking-wide">Language</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-mono" style={{ color: "rgba(0,212,255,0.7)" }}>{language}</span>
+                        <ChevronRight className="w-4 h-4 transition-transform" style={{ color: "rgba(255,255,255,0.25)", transform: open ? "rotate(90deg)" : "none" }} />
+                      </div>
+                    </button>
+                    {open && (
+                      <div className="flex gap-2 px-5 pb-3.5">
+                        {(["Hindi","English"] as const).map(v => (
+                          <button key={v} onClick={() => setLanguage(v)}
+                            className="flex-1 py-2 rounded-lg text-[12px] font-black tracking-wider transition-all active:scale-95"
+                            style={{
+                              background: language === v ? "rgba(0,212,255,0.18)" : "rgba(255,255,255,0.05)",
+                              border: language === v ? "1px solid rgba(0,212,255,0.7)" : "1px solid rgba(255,255,255,0.1)",
+                              color: language === v ? "#00d4ff" : "#94a3b8",
+                              boxShadow: language === v ? "0 0 10px rgba(0,212,255,0.25)" : "none",
+                            }}>{v}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Notifications ── */}
+              {(() => {
+                const open = expandedSetting === "notifications";
+                return (
+                  <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <button className="w-full flex items-center justify-between px-5 py-3.5 active:bg-white/5 transition-colors"
+                      onClick={() => setExpandedSetting(open ? null : "notifications")}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0"
+                          style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.18)", color: "#00d4ff" }}>
+                          <Bell className="w-4 h-4" />
+                        </div>
+                        <span className="text-[13px] font-semibold text-white/90 tracking-wide">Notifications</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-mono" style={{ color: notifications === "On" ? "rgba(0,212,255,0.7)" : "rgba(255,255,255,0.3)" }}>{notifications}</span>
+                        <ChevronRight className="w-4 h-4 transition-transform" style={{ color: "rgba(255,255,255,0.25)", transform: open ? "rotate(90deg)" : "none" }} />
+                      </div>
+                    </button>
+                    {open && (
+                      <div className="flex gap-2 px-5 pb-3.5">
+                        {(["On","Off"] as const).map(v => (
+                          <button key={v} onClick={() => setNotifications(v)}
+                            className="flex-1 py-2 rounded-lg text-[12px] font-black tracking-wider transition-all active:scale-95"
+                            style={{
+                              background: notifications === v ? "rgba(0,212,255,0.18)" : "rgba(255,255,255,0.05)",
+                              border: notifications === v ? "1px solid rgba(0,212,255,0.7)" : "1px solid rgba(255,255,255,0.1)",
+                              color: notifications === v ? "#00d4ff" : "#94a3b8",
+                              boxShadow: notifications === v ? "0 0 10px rgba(0,212,255,0.25)" : "none",
+                            }}>{v}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Privacy */}
+              <button className="w-full flex items-center justify-between px-5 py-3.5 active:bg-white/5 transition-colors"
+                style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0"
+                    style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.18)", color: "#00d4ff" }}>
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <span className="text-[13px] font-semibold text-white/90 tracking-wide">Privacy</span>
+                </div>
+                <ChevronRight className="w-4 h-4" style={{ color: "rgba(255,255,255,0.25)" }} />
+              </button>
+
+              {/* About */}
+              <button className="w-full flex items-center justify-between px-5 py-3.5 active:bg-white/5 transition-colors"
+                style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0"
+                    style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.18)", color: "#00d4ff" }}>
+                    <Info className="w-4 h-4" />
+                  </div>
+                  <span className="text-[13px] font-semibold text-white/90 tracking-wide">About</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono" style={{ color: "rgba(0,212,255,0.5)" }}>v1.0.0</span>
+                  <ChevronRight className="w-4 h-4" style={{ color: "rgba(255,255,255,0.25)" }} />
+                </div>
+              </button>
 
               {/* Logout — red accent */}
               <button
