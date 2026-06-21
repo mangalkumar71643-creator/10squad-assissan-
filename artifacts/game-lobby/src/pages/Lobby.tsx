@@ -573,26 +573,6 @@ export default function Lobby() {
 
             {/* MAIN CHARACTER — 3D if selected, else 2D PNG */}
             <div className="absolute inset-0 z-20">
-              {/* Drag-to-rotate hint — for all 3D characters */}
-              {(selectedChar === "nova" || selectedChar === "hacker-girl-1") && (
-                <div className="absolute bottom-[23%] left-1/2 -translate-x-1/2 z-30 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-                  style={{
-                    background: "rgba(0,0,0,0.55)",
-                    border: selectedChar === "hacker-girl-1"
-                      ? "1px solid rgba(255,60,180,0.35)"
-                      : "1px solid rgba(0,229,255,0.35)",
-                    backdropFilter: "blur(6px)",
-                  }}>
-                  <span style={{
-                    fontSize: 10,
-                    color: selectedChar === "hacker-girl-1" ? "rgba(255,100,200,0.7)" : "rgba(0,229,255,0.55)",
-                    letterSpacing: "0.1em",
-                    fontFamily: "monospace"
-                  }}>
-                    ← DRAG TO ROTATE →
-                  </span>
-                </div>
-              )}
 
               {selectedChar ? (
                 <Suspense fallback={
