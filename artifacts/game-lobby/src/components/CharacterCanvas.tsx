@@ -3,6 +3,7 @@ import { Canvas } from "@react-three/fiber";
 import { ContactShadows, OrbitControls } from "@react-three/drei";
 import PhantomCharacter from "./PhantomCharacter";
 import NovaCharacter from "./NovaCharacter";
+import HackerGirlCharacter from "./HackerGirlCharacter";
 
 function checkWebGL(): boolean {
   try {
@@ -68,14 +69,23 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
   }
 
   const isNova = characterId === "nova";
+  const isHackerGirl = characterId === "hacker-girl-1";
+
+  const cameraPos: [number, number, number] = isNova
+    ? [0, 1.05, 3.1]
+    : isHackerGirl
+    ? [0, 1.2, 3.4]
+    : [0, 1.1, 2.6];
+
+  const orbitTarget: [number, number, number] = isNova
+    ? [0, 0.85, 0]
+    : isHackerGirl
+    ? [0, 1.0, 0]
+    : [0, 0.8, 0];
 
   return (
     <Canvas
-      camera={
-        isNova
-          ? { position: [0, 1.05, 3.1], fov: 44 }
-          : { position: [0, 1.1, 2.6], fov: 42 }
-      }
+      camera={{ position: cameraPos, fov: 44 }}
       gl={{ antialias: true, alpha: true, failIfMajorPerformanceCaveat: false }}
       shadows
       onCreated={({ gl }) => {
@@ -84,13 +94,14 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
       style={{ width: "100%", height: "100%", background: "transparent" }}
     >
       {/* Lighting */}
-      <ambientLight intensity={isNova ? 0.5 : 0.4} />
+      <ambientLight intensity={isHackerGirl ? 0.6 : isNova ? 0.5 : 0.4} />
       <directionalLight
-        position={[2, 4, 3]} intensity={isNova ? 1.8 : 1.6}
+        position={[2, 4, 3]} intensity={isHackerGirl ? 2.0 : isNova ? 1.8 : 1.6}
         castShadow shadow-mapSize={[512, 512]} color="#ffffff"
       />
-      <directionalLight position={[-2, 2, -2]} intensity={0.5} color={isNova ? "#00aaff" : "#4080ff"} />
-      <pointLight position={[0, 2, 1]} color={isNova ? "#00e5ff" : "#ffb800"} intensity={isNova ? 1.0 : 0.8} distance={4} />
+      <directionalLight position={[-2, 2, -2]} intensity={0.6} color={isHackerGirl ? "#ff44aa" : isNova ? "#00aaff" : "#4080ff"} />
+      <pointLight position={[0, 2, 1]} color={isHackerGirl ? "#ff00cc" : isNova ? "#00e5ff" : "#ffb800"} intensity={isHackerGirl ? 1.2 : isNova ? 1.0 : 0.8} distance={5} />
+      {isHackerGirl && <pointLight position={[0, 0.5, 2]} color="#00ffcc" intensity={0.5} distance={3} />}
       {isNova && <pointLight position={[0, 0.5, 2]} color="#00c0ff" intensity={0.4} distance={3} />}
 
       {/* 360° rotation controls */}
@@ -102,7 +113,7 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
         enableDamping
         dampingFactor={0.07}
         rotateSpeed={0.75}
-        target={isNova ? [0, 0.85, 0] : [0, 0.8, 0]}
+        target={orbitTarget}
       />
 
       <Suspense fallback={null}>
@@ -116,8 +127,13 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
             <PhantomCharacter />
           </group>
         )}
+        {isHackerGirl && (
+          <group position={[0, -0.95, 0]} scale={[1.1, 1.1, 1.1]}>
+            <HackerGirlCharacter />
+          </group>
+        )}
         <ContactShadows
-          position={[0, isNova ? -0.14 : -0.34, 0]}
+          position={[0, isNova ? -0.14 : isHackerGirl ? -0.94 : -0.34, 0]}
           opacity={0.55}
           scale={2.5}
           blur={1.8}

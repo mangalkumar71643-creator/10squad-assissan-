@@ -11,7 +11,7 @@ import CharacterCanvas from "@/components/CharacterCanvas";
 
 const CHARACTER_SLOTS = [
   { id: "nova",          name: "NOVA",        borderType: "cyan",   is3D: true },
-  { id: "hacker-girl-1", name: "HACKER-GIRL", borderType: "orange", is3D: false },
+  { id: "hacker-girl-1", name: "HACKER-GIRL", borderType: "orange", is3D: true },
   { id: "ninja-x-1",     name: "NINJA-X",     borderType: "gray",   is3D: false },
   { id: "tank-unit-1",   name: "TANK-UNIT",   borderType: "gray",   is3D: false },
   { id: "tank-unit-2",   name: "TANK-UNIT",   borderType: "orange", is3D: false },
@@ -246,6 +246,8 @@ export default function Lobby() {
                     : "none";
 
                 const isNova = slot.id === "nova";
+                const isHackerGirl = slot.id === "hacker-girl-1";
+                const is3DChar = isNova || isHackerGirl;
 
                 return (
                   <button
@@ -260,9 +262,13 @@ export default function Lobby() {
                         border: `2px solid ${borderColor}`,
                         boxShadow: isNova
                           ? "0 0 18px rgba(0,229,255,0.9), 0 0 36px rgba(0,229,255,0.35)"
+                          : isHackerGirl
+                          ? "0 0 18px rgba(255,100,200,0.9), 0 0 36px rgba(255,60,180,0.35)"
                           : glowColor,
                         background: isNova
                           ? "linear-gradient(135deg, #061420 0%, #030810 100%)"
+                          : isHackerGirl
+                          ? "linear-gradient(135deg, #200a18 0%, #0f0510 100%)"
                           : "linear-gradient(135deg, #1c2235 0%, #141820 100%)",
                       }}
                     >
@@ -270,29 +276,31 @@ export default function Lobby() {
                       <div className="absolute inset-[3px] rounded"
                         style={{ background: "linear-gradient(135deg, rgba(30,40,60,0.6) 0%, rgba(10,14,22,0.8) 100%)", border: "1px solid rgba(80,110,160,0.2)" }} />
 
-                      {/* Nova: animated 3D indicator */}
-                      {isNova && (
+                      {/* 3D character indicator (Nova & HackerGirl) */}
+                      {is3DChar && (
                         <>
                           <div className="absolute inset-0 flex items-center justify-center z-10">
-                            <div style={{ fontSize: 22, filter: "drop-shadow(0 0 8px #00e5ff)" }}>⬡</div>
+                            <div style={{ fontSize: 22, filter: isHackerGirl ? "drop-shadow(0 0 8px #ff44cc)" : "drop-shadow(0 0 8px #00e5ff)" }}>⬡</div>
                           </div>
                           {/* Scanning line */}
                           <div className="absolute inset-x-0 z-10 pointer-events-none"
                             style={{
                               height: "2px",
-                              background: "linear-gradient(90deg, transparent, rgba(0,229,255,0.7), transparent)",
+                              background: isHackerGirl
+                                ? "linear-gradient(90deg, transparent, rgba(255,80,200,0.7), transparent)"
+                                : "linear-gradient(90deg, transparent, rgba(0,229,255,0.7), transparent)",
                               animation: "scan-line 2s linear infinite",
                             }} />
                           {/* 3D badge */}
                           <div className="absolute top-1 right-1 z-20 px-1 rounded-sm"
                             style={{
-                              background: "rgba(0,229,255,0.18)",
-                              border: "1px solid rgba(0,229,255,0.7)",
+                              background: isHackerGirl ? "rgba(255,60,180,0.18)" : "rgba(0,229,255,0.18)",
+                              border: isHackerGirl ? "1px solid rgba(255,60,180,0.7)" : "1px solid rgba(0,229,255,0.7)",
                               fontSize: 7,
                               fontWeight: 900,
-                              color: "#00e5ff",
+                              color: isHackerGirl ? "#ff44cc" : "#00e5ff",
                               letterSpacing: "0.05em",
-                              textShadow: "0 0 6px rgba(0,229,255,0.9)",
+                              textShadow: isHackerGirl ? "0 0 6px rgba(255,60,180,0.9)" : "0 0 6px rgba(0,229,255,0.9)",
                               lineHeight: "14px",
                             }}>3D</div>
                         </>
@@ -565,15 +573,22 @@ export default function Lobby() {
 
             {/* MAIN CHARACTER — 3D if selected, else 2D PNG */}
             <div className="absolute inset-0 z-20">
-              {/* Drag-to-rotate hint — only for 3D characters */}
-              {selectedChar === "nova" && (
+              {/* Drag-to-rotate hint — for all 3D characters */}
+              {(selectedChar === "nova" || selectedChar === "hacker-girl-1") && (
                 <div className="absolute bottom-[23%] left-1/2 -translate-x-1/2 z-30 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-full"
                   style={{
                     background: "rgba(0,0,0,0.55)",
-                    border: "1px solid rgba(0,229,255,0.35)",
+                    border: selectedChar === "hacker-girl-1"
+                      ? "1px solid rgba(255,60,180,0.35)"
+                      : "1px solid rgba(0,229,255,0.35)",
                     backdropFilter: "blur(6px)",
                   }}>
-                  <span style={{ fontSize: 10, color: "rgba(0,229,255,0.55)", letterSpacing: "0.1em", fontFamily: "monospace" }}>
+                  <span style={{
+                    fontSize: 10,
+                    color: selectedChar === "hacker-girl-1" ? "rgba(255,100,200,0.7)" : "rgba(0,229,255,0.55)",
+                    letterSpacing: "0.1em",
+                    fontFamily: "monospace"
+                  }}>
                     ← DRAG TO ROTATE →
                   </span>
                 </div>
