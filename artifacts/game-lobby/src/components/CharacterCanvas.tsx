@@ -1,7 +1,8 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { ContactShadows } from "@react-three/drei";
+import { ContactShadows, OrbitControls } from "@react-three/drei";
 import PhantomCharacter from "./PhantomCharacter";
+import NovaCharacter from "./NovaCharacter";
 
 function checkWebGL(): boolean {
   try {
@@ -20,12 +21,9 @@ function PhantomFallback() {
   return (
     <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden"
       style={{ background: "linear-gradient(180deg, #0a0510 0%, #1a0a00 100%)" }}>
-      {/* Glow backdrop */}
       <div className="absolute inset-0 pointer-events-none" style={{
         background: "radial-gradient(ellipse at 50% 80%, rgba(249,115,22,0.25) 0%, transparent 65%)",
       }} />
-
-      {/* Character image with orange glow */}
       <img
         src="/assets/char-phantom.jpg"
         alt="PHANTOM"
@@ -36,8 +34,6 @@ function PhantomFallback() {
           filter: "drop-shadow(0 0 20px rgba(249,115,22,0.8)) drop-shadow(0 0 50px rgba(249,115,22,0.4)) drop-shadow(0 0 8px rgba(255,255,255,0.2))",
         }}
       />
-
-      {/* Glowing ring platform */}
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-0" style={{ width: "70%", height: "18%" }}>
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full h-[55%] rounded-full"
           style={{ background: "radial-gradient(ellipse, rgba(249,115,22,0.35) 0%, transparent 70%)", filter: "blur(10px)" }} />
@@ -71,9 +67,15 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
     return characterId === "phantom" ? <PhantomFallback /> : null;
   }
 
+  const isNova = characterId === "nova";
+
   return (
     <Canvas
-      camera={{ position: [0, 1.1, 2.6], fov: 42 }}
+      camera={
+        isNova
+          ? { position: [0, 1.05, 3.1], fov: 44 }
+          : { position: [0, 1.1, 2.6], fov: 42 }
+      }
       gl={{ antialias: true, alpha: true, failIfMajorPerformanceCaveat: false }}
       shadows
       onCreated={({ gl }) => {
@@ -81,24 +83,45 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
       }}
       style={{ width: "100%", height: "100%", background: "transparent" }}
     >
-      <ambientLight intensity={0.4} />
-      <directionalLight position={[2, 4, 3]} intensity={1.6} castShadow
-        shadow-mapSize={[512, 512]} color="#ffffff" />
-      <directionalLight position={[-2, 2, -2]} intensity={0.5} color="#4080ff" />
-      <pointLight position={[0, 2, 1]} color="#ffb800" intensity={0.8} distance={4} />
+      {/* Lighting */}
+      <ambientLight intensity={isNova ? 0.5 : 0.4} />
+      <directionalLight
+        position={[2, 4, 3]} intensity={isNova ? 1.8 : 1.6}
+        castShadow shadow-mapSize={[512, 512]} color="#ffffff"
+      />
+      <directionalLight position={[-2, 2, -2]} intensity={0.5} color={isNova ? "#00aaff" : "#4080ff"} />
+      <pointLight position={[0, 2, 1]} color={isNova ? "#00e5ff" : "#ffb800"} intensity={isNova ? 1.0 : 0.8} distance={4} />
+      {isNova && <pointLight position={[0, 0.5, 2]} color="#00c0ff" intensity={0.4} distance={3} />}
+
+      {/* 360° rotation controls */}
+      <OrbitControls
+        enableZoom={false}
+        enablePan={false}
+        minPolarAngle={Math.PI * 0.22}
+        maxPolarAngle={Math.PI * 0.78}
+        enableDamping
+        dampingFactor={0.07}
+        rotateSpeed={0.75}
+        target={isNova ? [0, 0.85, 0] : [0, 0.8, 0]}
+      />
 
       <Suspense fallback={null}>
+        {characterId === "nova" && (
+          <group position={[0, -0.15, 0]}>
+            <NovaCharacter />
+          </group>
+        )}
         {characterId === "phantom" && (
           <group position={[0, -0.35, 0]}>
             <PhantomCharacter />
           </group>
         )}
         <ContactShadows
-          position={[0, -0.34, 0]}
-          opacity={0.5}
-          scale={2}
-          blur={1.5}
-          far={1}
+          position={[0, isNova ? -0.14 : -0.34, 0]}
+          opacity={0.55}
+          scale={2.5}
+          blur={1.8}
+          far={1.2}
           color="#000820"
         />
       </Suspense>

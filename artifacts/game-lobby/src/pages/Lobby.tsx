@@ -9,18 +9,18 @@ import {
 import CharacterCanvas from "@/components/CharacterCanvas";
 
 const CHARACTER_SLOTS = [
-  { id: "hacker-girl-1", name: "HACKER-GIRL", borderType: "orange" },
-  { id: "ninja-x-1",     name: "NINJA-X",     borderType: "gray" },
-  { id: "tank-unit-1",   name: "TANK-UNIT",   borderType: "gray" },
-  { id: "tank-unit-2",   name: "TANK-UNIT",   borderType: "orange" },
-  { id: "support-mage",  name: "Support-Mage",borderType: "gray" },
-  { id: "ghost-1",       name: "GHOST",       borderType: "gray" },
-  { id: "ghost-2",       name: "GHOST",       borderType: "cyan" },
-  { id: "eerics",        name: "EERICS",      borderType: "gray" },
-  { id: "hacker-girl-2", name: "HACKER-GIRL", borderType: "gray" },
-  { id: "sanpot-mage",   name: "SANPOT-MAGE", borderType: "gray" },
-  { id: "ninja-x-2",     name: "NINJA-X",     borderType: "gray" },
-  { id: "ninja-x-3",     name: "NINJA-X",     borderType: "gray" },
+  { id: "nova",          name: "NOVA",        borderType: "cyan",   is3D: true },
+  { id: "hacker-girl-1", name: "HACKER-GIRL", borderType: "orange", is3D: false },
+  { id: "ninja-x-1",     name: "NINJA-X",     borderType: "gray",   is3D: false },
+  { id: "tank-unit-1",   name: "TANK-UNIT",   borderType: "gray",   is3D: false },
+  { id: "tank-unit-2",   name: "TANK-UNIT",   borderType: "orange", is3D: false },
+  { id: "support-mage",  name: "Support-Mage",borderType: "gray",   is3D: false },
+  { id: "ghost-1",       name: "GHOST",       borderType: "gray",   is3D: false },
+  { id: "ghost-2",       name: "GHOST",       borderType: "cyan",   is3D: false },
+  { id: "eerics",        name: "EERICS",      borderType: "gray",   is3D: false },
+  { id: "hacker-girl-2", name: "HACKER-GIRL", borderType: "gray",   is3D: false },
+  { id: "sanpot-mage",   name: "SANPOT-MAGE", borderType: "gray",   is3D: false },
+  { id: "ninja-x-2",     name: "NINJA-X",     borderType: "gray",   is3D: false },
 ];
 
 const WEAPONS = [
@@ -210,6 +210,8 @@ export default function Lobby() {
                     ? "0 0 10px rgba(217,119,6,0.4)"
                     : "none";
 
+                const isNova = slot.id === "nova";
+
                 return (
                   <button
                     key={slot.id}
@@ -221,18 +223,50 @@ export default function Lobby() {
                       className="w-full aspect-square rounded-lg relative overflow-hidden"
                       style={{
                         border: `2px solid ${borderColor}`,
-                        boxShadow: glowColor,
-                        background: "linear-gradient(135deg, #1c2235 0%, #141820 100%)",
+                        boxShadow: isNova
+                          ? "0 0 18px rgba(0,229,255,0.9), 0 0 36px rgba(0,229,255,0.35)"
+                          : glowColor,
+                        background: isNova
+                          ? "linear-gradient(135deg, #061420 0%, #030810 100%)"
+                          : "linear-gradient(135deg, #1c2235 0%, #141820 100%)",
                       }}
                     >
                       {/* Inner panel effect */}
                       <div className="absolute inset-[3px] rounded"
                         style={{ background: "linear-gradient(135deg, rgba(30,40,60,0.6) 0%, rgba(10,14,22,0.8) 100%)", border: "1px solid rgba(80,110,160,0.2)" }} />
 
+                      {/* Nova: animated 3D indicator */}
+                      {isNova && (
+                        <>
+                          <div className="absolute inset-0 flex items-center justify-center z-10">
+                            <div style={{ fontSize: 22, filter: "drop-shadow(0 0 8px #00e5ff)" }}>⬡</div>
+                          </div>
+                          {/* Scanning line */}
+                          <div className="absolute inset-x-0 z-10 pointer-events-none"
+                            style={{
+                              height: "2px",
+                              background: "linear-gradient(90deg, transparent, rgba(0,229,255,0.7), transparent)",
+                              animation: "scan-line 2s linear infinite",
+                            }} />
+                          {/* 3D badge */}
+                          <div className="absolute top-1 right-1 z-20 px-1 rounded-sm"
+                            style={{
+                              background: "rgba(0,229,255,0.18)",
+                              border: "1px solid rgba(0,229,255,0.7)",
+                              fontSize: 7,
+                              fontWeight: 900,
+                              color: "#00e5ff",
+                              letterSpacing: "0.05em",
+                              textShadow: "0 0 6px rgba(0,229,255,0.9)",
+                              lineHeight: "14px",
+                            }}>3D</div>
+                        </>
+                      )}
+
                       {/* Corner rivets */}
                       {[["top-1 left-1"],["top-1 right-1"],["bottom-1 left-1"],["bottom-1 right-1"]].map(([pos], i) => (
                         <div key={i} className={`absolute ${pos} w-1.5 h-1.5 rounded-full`}
-                          style={{ background: isSelected ? "#00d4ff" : "rgba(100,130,170,0.5)" }} />
+                          style={{ background: isSelected ? "#00d4ff" : isNova ? "rgba(0,229,255,0.6)" : "rgba(100,130,170,0.5)" }} />
                       ))}
 
                       {/* Selected glow overlay */}
@@ -246,8 +280,14 @@ export default function Lobby() {
                     <span
                       className="mt-1.5 text-center font-bold text-[9px] uppercase tracking-wide leading-tight"
                       style={{
-                        color: isSelected ? "#00d4ff" : slot.borderType === "orange" ? "#fbbf24" : "#94a3b8",
-                        textShadow: isSelected ? "0 0 8px rgba(0,212,255,0.8)" : "none",
+                        color: isSelected
+                          ? "#00d4ff"
+                          : isNova
+                          ? "#00e5ff"
+                          : slot.borderType === "orange"
+                          ? "#fbbf24"
+                          : "#94a3b8",
+                        textShadow: isSelected || isNova ? "0 0 8px rgba(0,212,255,0.8)" : "none",
                       }}
                     >
                       {slot.name}
@@ -490,6 +530,20 @@ export default function Lobby() {
 
             {/* MAIN CHARACTER — 3D if selected, else 2D PNG */}
             <div className="absolute inset-0 z-20">
+              {/* Drag-to-rotate hint — only for 3D characters */}
+              {selectedChar === "nova" && (
+                <div className="absolute bottom-[23%] left-1/2 -translate-x-1/2 z-30 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+                  style={{
+                    background: "rgba(0,0,0,0.55)",
+                    border: "1px solid rgba(0,229,255,0.35)",
+                    backdropFilter: "blur(6px)",
+                  }}>
+                  <span style={{ fontSize: 10, color: "rgba(0,229,255,0.55)", letterSpacing: "0.1em", fontFamily: "monospace" }}>
+                    ← DRAG TO ROTATE →
+                  </span>
+                </div>
+              )}
+
               {selectedChar ? (
                 <Suspense fallback={
                   <div className="absolute inset-0 flex items-end justify-center pb-0">
