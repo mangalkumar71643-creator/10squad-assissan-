@@ -96,6 +96,28 @@ export default function Lobby() {
       </div>
 
 
+      {/* ── TOP-RIGHT ICONS ── */}
+      <div className="absolute top-3 right-3 z-50 flex items-center gap-2">
+        <button className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
+          style={{
+            background: "rgba(0,0,0,0.55)",
+            border: "1px solid rgba(0,210,255,0.35)",
+            backdropFilter: "blur(8px)",
+            boxShadow: "0 0 10px rgba(0,210,255,0.15)",
+          }}>
+          <Mail className="w-4 h-4" style={{ color: "#00d4ff", filter: "drop-shadow(0 0 4px rgba(0,212,255,0.7))" }} />
+        </button>
+        <button className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
+          style={{
+            background: "rgba(0,0,0,0.55)",
+            border: "1px solid rgba(0,210,255,0.35)",
+            backdropFilter: "blur(8px)",
+            boxShadow: "0 0 10px rgba(0,210,255,0.15)",
+          }}>
+          <Settings className="w-4 h-4" style={{ color: "#00d4ff", filter: "drop-shadow(0 0 4px rgba(0,212,255,0.7))" }} />
+        </button>
+      </div>
+
       {/* ── MAIN AREA ── */}
       <div className="relative z-10 flex flex-1 min-h-0">
 
