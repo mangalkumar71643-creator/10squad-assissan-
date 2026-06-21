@@ -88,9 +88,13 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
       <pointLight position={[0, 2, 1]} color="#ffb800" intensity={0.8} distance={4} />
 
       <Suspense fallback={null}>
-        {characterId === "phantom" && <PhantomCharacter />}
+        {characterId === "phantom" && (
+          <group position={[0, -0.35, 0]}>
+            <PhantomCharacter />
+          </group>
+        )}
         <ContactShadows
-          position={[0, 0.01, 0]}
+          position={[0, -0.34, 0]}
           opacity={0.5}
           scale={2}
           blur={1.5}
