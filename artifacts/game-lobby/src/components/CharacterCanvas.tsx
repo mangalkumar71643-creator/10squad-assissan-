@@ -72,16 +72,12 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
   const isNova = characterId === "nova";
   const isHackerGirl = characterId === "hacker-girl-1";
 
-  const cameraPos: [number, number, number] = isNova
+  const cameraPos: [number, number, number] = isNova || isHackerGirl
     ? [0, 1.05, 3.1]
-    : isHackerGirl
-    ? [0, 1.2, 3.4]
     : [0, 1.1, 2.6];
 
-  const orbitTarget: [number, number, number] = isNova
+  const orbitTarget: [number, number, number] = isNova || isHackerGirl
     ? [0, 0.85, 0]
-    : isHackerGirl
-    ? [0, 1.0, 0]
     : [0, 0.8, 0];
 
   return (

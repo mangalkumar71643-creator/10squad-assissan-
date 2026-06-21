@@ -19,8 +19,8 @@ export default function HackerGirlCharacter() {
     box.getSize(size);
     box.getCenter(center);
 
-    // 250% scale — fills the screen like a premium Free Fire character
-    const targetHeight = 4.5;
+    // Match Nova's visual scale exactly
+    const targetHeight = 1.8;
     const scale = targetHeight / size.y;
 
     pivotRef.current.scale.setScalar(scale);
