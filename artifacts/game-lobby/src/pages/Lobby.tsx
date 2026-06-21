@@ -587,7 +587,7 @@ export default function Lobby() {
       {/* ── BOTTOM BAR ── */}
       <div className="relative z-20 flex items-center justify-end px-3 py-2 shrink-0">
         <button
-          onClick={() => setLocation("/matchmaking")}
+          onClick={() => {}}
           className="px-6 py-2.5 bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-yellow-400 text-white font-black text-[11px] uppercase tracking-[0.12em] rounded-lg shadow-[0_0_20px_rgba(255,136,0,0.45)] border border-orange-400/60 transition-all hover:scale-105 hover:shadow-[0_0_30px_rgba(255,136,0,0.7)] active:scale-95 whitespace-nowrap"
         >
           START MISSION
