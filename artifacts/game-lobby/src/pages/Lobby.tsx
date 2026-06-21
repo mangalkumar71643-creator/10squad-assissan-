@@ -531,7 +531,7 @@ export default function Lobby() {
       </div>
 
       {/* ── BOTTOM BAR ── */}
-      <div className="relative z-20 flex items-center justify-between px-3 py-2 bg-[#0d1117]/90 backdrop-blur-md border-t border-white/10 shrink-0">
+      <div className="relative z-20 flex items-center justify-between px-3 py-2 shrink-0">
         {/* Left: player pill + add */}
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 bg-cyan-900/40 border border-cyan-500/50 px-2.5 py-1.5 rounded-lg">
