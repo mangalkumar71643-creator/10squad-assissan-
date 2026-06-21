@@ -72,6 +72,7 @@ export default function Lobby() {
   const [charOpen, setCharOpen] = useState(false);
   const [selectedChar, setSelectedChar] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [inboxOpen, setInboxOpen] = useState(false);
   const [fps, setFps] = useState<"60"|"90"|"120">("60");
   const [audio, setAudio] = useState<"On"|"Off">("On");
   const [sensitivity, setSensitivity] = useState<"Medium"|"High">("Medium");
@@ -106,7 +107,9 @@ export default function Lobby() {
 
       {/* ── TOP-RIGHT ICONS ── */}
       <div className="absolute top-3 right-3 z-50 flex items-center gap-2">
-        <button className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
+        <button
+          onClick={() => setInboxOpen(true)}
+          className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
           style={{
             background: "rgba(0,0,0,0.55)",
             border: "1px solid rgba(0,210,255,0.35)",
@@ -625,6 +628,107 @@ export default function Lobby() {
           START MISSION
         </button>
       </div>
+
+      {/* ══ INBOX PANEL ══ */}
+      {inboxOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-[60]"
+            style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
+            onClick={() => setInboxOpen(false)}
+          />
+
+          {/* Drawer — slides in from right */}
+          <div
+            className="fixed top-0 right-0 h-full z-[70] flex flex-col"
+            style={{
+              width: "82vw",
+              maxWidth: "340px",
+              background: "linear-gradient(160deg, #090d18 0%, #060a12 100%)",
+              borderLeft: "1px solid rgba(0,212,255,0.25)",
+              boxShadow: "-8px 0 40px rgba(0,0,0,0.8), -2px 0 20px rgba(0,212,255,0.08)",
+            }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 shrink-0"
+              style={{ borderBottom: "1px solid rgba(0,212,255,0.15)" }}>
+              <div className="flex items-center gap-2.5">
+                <Mail className="w-4 h-4" style={{ color: "#00d4ff", filter: "drop-shadow(0 0 5px rgba(0,212,255,0.8))" }} />
+                <span className="font-black text-[13px] uppercase tracking-[0.25em]"
+                  style={{ color: "#00d4ff", textShadow: "0 0 12px rgba(0,212,255,0.7)" }}>
+                  INBOX
+                </span>
+              </div>
+              <button onClick={() => setInboxOpen(false)}
+                className="flex items-center justify-center w-7 h-7 rounded-lg active:scale-90 transition-transform"
+                style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.25)" }}>
+                <X className="w-4 h-4" style={{ color: "#00d4ff" }} />
+              </button>
+            </div>
+
+            {/* Empty state — no messages */}
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
+              {/* Glowing mail icon */}
+              <div className="relative flex items-center justify-center w-20 h-20 rounded-full"
+                style={{
+                  background: "radial-gradient(circle, rgba(0,212,255,0.08) 0%, transparent 70%)",
+                  border: "1px solid rgba(0,212,255,0.15)",
+                }}>
+                <Mail
+                  className="w-9 h-9"
+                  style={{ color: "rgba(0,212,255,0.3)", filter: "drop-shadow(0 0 8px rgba(0,212,255,0.2))" }}
+                />
+                {/* Pulse ring */}
+                <div className="absolute inset-0 rounded-full animate-ping opacity-10"
+                  style={{ border: "2px solid rgba(0,212,255,0.5)" }} />
+              </div>
+
+              <div className="flex flex-col items-center gap-1 text-center">
+                <span className="font-black text-[13px] uppercase tracking-[0.2em]"
+                  style={{ color: "rgba(0,212,255,0.5)" }}>
+                  NO MESSAGES
+                </span>
+                <span className="text-[10px] font-mono text-gray-600 uppercase tracking-wider">
+                  Your inbox is empty
+                </span>
+              </div>
+            </div>
+
+            {/* Bottom action buttons */}
+            <div className="flex items-center gap-2.5 px-4 py-4 shrink-0"
+              style={{ borderTop: "1px solid rgba(0,212,255,0.15)" }}>
+              {/* Collect Reward — left */}
+              <button
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-black text-[10px] uppercase tracking-[0.12em] active:scale-95 transition-all"
+                style={{
+                  background: "rgba(0,212,255,0.08)",
+                  border: "1px solid rgba(0,212,255,0.35)",
+                  color: "#00d4ff",
+                  textShadow: "0 0 8px rgba(0,212,255,0.5)",
+                  boxShadow: "0 0 10px rgba(0,212,255,0.08)",
+                }}>
+                <Diamond className="w-3 h-3" style={{ color: "#00d4ff" }} />
+                COLLECT REWARD
+              </button>
+
+              {/* Collect All Rewards — right */}
+              <button
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg font-black text-[10px] uppercase tracking-[0.12em] active:scale-95 transition-all"
+                style={{
+                  background: "linear-gradient(135deg, rgba(249,115,22,0.85) 0%, rgba(234,179,8,0.85) 100%)",
+                  border: "1px solid rgba(249,115,22,0.6)",
+                  color: "#fff",
+                  textShadow: "0 1px 4px rgba(0,0,0,0.5)",
+                  boxShadow: "0 0 14px rgba(249,115,22,0.35)",
+                }}>
+                <Coins className="w-3 h-3" style={{ color: "#fef08a" }} />
+                COLLECT ALL
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ══ SETTINGS PANEL ══ */}
       {settingsOpen && (
