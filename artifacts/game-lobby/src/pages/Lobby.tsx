@@ -531,39 +531,10 @@ export default function Lobby() {
       </div>
 
       {/* ── BOTTOM BAR ── */}
-      <div className="relative z-20 flex items-center justify-between px-3 py-2 shrink-0">
-        {/* Left: player pill + add */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 bg-cyan-900/40 border border-cyan-500/50 px-2.5 py-1.5 rounded-lg">
-            <div className="w-7 h-7 rounded-full bg-cyan-600/60 border border-cyan-400/50 flex items-center justify-center">
-              <User className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <p className="text-[10px] font-black text-cyan-200 leading-none">{player?.username ?? "Project_1"}</p>
-              <p className="text-[8px] text-cyan-500/70 font-mono">Lvl {player?.level ?? 42}</p>
-            </div>
-          </div>
-          <button className="w-8 h-8 rounded-lg border border-dashed border-white/20 bg-white/5 flex items-center justify-center hover:border-cyan-400/50 hover:bg-cyan-400/8 transition-all">
-            <Plus className="w-4 h-4 text-white/35" />
-          </button>
-        </div>
-
-        {/* Center: mode selectors */}
-        <div className="flex items-center gap-3">
-          <button className="flex flex-col items-center px-4 py-1.5 bg-white/5 border border-white/15 rounded-lg hover:border-white/30 hover:bg-white/10 transition-all">
-            <span className="text-[8px] text-gray-400 font-mono uppercase tracking-wider">RANKED:</span>
-            <span className="text-[11px] font-black text-white tracking-wide">Space Heist</span>
-          </button>
-          <button className="flex flex-col items-center px-4 py-1.5 bg-white/5 border border-white/15 rounded-lg hover:border-white/30 hover:bg-white/10 transition-all">
-            <span className="text-[8px] text-gray-400 font-mono uppercase tracking-wider">CASUAL:</span>
-            <span className="text-[11px] font-black text-white tracking-wide">City Hunt</span>
-          </button>
-        </div>
-
-        {/* Right: Find Squad button */}
+      <div className="relative z-20 flex items-center justify-center px-3 py-2 shrink-0">
         <button
           onClick={() => setLocation("/matchmaking")}
-          className="px-6 py-2.5 bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-yellow-400 text-white font-black text-[11px] uppercase tracking-[0.12em] rounded-lg shadow-[0_0_20px_rgba(255,136,0,0.45)] border border-orange-400/60 transition-all hover:scale-105 hover:shadow-[0_0_30px_rgba(255,136,0,0.7)] active:scale-95 whitespace-nowrap"
+          className="px-8 py-3 bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-yellow-400 text-white font-black text-[13px] uppercase tracking-[0.15em] rounded-lg shadow-[0_0_20px_rgba(255,136,0,0.45)] border border-orange-400/60 transition-all hover:scale-105 hover:shadow-[0_0_30px_rgba(255,136,0,0.7)] active:scale-95 whitespace-nowrap"
         >
           START MISSION
         </button>
