@@ -128,12 +128,12 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
           </group>
         )}
         {isHackerGirl && (
-          <group position={[0, -0.95, 0]} scale={[1.1, 1.1, 1.1]}>
+          <group>
             <HackerGirlCharacter />
           </group>
         )}
         <ContactShadows
-          position={[0, isNova ? -0.14 : isHackerGirl ? -0.94 : -0.34, 0]}
+          position={[0, isNova ? -0.14 : -0.34, 0]}
           opacity={0.55}
           scale={2.5}
           blur={1.8}
