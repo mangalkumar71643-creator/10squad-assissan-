@@ -19,16 +19,19 @@ export default function HackerGirlCharacter() {
     box.getSize(size);
     box.getCenter(center);
 
-    const targetHeight = 1.8;
+    // 250% scale — fills the screen like a premium Free Fire character
+    const targetHeight = 4.5;
     const scale = targetHeight / size.y;
 
     pivotRef.current.scale.setScalar(scale);
+    // feet at y=0, horizontally centered
     pivotRef.current.position.set(
       -center.x * scale,
       -box.min.y * scale,
       -center.z * scale,
     );
 
+    const totalVolume = size.x * size.y * size.z;
     const meshBox = new THREE.Box3();
     const meshSize = new THREE.Vector3();
     const meshCenter = new THREE.Vector3();
@@ -36,14 +39,14 @@ export default function HackerGirlCharacter() {
     scene.traverse((child) => {
       if (!(child as THREE.Mesh).isMesh) return;
       const mesh = child as THREE.Mesh;
+
       meshBox.setFromObject(mesh);
       meshBox.getSize(meshSize);
       meshBox.getCenter(meshCenter);
 
       const meshVolume = meshSize.x * meshSize.y * meshSize.z;
       const isAboveHead = meshCenter.y > box.max.y * 0.92;
-      const isTiny = meshVolume < size.x * size.y * size.z * 0.001;
-
+      const isTiny = meshVolume < totalVolume * 0.001;
       if (isAboveHead && isTiny) {
         mesh.visible = false;
         return;
@@ -52,14 +55,53 @@ export default function HackerGirlCharacter() {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
+
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      mats.forEach((mat) => {
+        if (!(mat instanceof THREE.MeshStandardMaterial)) return;
+        mat.needsUpdate = true;
+
+        // Boost existing emissive maps (glowing armor lines)
+        if (mat.emissiveMap) {
+          mat.emissiveIntensity = 3.5;
+        }
+
+        // Boost already-glowing materials (non-black emissive)
+        const emC = mat.emissive;
+        if (emC.r + emC.g + emC.b > 0.05) {
+          mat.emissiveIntensity = Math.max(mat.emissiveIntensity, 3.0);
+        }
+
+        // Detect visor / yellow lens — force strong yellow emissive
+        const c = mat.color;
+        const isYellowish = c.r > 0.5 && c.g > 0.4 && c.b < 0.3;
+        if (isYellowish) {
+          mat.emissive.set("#ffcc00");
+          mat.emissiveIntensity = 4.0;
+        }
+
+        // Detect cyan / neon-blue armor lines
+        const isCyanish = c.b > 0.5 && c.r < 0.4 && c.g > 0.4;
+        if (isCyanish) {
+          mat.emissive.set("#00ccff");
+          mat.emissiveIntensity = 3.5;
+        }
+
+        // Detect magenta / pink lines
+        const isMagenta = c.r > 0.5 && c.b > 0.5 && c.g < 0.3;
+        if (isMagenta) {
+          mat.emissive.set("#ff00cc");
+          mat.emissiveIntensity = 3.0;
+        }
+      });
     });
   }, [scene]);
 
   useFrame(() => {
     if (!rootRef.current) return;
     const t = performance.now() / 1000;
-    rootRef.current.position.y = Math.sin(t * 1.1) * 0.013;
-    rootRef.current.rotation.y = Math.sin(t * 0.35) * 0.06;
+    rootRef.current.position.y = Math.sin(t * 1.1) * 0.02;
+    rootRef.current.rotation.y = Math.sin(t * 0.35) * 0.05;
   });
 
   return (
