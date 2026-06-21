@@ -4,7 +4,8 @@ import { useGetCurrentPlayer, useGetLobby, useGetLobbySlots } from "@workspace/a
 import InstallPrompt from "@/components/InstallPrompt";
 import {
   ChevronLeft, ChevronDown, Plus, Diamond, Coins, Hexagon,
-  Settings, Mail, User, Shield, Zap, Swords, Target, Crosshair, Users, Check
+  Settings, Mail, User, Shield, Zap, Swords, Target, Crosshair, Users, Check,
+  Gauge, Volume2, Sliders, RotateCcw, Globe, Bell, Lock, Info, LogOut, ChevronRight, X
 } from "lucide-react";
 import CharacterCanvas from "@/components/CharacterCanvas";
 
@@ -70,6 +71,7 @@ export default function Lobby() {
   const [loadoutOpen, setLoadoutOpen] = useState(false);
   const [charOpen, setCharOpen] = useState(false);
   const [selectedChar, setSelectedChar] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { data: player, isLoading } = useGetCurrentPlayer();
   const { data: lobby } = useGetLobby();
 
@@ -107,7 +109,9 @@ export default function Lobby() {
           }}>
           <Mail className="w-4 h-4" style={{ color: "#00d4ff", filter: "drop-shadow(0 0 4px rgba(0,212,255,0.7))" }} />
         </button>
-        <button className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
           style={{
             background: "rgba(0,0,0,0.55)",
             border: "1px solid rgba(0,210,255,0.35)",
@@ -615,6 +619,100 @@ export default function Lobby() {
           START MISSION
         </button>
       </div>
+
+      {/* ══ SETTINGS PANEL ══ */}
+      {settingsOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-[60]"
+            style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
+            onClick={() => setSettingsOpen(false)}
+          />
+
+          {/* Drawer — slides in from right */}
+          <div
+            className="fixed top-0 right-0 h-full z-[70] flex flex-col"
+            style={{
+              width: "80vw",
+              maxWidth: "320px",
+              background: "linear-gradient(160deg, #090d18 0%, #060a12 100%)",
+              borderLeft: "1px solid rgba(0,212,255,0.25)",
+              boxShadow: "-8px 0 40px rgba(0,0,0,0.8), -2px 0 20px rgba(0,212,255,0.08)",
+            }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 shrink-0"
+              style={{ borderBottom: "1px solid rgba(0,212,255,0.15)" }}>
+              <div className="flex items-center gap-2.5">
+                <Settings className="w-4 h-4" style={{ color: "#00d4ff", filter: "drop-shadow(0 0 5px rgba(0,212,255,0.8))" }} />
+                <span className="font-black text-[13px] uppercase tracking-[0.25em]"
+                  style={{ color: "#00d4ff", textShadow: "0 0 12px rgba(0,212,255,0.7)" }}>
+                  SETTINGS
+                </span>
+              </div>
+              <button onClick={() => setSettingsOpen(false)}
+                className="flex items-center justify-center w-7 h-7 rounded-lg active:scale-90 transition-transform"
+                style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.25)" }}>
+                <X className="w-4 h-4" style={{ color: "#00d4ff" }} />
+              </button>
+            </div>
+
+            {/* Menu items */}
+            <div className="flex-1 overflow-y-auto py-2">
+              {[
+                { icon: <Gauge className="w-4 h-4" />,   label: "FPS",           sub: "60 FPS" },
+                { icon: <Volume2 className="w-4 h-4" />, label: "Audio",         sub: "On" },
+                { icon: <Sliders className="w-4 h-4" />, label: "Sensitivity",   sub: "Medium" },
+                { icon: <RotateCcw className="w-4 h-4" />, label: "Gyroscope",   sub: "Off" },
+                { icon: <Globe className="w-4 h-4" />,   label: "Language",      sub: "Hindi" },
+                { icon: <Bell className="w-4 h-4" />,    label: "Notifications", sub: "On" },
+                { icon: <Lock className="w-4 h-4" />,    label: "Privacy",       sub: "" },
+                { icon: <Info className="w-4 h-4" />,    label: "About",         sub: "v1.0.0" },
+              ].map((item, i) => (
+                <button key={i}
+                  className="w-full flex items-center justify-between px-5 py-3.5 active:bg-white/5 transition-colors"
+                  style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0"
+                      style={{ background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.18)", color: "#00d4ff" }}>
+                      {item.icon}
+                    </div>
+                    <span className="text-[13px] font-semibold text-white/90 tracking-wide">
+                      {item.label}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {item.sub && (
+                      <span className="text-[11px] font-mono" style={{ color: "rgba(0,212,255,0.6)" }}>
+                        {item.sub}
+                      </span>
+                    )}
+                    <ChevronRight className="w-4 h-4" style={{ color: "rgba(255,255,255,0.25)" }} />
+                  </div>
+                </button>
+              ))}
+
+              {/* Logout — red accent */}
+              <button
+                className="w-full flex items-center gap-3 px-5 py-3.5 mt-2 active:bg-red-950/30 transition-colors"
+                style={{ borderTop: "1px solid rgba(255,60,60,0.15)" }}>
+                <div className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0"
+                  style={{ background: "rgba(255,60,60,0.1)", border: "1px solid rgba(255,60,60,0.3)", color: "#f87171" }}>
+                  <LogOut className="w-4 h-4" />
+                </div>
+                <span className="text-[13px] font-semibold tracking-wide" style={{ color: "#f87171" }}>
+                  Logout
+                </span>
+              </button>
+            </div>
+
+            {/* Bottom accent line */}
+            <div className="h-0.5 shrink-0"
+              style={{ background: "linear-gradient(90deg, transparent, rgba(0,212,255,0.4), transparent)" }} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
