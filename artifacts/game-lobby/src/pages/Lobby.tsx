@@ -10,7 +10,7 @@ import {
 import CharacterCanvas from "@/components/CharacterCanvas";
 
 const CHARACTER_SLOTS = [
-  { id: "ninja-x-1",     name: "NINJA-X",     borderType: "gray",   is3D: false },
+  { id: "ninja-x-1",     name: "NINJA-X",     borderType: "orange", is3D: true  },
   { id: "tank-unit-1",   name: "TANK-UNIT",   borderType: "gray",   is3D: false },
   { id: "tank-unit-2",   name: "TANK-UNIT",   borderType: "orange", is3D: false },
   { id: "support-mage",  name: "Support-Mage",borderType: "gray",   is3D: false },
@@ -260,6 +260,32 @@ export default function Lobby() {
                       {/* Inner panel effect */}
                       <div className="absolute inset-[3px] rounded"
                         style={{ background: "linear-gradient(135deg, rgba(30,40,60,0.6) 0%, rgba(10,14,22,0.8) 100%)", border: "1px solid rgba(80,110,160,0.2)" }} />
+
+                      {/* 3D badge for 3D characters */}
+                      {slot.is3D && (
+                        <>
+                          <div className="absolute inset-0 flex items-center justify-center z-10">
+                            <div style={{ fontSize: 22, filter: "drop-shadow(0 0 8px #ff6600)" }}>⬡</div>
+                          </div>
+                          <div className="absolute inset-x-0 z-10 pointer-events-none"
+                            style={{
+                              height: "2px",
+                              background: "linear-gradient(90deg, transparent, rgba(255,100,0,0.7), transparent)",
+                              animation: "scan-line 2s linear infinite",
+                            }} />
+                          <div className="absolute top-1 right-1 z-20 px-1 rounded-sm"
+                            style={{
+                              background: "rgba(255,100,0,0.18)",
+                              border: "1px solid rgba(255,100,0,0.7)",
+                              fontSize: 7,
+                              fontWeight: 900,
+                              color: "#ff6600",
+                              letterSpacing: "0.05em",
+                              textShadow: "0 0 6px rgba(255,100,0,0.9)",
+                              lineHeight: "14px",
+                            }}>3D</div>
+                        </>
+                      )}
 
                       {/* Corner rivets */}
                       {[["top-1 left-1"],["top-1 right-1"],["bottom-1 left-1"],["bottom-1 right-1"]].map(([pos], i) => (

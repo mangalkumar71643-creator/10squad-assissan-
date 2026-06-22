@@ -3,6 +3,7 @@ import { Canvas } from "@react-three/fiber";
 import { ContactShadows, OrbitControls } from "@react-three/drei";
 import PhantomCharacter from "./PhantomCharacter";
 import NovaCharacter from "./NovaCharacter";
+import NinjaXCharacter from "./NinjaXCharacter";
 
 function checkWebGL(): boolean {
   try {
@@ -62,12 +63,13 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
   }
 
   const isNova = characterId === "nova";
+  const isNinjaX = characterId === "ninja-x-1";
 
-  const cameraPos: [number, number, number] = isNova
+  const cameraPos: [number, number, number] = isNova || isNinjaX
     ? [0, 1.05, 3.1]
     : [0, 1.1, 2.6];
 
-  const orbitTarget: [number, number, number] = isNova
+  const orbitTarget: [number, number, number] = isNova || isNinjaX
     ? [0, 0.85, 0]
     : [0, 0.8, 0];
 
@@ -85,15 +87,27 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
       }}
       style={{ width: "100%", height: "100%", background: "transparent" }}
     >
-      {/* Lighting */}
-      <ambientLight intensity={isNova ? 0.5 : 0.4} />
+      {/* Ambient + key light */}
+      <ambientLight intensity={isNinjaX ? 0.4 : isNova ? 0.5 : 0.4} />
       <directionalLight
-        position={[2, 5, 3]} intensity={isNova ? 1.8 : 1.6}
+        position={[2, 5, 3]} intensity={isNinjaX ? 2.0 : isNova ? 1.8 : 1.6}
         castShadow shadow-mapSize={[512, 512]} color="#ffffff"
       />
-      <directionalLight position={[-2, 2, -2]} intensity={0.5} color={isNova ? "#00aaff" : "#4080ff"} />
-      <pointLight position={[0, 2, 1]} color={isNova ? "#00e5ff" : "#ffb800"} intensity={isNova ? 1.0 : 0.8} distance={5} />
-      {isNova && <pointLight position={[0, 0.5, 2]} color="#00c0ff" intensity={0.4} distance={3} />}
+
+      {/* Ninja-X neon lighting rig */}
+      {isNinjaX && <>
+        <directionalLight position={[-4, 3, -3]} intensity={2.0} color="#ff6600" />
+        <directionalLight position={[3, 1, 2]} intensity={1.0} color="#00aaff" />
+        <pointLight position={[0, 0.3, 1.5]} color="#ff4400" intensity={2.0} distance={8} />
+        <pointLight position={[0, 2.5, 1]} color="#ffffff" intensity={1.0} distance={6} />
+      </>}
+
+      {/* Nova / default lighting */}
+      {!isNinjaX && <>
+        <directionalLight position={[-2, 2, -2]} intensity={0.5} color={isNova ? "#00aaff" : "#4080ff"} />
+        <pointLight position={[0, 2, 1]} color={isNova ? "#00e5ff" : "#ffb800"} intensity={isNova ? 1.0 : 0.8} distance={5} />
+        {isNova && <pointLight position={[0, 0.5, 2]} color="#00c0ff" intensity={0.4} distance={3} />}
+      </>}
 
       {/* 360° rotation controls */}
       <OrbitControls
@@ -118,10 +132,15 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
             <PhantomCharacter />
           </group>
         )}
+        {isNinjaX && (
+          <group>
+            <NinjaXCharacter />
+          </group>
+        )}
         <ContactShadows
-          position={[0, isNova ? -0.14 : -0.34, 0]}
-          opacity={0.55}
-          scale={2.5}
+          position={[0, isNova || isNinjaX ? -0.14 : -0.34, 0]}
+          opacity={isNinjaX ? 0.65 : 0.55}
+          scale={isNinjaX ? 3.5 : 2.5}
           blur={2.2}
           far={1.5}
           color="#000820"
