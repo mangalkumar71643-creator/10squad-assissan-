@@ -5,7 +5,7 @@ import * as THREE from "three";
 
 useGLTF.preload("/assets/purple-mirage-rifle.glb");
 
-const BASE_Y = 1.22;
+const BASE_Y = 0.95;
 
 export default function RifleInHands() {
   const { scene } = useGLTF("/assets/purple-mirage-rifle.glb");
@@ -68,8 +68,8 @@ export default function RifleInHands() {
   return (
     <group
       ref={pivotRef}
-      position={[0.12, BASE_Y, 0.26]}
-      rotation={[-0.12, -0.42, 0.12]}
+      position={[0.04, BASE_Y, 0.28]}
+      rotation={[0.1, 0.28, 0.1]}
     >
       <group ref={innerRef}>
         <primitive object={scene} />
