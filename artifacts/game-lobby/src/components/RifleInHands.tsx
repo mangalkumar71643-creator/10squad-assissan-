@@ -5,6 +5,8 @@ import * as THREE from "three";
 
 useGLTF.preload("/assets/purple-mirage-rifle.glb");
 
+const BASE_Y = 1.22;
+
 export default function RifleInHands() {
   const { scene } = useGLTF("/assets/purple-mirage-rifle.glb");
   const pivotRef = useRef<THREE.Group>(null);
@@ -20,7 +22,7 @@ export default function RifleInHands() {
     box.getCenter(center);
 
     const maxDim = Math.max(size.x, size.y, size.z);
-    const scale = 0.58 / maxDim;
+    const scale = 0.62 / maxDim;
 
     innerRef.current.scale.setScalar(scale);
     innerRef.current.position.set(
@@ -59,15 +61,15 @@ export default function RifleInHands() {
   useFrame(() => {
     if (!pivotRef.current) return;
     const t = performance.now() / 1000;
-    pivotRef.current.position.y = 0.86 + Math.sin(t * 1.1) * 0.018;
+    pivotRef.current.position.y = BASE_Y + Math.sin(t * 1.1) * 0.018;
     pivotRef.current.rotation.y = Math.sin(t * 0.32) * 0.06;
   });
 
   return (
     <group
       ref={pivotRef}
-      position={[0.13, 0.86, 0.22]}
-      rotation={[0.12, 0, -0.08]}
+      position={[0.12, BASE_Y, 0.26]}
+      rotation={[-0.12, -0.42, 0.12]}
     >
       <group ref={innerRef}>
         <primitive object={scene} />
