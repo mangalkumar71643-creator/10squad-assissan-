@@ -27,7 +27,7 @@ export default function Lobby() {
   const [, setLocation] = useLocation();
   const [charOpen, setCharOpen] = useState(false);
   const [weaponOpen, setWeaponOpen] = useState(false);
-  const [selectedChar, setSelectedChar] = useState<string | null>(null);
+  const [selectedChar, setSelectedChar] = useState<string | null>("ninja-x-1");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [fps, setFps] = useState<"60"|"90"|"120">("60");
