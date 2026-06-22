@@ -19,7 +19,7 @@ export default function NinjaXCharacter() {
     box.getSize(size);
     box.getCenter(center);
 
-    const targetHeight = 1.8;
+    const targetHeight = 1.92;
     const scale = targetHeight / size.y;
 
     pivotRef.current.scale.setScalar(scale);
