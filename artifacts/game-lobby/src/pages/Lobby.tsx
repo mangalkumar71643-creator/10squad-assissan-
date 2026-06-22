@@ -10,7 +10,6 @@ import {
 import CharacterCanvas from "@/components/CharacterCanvas";
 
 const CHARACTER_SLOTS = [
-  { id: "nova",          name: "NOVA",        borderType: "cyan",   is3D: true },
   { id: "hacker-girl-1", name: "HACKER-GIRL", borderType: "orange", is3D: true },
   { id: "ninja-x-1",     name: "NINJA-X",     borderType: "gray",   is3D: false },
   { id: "tank-unit-1",   name: "TANK-UNIT",   borderType: "gray",   is3D: false },
@@ -70,7 +69,7 @@ export default function Lobby() {
   const [activeTab, setActiveTab] = useState<"gear" | "abilities">("gear");
   const [loadoutOpen, setLoadoutOpen] = useState(false);
   const [charOpen, setCharOpen] = useState(false);
-  const [selectedChar, setSelectedChar] = useState<string>("nova");
+  const [selectedChar, setSelectedChar] = useState<string>("hacker-girl-1");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [fps, setFps] = useState<"60"|"90"|"120">("60");
@@ -245,9 +244,8 @@ export default function Lobby() {
                     ? "0 0 10px rgba(217,119,6,0.4)"
                     : "none";
 
-                const isNova = slot.id === "nova";
                 const isHackerGirl = slot.id === "hacker-girl-1";
-                const is3DChar = isNova || isHackerGirl;
+                const is3DChar = isHackerGirl;
 
                 return (
                   <button
@@ -260,14 +258,10 @@ export default function Lobby() {
                       className="w-full aspect-square rounded-lg relative overflow-hidden"
                       style={{
                         border: `2px solid ${borderColor}`,
-                        boxShadow: isNova
-                          ? "0 0 18px rgba(0,229,255,0.9), 0 0 36px rgba(0,229,255,0.35)"
-                          : isHackerGirl
+                        boxShadow: isHackerGirl
                           ? "0 0 18px rgba(255,100,200,0.9), 0 0 36px rgba(255,60,180,0.35)"
                           : glowColor,
-                        background: isNova
-                          ? "linear-gradient(135deg, #061420 0%, #030810 100%)"
-                          : isHackerGirl
+                        background: isHackerGirl
                           ? "linear-gradient(135deg, #200a18 0%, #0f0510 100%)"
                           : "linear-gradient(135deg, #1c2235 0%, #141820 100%)",
                       }}
@@ -276,31 +270,29 @@ export default function Lobby() {
                       <div className="absolute inset-[3px] rounded"
                         style={{ background: "linear-gradient(135deg, rgba(30,40,60,0.6) 0%, rgba(10,14,22,0.8) 100%)", border: "1px solid rgba(80,110,160,0.2)" }} />
 
-                      {/* 3D character indicator (Nova & HackerGirl) */}
+                      {/* 3D character indicator (HackerGirl only) */}
                       {is3DChar && (
                         <>
                           <div className="absolute inset-0 flex items-center justify-center z-10">
-                            <div style={{ fontSize: 22, filter: isHackerGirl ? "drop-shadow(0 0 8px #ff44cc)" : "drop-shadow(0 0 8px #00e5ff)" }}>⬡</div>
+                            <div style={{ fontSize: 22, filter: "drop-shadow(0 0 8px #ff44cc)" }}>⬡</div>
                           </div>
                           {/* Scanning line */}
                           <div className="absolute inset-x-0 z-10 pointer-events-none"
                             style={{
                               height: "2px",
-                              background: isHackerGirl
-                                ? "linear-gradient(90deg, transparent, rgba(255,80,200,0.7), transparent)"
-                                : "linear-gradient(90deg, transparent, rgba(0,229,255,0.7), transparent)",
+                              background: "linear-gradient(90deg, transparent, rgba(255,80,200,0.7), transparent)",
                               animation: "scan-line 2s linear infinite",
                             }} />
                           {/* 3D badge */}
                           <div className="absolute top-1 right-1 z-20 px-1 rounded-sm"
                             style={{
-                              background: isHackerGirl ? "rgba(255,60,180,0.18)" : "rgba(0,229,255,0.18)",
-                              border: isHackerGirl ? "1px solid rgba(255,60,180,0.7)" : "1px solid rgba(0,229,255,0.7)",
+                              background: "rgba(255,60,180,0.18)",
+                              border: "1px solid rgba(255,60,180,0.7)",
                               fontSize: 7,
                               fontWeight: 900,
-                              color: isHackerGirl ? "#ff44cc" : "#00e5ff",
+                              color: "#ff44cc",
                               letterSpacing: "0.05em",
-                              textShadow: isHackerGirl ? "0 0 6px rgba(255,60,180,0.9)" : "0 0 6px rgba(0,229,255,0.9)",
+                              textShadow: "0 0 6px rgba(255,60,180,0.9)",
                               lineHeight: "14px",
                             }}>3D</div>
                         </>
@@ -309,7 +301,7 @@ export default function Lobby() {
                       {/* Corner rivets */}
                       {[["top-1 left-1"],["top-1 right-1"],["bottom-1 left-1"],["bottom-1 right-1"]].map(([pos], i) => (
                         <div key={i} className={`absolute ${pos} w-1.5 h-1.5 rounded-full`}
-                          style={{ background: isSelected ? "#00d4ff" : isNova ? "rgba(0,229,255,0.6)" : "rgba(100,130,170,0.5)" }} />
+                          style={{ background: isSelected ? "#00d4ff" : "rgba(100,130,170,0.5)" }} />
                       ))}
 
                       {/* Selected glow overlay */}
@@ -325,12 +317,10 @@ export default function Lobby() {
                       style={{
                         color: isSelected
                           ? "#00d4ff"
-                          : isNova
-                          ? "#00e5ff"
                           : slot.borderType === "orange"
                           ? "#fbbf24"
                           : "#94a3b8",
-                        textShadow: isSelected || isNova ? "0 0 8px rgba(0,212,255,0.8)" : "none",
+                        textShadow: isSelected ? "0 0 8px rgba(0,212,255,0.8)" : "none",
                       }}
                     >
                       {slot.name}
