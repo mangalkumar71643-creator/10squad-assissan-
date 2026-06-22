@@ -56,14 +56,8 @@ interface CharacterCanvasProps {
 }
 
 export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
-  const [webglAvailable, setWebglAvailable] = useState<boolean | null>(null);
+  const [webglAvailable] = useState<boolean>(() => checkWebGL());
   const [canvasError, setCanvasError] = useState(false);
-
-  useEffect(() => {
-    setWebglAvailable(checkWebGL());
-  }, []);
-
-  if (webglAvailable === null) return null;
 
   if (!webglAvailable || canvasError) {
     return characterId === "phantom" ? <PhantomFallback /> : null;

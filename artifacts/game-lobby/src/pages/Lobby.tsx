@@ -70,7 +70,7 @@ export default function Lobby() {
   const [activeTab, setActiveTab] = useState<"gear" | "abilities">("gear");
   const [loadoutOpen, setLoadoutOpen] = useState(false);
   const [charOpen, setCharOpen] = useState(false);
-  const [selectedChar, setSelectedChar] = useState<string | null>(null);
+  const [selectedChar, setSelectedChar] = useState<string>("nova");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [fps, setFps] = useState<"60"|"90"|"120">("60");
