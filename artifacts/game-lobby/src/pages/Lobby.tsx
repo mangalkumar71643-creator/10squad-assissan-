@@ -4,7 +4,7 @@ import { useGetCurrentPlayer, useGetLobby } from "@workspace/api-client-react";
 import InstallPrompt from "@/components/InstallPrompt";
 import {
   ChevronDown, Diamond, Coins,
-  Settings, Mail, Users,
+  Settings, Mail, Users, Crosshair,
   Gauge, Volume2, Sliders, Globe, Bell, Lock, Info, LogOut, ChevronRight, X
 } from "lucide-react";
 import CharacterCanvas from "@/components/CharacterCanvas";
@@ -25,6 +25,7 @@ const CHARACTER_SLOTS = [
 export default function Lobby() {
   const [, setLocation] = useLocation();
   const [charOpen, setCharOpen] = useState(false);
+  const [weaponOpen, setWeaponOpen] = useState(false);
   const [selectedChar, setSelectedChar] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
@@ -90,12 +91,12 @@ export default function Lobby() {
       <div className="relative z-10 flex flex-1 min-h-0">
 
         {/* CHARACTER tab button */}
-        {!charOpen && (
+        {!charOpen && !weaponOpen && (
           <button
             onClick={() => setCharOpen(true)}
             className="absolute left-0 z-40 flex flex-row items-center justify-between gap-3 rounded-tr-2xl cursor-pointer select-none"
             style={{
-              bottom: "56px",
+              bottom: "90px",
               width: "148px",
               paddingTop: "9px",
               paddingBottom: "9px",
@@ -116,12 +117,48 @@ export default function Lobby() {
           </button>
         )}
 
+        {/* WEAPON tab button */}
+        {!charOpen && !weaponOpen && (
+          <button
+            onClick={() => setWeaponOpen(true)}
+            className="absolute left-0 z-40 flex flex-row items-center justify-between gap-3 rounded-tr-2xl cursor-pointer select-none"
+            style={{
+              bottom: "44px",
+              width: "148px",
+              paddingTop: "9px",
+              paddingBottom: "9px",
+              paddingLeft: "14px",
+              paddingRight: "12px",
+              background: "linear-gradient(105deg, rgba(0,0,0,0.75) 0%, rgba(0,20,40,0.85) 60%, rgba(0,210,255,0.12) 100%)",
+              border: "1px solid rgba(0,210,255,0.5)",
+              borderLeft: "none",
+              boxShadow: "6px 0 28px rgba(0,210,255,0.2), inset 0 1px 0 rgba(0,210,255,0.12)",
+            }}
+          >
+            <Crosshair className="w-4 h-4 shrink-0" style={{ color: "#00d4ff", filter: "drop-shadow(0 0 5px rgba(0,210,255,0.9))" }} />
+            <span className="font-black text-[11px] tracking-[0.22em] uppercase flex-1"
+              style={{ color: "#a5f3fc", textShadow: "0 0 10px rgba(0,210,255,0.85)" }}>
+              WEAPON
+            </span>
+            <ChevronDown className="w-4 h-4 shrink-0 -rotate-90" style={{ color: "#00d4ff" }} />
+          </button>
+        )}
+
         {/* CHARACTER PANEL — backdrop */}
         {charOpen && (
           <div
             className="absolute inset-0 z-30"
             style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)" }}
             onClick={() => setCharOpen(false)}
+          />
+        )}
+
+        {/* WEAPON PANEL — backdrop */}
+        {weaponOpen && (
+          <div
+            className="absolute inset-0 z-30"
+            style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)" }}
+            onClick={() => setWeaponOpen(false)}
           />
         )}
 
@@ -264,6 +301,85 @@ export default function Lobby() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+        </div>
+
+        {/* WEAPON PANEL — slide-in drawer */}
+        <div
+          className="absolute left-0 top-0 h-full z-40 flex flex-col"
+          style={{
+            width: "82vw",
+            maxWidth: "340px",
+            background: "linear-gradient(180deg, #0d1117 0%, #0a0e18 50%, #080b12 100%)",
+            backdropFilter: "blur(20px)",
+            borderRight: "2px solid rgba(0,210,255,0.3)",
+            boxShadow: weaponOpen ? "8px 0 40px rgba(0,0,0,0.85)" : "none",
+            transform: weaponOpen ? "translateX(0)" : "translateX(-100%)",
+            transition: "transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+        >
+          {/* Tech grid overlay */}
+          <div className="absolute inset-0 pointer-events-none opacity-[0.03]"
+            style={{
+              backgroundImage: "linear-gradient(rgba(0,210,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(0,210,255,1) 1px, transparent 1px)",
+              backgroundSize: "28px 28px",
+            }} />
+
+          {/* Header */}
+          <div className="relative flex items-center justify-between px-4 py-3 shrink-0"
+            style={{
+              background: "linear-gradient(90deg, rgba(0,15,30,0.95) 0%, rgba(0,10,25,0.95) 100%)",
+              borderBottom: "1px solid rgba(0,210,255,0.25)",
+            }}>
+            <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-r"
+              style={{ background: "linear-gradient(180deg, #00d4ff 0%, #0044aa 100%)" }} />
+            <div className="flex items-center gap-2 pl-2">
+              <Crosshair className="w-4 h-4" style={{ color: "#00d4ff", filter: "drop-shadow(0 0 5px rgba(0,210,255,0.8))" }} />
+              <span className="font-black text-[15px] tracking-[0.1em] text-white">
+                WEAPON LIST
+              </span>
+            </div>
+            <button
+              onClick={() => setWeaponOpen(false)}
+              className="w-7 h-7 rounded flex items-center justify-center"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)" }}
+            >
+              <ChevronDown className="w-4 h-4 text-gray-300 rotate-90" />
+            </button>
+          </div>
+
+          {/* 2-column weapon slot grid */}
+          <div className="flex-1 overflow-y-auto px-3 py-3" style={{ scrollbarWidth: "none" }}>
+            <div className="grid grid-cols-2 gap-2.5">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="relative rounded-lg overflow-hidden"
+                  style={{
+                    aspectRatio: "2 / 1.1",
+                    background: "linear-gradient(135deg, #080c14 0%, #050810 100%)",
+                    border: "1px solid rgba(0,210,255,0.18)",
+                  }}
+                >
+                  {/* Inner dark inset */}
+                  <div className="absolute inset-[3px] rounded"
+                    style={{
+                      background: "linear-gradient(135deg, rgba(0,8,20,0.9) 0%, rgba(0,5,15,0.95) 100%)",
+                      border: "1px solid rgba(0,210,255,0.08)",
+                    }} />
+
+                  {/* Corner rivets */}
+                  {(["top-1.5 left-1.5", "top-1.5 right-1.5", "bottom-1.5 left-1.5", "bottom-1.5 right-1.5"] as const).map((pos, j) => (
+                    <div key={j} className={`absolute ${pos} w-1 h-1 rounded-full z-10`}
+                      style={{ background: "rgba(0,210,255,0.25)" }} />
+                  ))}
+
+                  {/* Subtle scan shimmer line at top */}
+                  <div className="absolute top-0 left-0 right-0 h-[1px]"
+                    style={{ background: "linear-gradient(90deg, transparent, rgba(0,210,255,0.15), transparent)" }} />
+                </div>
+              ))}
             </div>
           </div>
         </div>
