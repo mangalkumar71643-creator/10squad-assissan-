@@ -10,7 +10,6 @@ import {
 import CharacterCanvas from "@/components/CharacterCanvas";
 
 const CHARACTER_SLOTS = [
-  { id: "hacker-girl-1", name: "HACKER-GIRL", borderType: "orange", is3D: true },
   { id: "ninja-x-1",     name: "NINJA-X",     borderType: "gray",   is3D: false },
   { id: "tank-unit-1",   name: "TANK-UNIT",   borderType: "gray",   is3D: false },
   { id: "tank-unit-2",   name: "TANK-UNIT",   borderType: "orange", is3D: false },
@@ -18,7 +17,6 @@ const CHARACTER_SLOTS = [
   { id: "ghost-1",       name: "GHOST",       borderType: "gray",   is3D: false },
   { id: "ghost-2",       name: "GHOST",       borderType: "cyan",   is3D: false },
   { id: "eerics",        name: "EERICS",      borderType: "gray",   is3D: false },
-  { id: "hacker-girl-2", name: "HACKER-GIRL", borderType: "gray",   is3D: false },
   { id: "sanpot-mage",   name: "SANPOT-MAGE", borderType: "gray",   is3D: false },
   { id: "ninja-x-2",     name: "NINJA-X",     borderType: "gray",   is3D: false },
 ];
@@ -244,9 +242,6 @@ export default function Lobby() {
                     ? "0 0 10px rgba(217,119,6,0.4)"
                     : "none";
 
-                const isHackerGirl = slot.id === "hacker-girl-1";
-                const is3DChar = isHackerGirl;
-
                 return (
                   <button
                     key={slot.id}
@@ -258,45 +253,13 @@ export default function Lobby() {
                       className="w-full aspect-square rounded-lg relative overflow-hidden"
                       style={{
                         border: `2px solid ${borderColor}`,
-                        boxShadow: isHackerGirl
-                          ? "0 0 18px rgba(255,100,200,0.9), 0 0 36px rgba(255,60,180,0.35)"
-                          : glowColor,
-                        background: isHackerGirl
-                          ? "linear-gradient(135deg, #200a18 0%, #0f0510 100%)"
-                          : "linear-gradient(135deg, #1c2235 0%, #141820 100%)",
+                        boxShadow: glowColor,
+                        background: "linear-gradient(135deg, #1c2235 0%, #141820 100%)",
                       }}
                     >
                       {/* Inner panel effect */}
                       <div className="absolute inset-[3px] rounded"
                         style={{ background: "linear-gradient(135deg, rgba(30,40,60,0.6) 0%, rgba(10,14,22,0.8) 100%)", border: "1px solid rgba(80,110,160,0.2)" }} />
-
-                      {/* 3D character indicator (HackerGirl only) */}
-                      {is3DChar && (
-                        <>
-                          <div className="absolute inset-0 flex items-center justify-center z-10">
-                            <div style={{ fontSize: 22, filter: "drop-shadow(0 0 8px #ff44cc)" }}>⬡</div>
-                          </div>
-                          {/* Scanning line */}
-                          <div className="absolute inset-x-0 z-10 pointer-events-none"
-                            style={{
-                              height: "2px",
-                              background: "linear-gradient(90deg, transparent, rgba(255,80,200,0.7), transparent)",
-                              animation: "scan-line 2s linear infinite",
-                            }} />
-                          {/* 3D badge */}
-                          <div className="absolute top-1 right-1 z-20 px-1 rounded-sm"
-                            style={{
-                              background: "rgba(255,60,180,0.18)",
-                              border: "1px solid rgba(255,60,180,0.7)",
-                              fontSize: 7,
-                              fontWeight: 900,
-                              color: "#ff44cc",
-                              letterSpacing: "0.05em",
-                              textShadow: "0 0 6px rgba(255,60,180,0.9)",
-                              lineHeight: "14px",
-                            }}>3D</div>
-                        </>
-                      )}
 
                       {/* Corner rivets */}
                       {[["top-1 left-1"],["top-1 right-1"],["bottom-1 left-1"],["bottom-1 right-1"]].map(([pos], i) => (
