@@ -353,9 +353,9 @@ export default function Lobby() {
           <div className="flex-1 overflow-y-auto px-3 py-3" style={{ scrollbarWidth: "none" }}>
             <div className="grid grid-cols-2 gap-2.5">
               {Array.from({ length: 8 }).map((_, i) => (
-                <div
+                <button
                   key={i}
-                  className="relative rounded-lg overflow-hidden"
+                  className="relative rounded-lg overflow-hidden active:scale-95 transition-transform group"
                   style={{
                     aspectRatio: "2 / 1.1",
                     background: "linear-gradient(135deg, #080c14 0%, #050810 100%)",
@@ -366,7 +366,7 @@ export default function Lobby() {
                   <div className="absolute inset-[3px] rounded"
                     style={{
                       background: "linear-gradient(135deg, rgba(0,8,20,0.9) 0%, rgba(0,5,15,0.95) 100%)",
-                      border: "1px solid rgba(0,210,255,0.08)",
+                      border: "1px dashed rgba(0,210,255,0.15)",
                     }} />
 
                   {/* Corner rivets */}
@@ -378,7 +378,29 @@ export default function Lobby() {
                   {/* Subtle scan shimmer line at top */}
                   <div className="absolute top-0 left-0 right-0 h-[1px]"
                     style={{ background: "linear-gradient(90deg, transparent, rgba(0,210,255,0.15), transparent)" }} />
-                </div>
+
+                  {/* Center "+" icon */}
+                  <div className="absolute inset-0 flex items-center justify-center z-20">
+                    <div
+                      className="flex items-center justify-center w-6 h-6 rounded-full transition-all group-active:scale-110"
+                      style={{
+                        border: "1px dashed rgba(0,210,255,0.35)",
+                        background: "rgba(0,210,255,0.04)",
+                      }}
+                    >
+                      <span
+                        className="text-[14px] font-thin leading-none select-none"
+                        style={{
+                          color: "rgba(0,210,255,0.4)",
+                          lineHeight: 1,
+                          marginTop: "-1px",
+                        }}
+                      >
+                        +
+                      </span>
+                    </div>
+                  </div>
+                </button>
               ))}
             </div>
           </div>
