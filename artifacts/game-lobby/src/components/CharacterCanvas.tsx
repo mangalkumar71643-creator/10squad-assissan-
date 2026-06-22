@@ -4,6 +4,7 @@ import { ContactShadows, OrbitControls } from "@react-three/drei";
 import PhantomCharacter from "./PhantomCharacter";
 import NovaCharacter from "./NovaCharacter";
 import NinjaXCharacter from "./NinjaXCharacter";
+import RifleInHands from "./RifleInHands";
 
 function checkWebGL(): boolean {
   try {
@@ -135,6 +136,7 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
         {isNinjaX && (
           <group>
             <NinjaXCharacter />
+            <RifleInHands />
           </group>
         )}
         <ContactShadows
