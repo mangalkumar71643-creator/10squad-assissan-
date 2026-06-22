@@ -8,6 +8,7 @@ import {
   Gauge, Volume2, Sliders, Globe, Bell, Lock, Info, LogOut, ChevronRight, X
 } from "lucide-react";
 import CharacterCanvas from "@/components/CharacterCanvas";
+import WeaponCanvas from "@/components/WeaponCanvas";
 
 const CHARACTER_SLOTS = [
   { id: "ninja-x-1",     name: "NINJA-X",     borderType: "orange", is3D: true  },
@@ -352,56 +353,76 @@ export default function Lobby() {
           {/* 2-column weapon slot grid */}
           <div className="flex-1 overflow-y-auto px-3 py-3" style={{ scrollbarWidth: "none" }}>
             <div className="grid grid-cols-2 gap-2.5">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <button
-                  key={i}
-                  className="relative rounded-lg overflow-hidden active:scale-95 transition-transform group"
-                  style={{
-                    aspectRatio: "2 / 1.1",
-                    background: "linear-gradient(135deg, #080c14 0%, #050810 100%)",
-                    border: "1px solid rgba(0,210,255,0.18)",
-                  }}
-                >
-                  {/* Inner dark inset */}
-                  <div className="absolute inset-[3px] rounded"
+              {Array.from({ length: 8 }).map((_, i) => {
+                const hasGun = i === 0;
+                return (
+                  <button
+                    key={i}
+                    className="relative rounded-lg overflow-hidden active:scale-95 transition-transform group"
                     style={{
-                      background: "linear-gradient(135deg, rgba(0,8,20,0.9) 0%, rgba(0,5,15,0.95) 100%)",
-                      border: "1px dashed rgba(0,210,255,0.15)",
-                    }} />
+                      aspectRatio: "2 / 1.1",
+                      background: hasGun
+                        ? "linear-gradient(135deg, #0d0820 0%, #080512 100%)"
+                        : "linear-gradient(135deg, #080c14 0%, #050810 100%)",
+                      border: hasGun
+                        ? "1px solid rgba(160,80,255,0.55)"
+                        : "1px solid rgba(0,210,255,0.18)",
+                      boxShadow: hasGun
+                        ? "0 0 10px rgba(140,60,255,0.25), inset 0 0 12px rgba(100,30,200,0.12)"
+                        : "none",
+                    }}
+                  >
+                    {/* Corner rivets */}
+                    {(["top-1.5 left-1.5", "top-1.5 right-1.5", "bottom-1.5 left-1.5", "bottom-1.5 right-1.5"] as const).map((pos, j) => (
+                      <div key={j} className={`absolute ${pos} w-1 h-1 rounded-full z-10`}
+                        style={{ background: hasGun ? "rgba(160,80,255,0.5)" : "rgba(0,210,255,0.25)" }} />
+                    ))}
 
-                  {/* Corner rivets */}
-                  {(["top-1.5 left-1.5", "top-1.5 right-1.5", "bottom-1.5 left-1.5", "bottom-1.5 right-1.5"] as const).map((pos, j) => (
-                    <div key={j} className={`absolute ${pos} w-1 h-1 rounded-full z-10`}
-                      style={{ background: "rgba(0,210,255,0.25)" }} />
-                  ))}
+                    {/* Top shimmer */}
+                    <div className="absolute top-0 left-0 right-0 h-[1px]"
+                      style={{ background: hasGun
+                        ? "linear-gradient(90deg, transparent, rgba(160,80,255,0.4), transparent)"
+                        : "linear-gradient(90deg, transparent, rgba(0,210,255,0.15), transparent)"
+                      }} />
 
-                  {/* Subtle scan shimmer line at top */}
-                  <div className="absolute top-0 left-0 right-0 h-[1px]"
-                    style={{ background: "linear-gradient(90deg, transparent, rgba(0,210,255,0.15), transparent)" }} />
-
-                  {/* Center "+" icon */}
-                  <div className="absolute inset-0 flex items-center justify-center z-20">
-                    <div
-                      className="flex items-center justify-center w-6 h-6 rounded-full transition-all group-active:scale-110"
-                      style={{
-                        border: "1px dashed rgba(0,210,255,0.35)",
-                        background: "rgba(0,210,255,0.04)",
-                      }}
-                    >
-                      <span
-                        className="text-[14px] font-thin leading-none select-none"
-                        style={{
-                          color: "rgba(0,210,255,0.4)",
-                          lineHeight: 1,
-                          marginTop: "-1px",
-                        }}
-                      >
-                        +
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              ))}
+                    {hasGun ? (
+                      /* 3D Gun — only mount Canvas when panel is actually open */
+                      <div className="absolute inset-0 z-20">
+                        {weaponOpen && (
+                          <Suspense fallback={null}>
+                            <WeaponCanvas weaponId="purple-mirage-rifle" />
+                          </Suspense>
+                        )}
+                      </div>
+                    ) : (
+                      /* Empty slot "+" */
+                      <>
+                        <div className="absolute inset-[3px] rounded"
+                          style={{
+                            background: "linear-gradient(135deg, rgba(0,8,20,0.9) 0%, rgba(0,5,15,0.95) 100%)",
+                            border: "1px dashed rgba(0,210,255,0.15)",
+                          }} />
+                        <div className="absolute inset-0 flex items-center justify-center z-20">
+                          <div
+                            className="flex items-center justify-center w-6 h-6 rounded-full transition-all group-active:scale-110"
+                            style={{
+                              border: "1px dashed rgba(0,210,255,0.35)",
+                              background: "rgba(0,210,255,0.04)",
+                            }}
+                          >
+                            <span
+                              className="text-[14px] font-thin leading-none select-none"
+                              style={{ color: "rgba(0,210,255,0.4)", lineHeight: 1, marginTop: "-1px" }}
+                            >
+                              +
+                            </span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
