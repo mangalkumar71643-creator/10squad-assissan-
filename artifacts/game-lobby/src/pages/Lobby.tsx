@@ -69,7 +69,7 @@ export default function Lobby() {
   const [activeTab, setActiveTab] = useState<"gear" | "abilities">("gear");
   const [loadoutOpen, setLoadoutOpen] = useState(false);
   const [charOpen, setCharOpen] = useState(false);
-  const [selectedChar, setSelectedChar] = useState<string>("hacker-girl-1");
+  const [selectedChar, setSelectedChar] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [fps, setFps] = useState<"60"|"90"|"120">("60");
@@ -564,28 +564,10 @@ export default function Lobby() {
             {/* MAIN CHARACTER — 3D if selected, else 2D PNG */}
             <div className="absolute inset-0 z-20">
 
-              {selectedChar ? (
-                <Suspense fallback={
-                  <div className="absolute inset-0 flex items-end justify-center pb-0">
-                    <img src="/assets/character-model.png" alt="Character"
-                      className="w-auto object-contain animate-char-idle"
-                      style={{ height: "103%", transform: "translateY(12%)", filter: "drop-shadow(0 0 25px rgba(0,210,255,0.7)) drop-shadow(0 0 60px rgba(120,0,255,0.45))" }} />
-                  </div>
-                }>
+              {selectedChar && (
+                <Suspense fallback={null}>
                   <CharacterCanvas characterId={selectedChar} />
                 </Suspense>
-              ) : (
-                <div className="absolute inset-x-0 bottom-0 flex justify-center" style={{ height: "90%", top: "auto" }}>
-                  <img
-                    src="/assets/character-model.png"
-                    alt="Character"
-                    className="w-auto object-contain object-bottom animate-char-idle"
-                    style={{
-                      height: "100%",
-                      filter: "drop-shadow(0 0 25px rgba(0,210,255,0.7)) drop-shadow(0 0 60px rgba(120,0,255,0.45)) drop-shadow(0 0 8px rgba(255,255,255,0.3))",
-                    }}
-                  />
-                </div>
               )}
             </div>
 
