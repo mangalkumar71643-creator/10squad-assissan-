@@ -113,8 +113,8 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
       <OrbitControls
         enableZoom={false}
         enablePan={false}
-        minPolarAngle={Math.PI * 0.22}
-        maxPolarAngle={Math.PI * 0.78}
+        minPolarAngle={Math.PI / 2}
+        maxPolarAngle={Math.PI / 2}
         enableDamping
         dampingFactor={0.07}
         rotateSpeed={0.75}
