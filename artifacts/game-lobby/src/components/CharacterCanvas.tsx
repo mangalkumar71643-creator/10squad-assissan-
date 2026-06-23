@@ -3,7 +3,7 @@ import { Canvas } from "@react-three/fiber";
 import { ContactShadows, OrbitControls } from "@react-three/drei";
 import PhantomCharacter from "./PhantomCharacter";
 import NovaCharacter from "./NovaCharacter";
-import NinjaXWithRifle from "./NinjaXWithRifle";
+import SpaceHeistOperator from "./SpaceHeistOperator";
 
 function checkWebGL(): boolean {
   try {
@@ -132,7 +132,7 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
             <PhantomCharacter />
           </group>
         )}
-        {isNinjaX && <NinjaXWithRifle />}
+        {isNinjaX && <SpaceHeistOperator />}
         <ContactShadows
           position={[0, isNova || isNinjaX ? -0.14 : -0.34, 0]}
           opacity={isNinjaX ? 0.65 : 0.55}
