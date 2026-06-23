@@ -4,30 +4,15 @@ import { useGetCurrentPlayer, useGetLobby } from "@workspace/api-client-react";
 import InstallPrompt from "@/components/InstallPrompt";
 import {
   ChevronDown, Diamond, Coins,
-  Settings, Mail, Users, Crosshair,
+  Settings, Mail, Crosshair,
   Gauge, Volume2, Sliders, Globe, Bell, Lock, Info, LogOut, ChevronRight, X
 } from "lucide-react";
-import CharacterCanvas from "@/components/CharacterCanvas";
 import WeaponCanvas from "@/components/WeaponCanvas";
-
-const CHARACTER_SLOTS = [
-  { id: "ninja-x-1",     name: "NINJA-X",     borderType: "orange", is3D: true  },
-  { id: "tank-unit-1",   name: "TANK-UNIT",   borderType: "gray",   is3D: false },
-  { id: "tank-unit-2",   name: "TANK-UNIT",   borderType: "orange", is3D: false },
-  { id: "support-mage",  name: "Support-Mage",borderType: "gray",   is3D: false },
-  { id: "ghost-1",       name: "GHOST",       borderType: "gray",   is3D: false },
-  { id: "ghost-2",       name: "GHOST",       borderType: "cyan",   is3D: false },
-  { id: "eerics",        name: "EERICS",      borderType: "gray",   is3D: false },
-  { id: "sanpot-mage",   name: "SANPOT-MAGE", borderType: "gray",   is3D: false },
-  { id: "ninja-x-2",     name: "NINJA-X",     borderType: "gray",   is3D: false },
-];
 
 
 export default function Lobby() {
   const [, setLocation] = useLocation();
-  const [charOpen, setCharOpen] = useState(false);
   const [weaponOpen, setWeaponOpen] = useState(false);
-  const [selectedChar, setSelectedChar] = useState<string | null>("ninja-x-1");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [fps, setFps] = useState<"60"|"90"|"120">("60");
@@ -91,35 +76,8 @@ export default function Lobby() {
       {/* ── MAIN AREA ── */}
       <div className="relative z-10 flex flex-1 min-h-0">
 
-        {/* CHARACTER tab button */}
-        {!charOpen && !weaponOpen && (
-          <button
-            onClick={() => setCharOpen(true)}
-            className="absolute left-0 z-40 flex flex-row items-center justify-between gap-3 rounded-tr-2xl cursor-pointer select-none"
-            style={{
-              bottom: "90px",
-              width: "148px",
-              paddingTop: "9px",
-              paddingBottom: "9px",
-              paddingLeft: "14px",
-              paddingRight: "12px",
-              background: "linear-gradient(105deg, rgba(0,0,0,0.75) 0%, rgba(20,0,40,0.85) 60%, rgba(168,85,247,0.12) 100%)",
-              border: "1px solid rgba(168,85,247,0.5)",
-              borderLeft: "none",
-              boxShadow: "6px 0 28px rgba(168,85,247,0.2), inset 0 1px 0 rgba(168,85,247,0.12)",
-            }}
-          >
-            <Users className="w-4 h-4 shrink-0" style={{ color: "#a855f7", filter: "drop-shadow(0 0 5px rgba(168,85,247,0.9))" }} />
-            <span className="font-black text-[11px] tracking-[0.22em] uppercase flex-1"
-              style={{ color: "#d8b4fe", textShadow: "0 0 10px rgba(168,85,247,0.85)" }}>
-              CHARACTER
-            </span>
-            <ChevronDown className="w-4 h-4 shrink-0 -rotate-90" style={{ color: "#a855f7" }} />
-          </button>
-        )}
-
         {/* WEAPON tab button */}
-        {!charOpen && !weaponOpen && (
+        {!weaponOpen && (
           <button
             onClick={() => setWeaponOpen(true)}
             className="absolute left-0 z-40 flex flex-row items-center justify-between gap-3 rounded-tr-2xl cursor-pointer select-none"
@@ -145,15 +103,6 @@ export default function Lobby() {
           </button>
         )}
 
-        {/* CHARACTER PANEL — backdrop */}
-        {charOpen && (
-          <div
-            className="absolute inset-0 z-30"
-            style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)" }}
-            onClick={() => setCharOpen(false)}
-          />
-        )}
-
         {/* WEAPON PANEL — backdrop */}
         {weaponOpen && (
           <div
@@ -162,149 +111,6 @@ export default function Lobby() {
             onClick={() => setWeaponOpen(false)}
           />
         )}
-
-        {/* CHARACTER PANEL — slide-in drawer */}
-        <div
-          className="absolute left-0 top-0 h-full z-40 flex flex-col"
-          style={{
-            width: "82vw",
-            maxWidth: "340px",
-            background: "linear-gradient(180deg, #1a1f2e 0%, #141820 50%, #0f1218 100%)",
-            backdropFilter: "blur(20px)",
-            borderRight: "2px solid rgba(80,100,140,0.5)",
-            boxShadow: charOpen ? "8px 0 40px rgba(0,0,0,0.8)" : "none",
-            transform: charOpen ? "translateX(0)" : "translateX(-100%)",
-            transition: "transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)",
-          }}
-        >
-          {/* Tech grid overlay */}
-          <div className="absolute inset-0 pointer-events-none opacity-[0.04]"
-            style={{
-              backgroundImage: "linear-gradient(rgba(150,180,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(150,180,255,1) 1px, transparent 1px)",
-              backgroundSize: "32px 32px",
-            }} />
-
-          {/* Header */}
-          <div className="relative flex items-center justify-between px-4 py-3 shrink-0"
-            style={{
-              background: "linear-gradient(90deg, rgba(30,40,60,0.9) 0%, rgba(20,28,45,0.9) 100%)",
-              borderBottom: "1px solid rgba(80,120,180,0.35)",
-            }}>
-            {/* Accent bar left */}
-            <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-r"
-              style={{ background: "linear-gradient(180deg, #00d4ff 0%, #0066aa 100%)" }} />
-            <span className="font-black text-[15px] tracking-[0.12em] text-white pl-2">
-              Character List
-            </span>
-            <button
-              onClick={() => setCharOpen(false)}
-              className="w-7 h-7 rounded flex items-center justify-center"
-              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)" }}
-            >
-              <ChevronDown className="w-4 h-4 text-gray-300 rotate-90" />
-            </button>
-          </div>
-
-          {/* 3-column character grid */}
-          <div className="flex-1 overflow-y-auto px-3 py-3" style={{ scrollbarWidth: "none" }}>
-            <div className="grid grid-cols-3 gap-2.5">
-              {CHARACTER_SLOTS.map((slot) => {
-                const isSelected = selectedChar === slot.id;
-                const borderColor =
-                  isSelected
-                    ? "#00d4ff"
-                    : slot.borderType === "orange"
-                    ? "#d97706"
-                    : slot.borderType === "cyan"
-                    ? "#00d4ff"
-                    : "rgba(80,100,130,0.55)";
-                const glowColor =
-                  isSelected
-                    ? "0 0 14px rgba(0,212,255,0.85), 0 0 28px rgba(0,212,255,0.35)"
-                    : slot.borderType === "cyan"
-                    ? "0 0 10px rgba(0,212,255,0.5)"
-                    : slot.borderType === "orange"
-                    ? "0 0 10px rgba(217,119,6,0.4)"
-                    : "none";
-
-                return (
-                  <button
-                    key={slot.id}
-                    onClick={() => { setSelectedChar(slot.id); setCharOpen(false); }}
-                    className="flex flex-col items-center active:scale-95 transition-transform"
-                  >
-                    {/* Square card area */}
-                    <div
-                      className="w-full aspect-square rounded-lg relative overflow-hidden"
-                      style={{
-                        border: `2px solid ${borderColor}`,
-                        boxShadow: glowColor,
-                        background: "linear-gradient(135deg, #1c2235 0%, #141820 100%)",
-                      }}
-                    >
-                      {/* Inner panel effect */}
-                      <div className="absolute inset-[3px] rounded"
-                        style={{ background: "linear-gradient(135deg, rgba(30,40,60,0.6) 0%, rgba(10,14,22,0.8) 100%)", border: "1px solid rgba(80,110,160,0.2)" }} />
-
-                      {/* 3D badge for 3D characters */}
-                      {slot.is3D && (
-                        <>
-                          <div className="absolute inset-0 flex items-center justify-center z-10">
-                            <div style={{ fontSize: 22, filter: "drop-shadow(0 0 8px #ff6600)" }}>⬡</div>
-                          </div>
-                          <div className="absolute inset-x-0 z-10 pointer-events-none"
-                            style={{
-                              height: "2px",
-                              background: "linear-gradient(90deg, transparent, rgba(255,100,0,0.7), transparent)",
-                              animation: "scan-line 2s linear infinite",
-                            }} />
-                          <div className="absolute top-1 right-1 z-20 px-1 rounded-sm"
-                            style={{
-                              background: "rgba(255,100,0,0.18)",
-                              border: "1px solid rgba(255,100,0,0.7)",
-                              fontSize: 7,
-                              fontWeight: 900,
-                              color: "#ff6600",
-                              letterSpacing: "0.05em",
-                              textShadow: "0 0 6px rgba(255,100,0,0.9)",
-                              lineHeight: "14px",
-                            }}>3D</div>
-                        </>
-                      )}
-
-                      {/* Corner rivets */}
-                      {[["top-1 left-1"],["top-1 right-1"],["bottom-1 left-1"],["bottom-1 right-1"]].map(([pos], i) => (
-                        <div key={i} className={`absolute ${pos} w-1.5 h-1.5 rounded-full`}
-                          style={{ background: isSelected ? "#00d4ff" : "rgba(100,130,170,0.5)" }} />
-                      ))}
-
-                      {/* Selected glow overlay */}
-                      {isSelected && (
-                        <div className="absolute inset-0 rounded"
-                          style={{ background: "radial-gradient(ellipse at center, rgba(0,212,255,0.08) 0%, transparent 70%)" }} />
-                      )}
-                    </div>
-
-                    {/* Name label */}
-                    <span
-                      className="mt-1.5 text-center font-bold text-[9px] uppercase tracking-wide leading-tight"
-                      style={{
-                        color: isSelected
-                          ? "#00d4ff"
-                          : slot.borderType === "orange"
-                          ? "#fbbf24"
-                          : "#94a3b8",
-                        textShadow: isSelected ? "0 0 8px rgba(0,212,255,0.8)" : "none",
-                      }}
-                    >
-                      {slot.name}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
 
         {/* WEAPON PANEL — slide-in drawer */}
         <div
@@ -460,16 +266,6 @@ export default function Lobby() {
                   fill="none" stroke="rgba(0,210,255,0.3)" strokeWidth="0.5"
                   strokeDasharray="8 4" />
               </svg>
-            </div>
-
-            {/* MAIN CHARACTER — 3D if selected, else 2D PNG */}
-            <div className="absolute inset-0 z-20">
-
-              {selectedChar && (
-                <Suspense fallback={null}>
-                  <CharacterCanvas characterId={selectedChar} />
-                </Suspense>
-              )}
             </div>
 
             {/* Scan line effect */}
