@@ -4,7 +4,7 @@ import { useGetCurrentPlayer, useGetLobby } from "@workspace/api-client-react";
 import InstallPrompt from "@/components/InstallPrompt";
 import {
   ChevronDown, Diamond, Coins,
-  Settings, Mail, Crown,
+  Settings, Mail,
   Gauge, Volume2, Sliders, Globe, Bell, Lock, Info, LogOut, ChevronRight, X
 } from "lucide-react";
 
@@ -55,7 +55,7 @@ export default function Lobby() {
             backdropFilter: "blur(8px)",
             boxShadow: "0 0 10px rgba(212,175,55,0.25)",
           }}>
-          <Crown className="w-4 h-4" style={{ color: "#d4af37", filter: "drop-shadow(0 0 4px rgba(212,175,55,0.8))" }} />
+          <span style={{ fontSize: "16px", filter: "drop-shadow(0 0 4px rgba(212,175,55,0.9))" }}>🪙</span>
         </button>
         <button
           onClick={() => setInboxOpen(true)}
