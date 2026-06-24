@@ -45,32 +45,33 @@ export default function Lobby() {
 
 
       {/* ── TOP-RIGHT ICONS ── */}
-      <div className="absolute top-3 right-3 z-50 flex items-center gap-2">
+      <div
+        className="absolute top-3 right-3 z-50 flex items-center"
+        style={{
+          background: "rgba(0,0,0,0.55)",
+          backdropFilter: "blur(8px)",
+          borderRadius: "10px",
+          overflow: "hidden",
+        }}
+      >
         <button
           onClick={() => {}}
-          className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
-          style={{
-            background: "rgba(0,0,0,0.55)",
-            backdropFilter: "blur(8px)",
-          }}>
+          className="flex items-center justify-center w-9 h-9 active:scale-90 transition-transform"
+        >
           <span style={{ fontSize: "16px" }}>🪙</span>
         </button>
+        <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.15)" }} />
         <button
           onClick={() => setInboxOpen(true)}
-          className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform ml-16"
-          style={{
-            background: "rgba(0,0,0,0.55)",
-            backdropFilter: "blur(8px)",
-          }}>
+          className="flex items-center justify-center w-9 h-9 active:scale-90 transition-transform"
+        >
           <Mail className="w-4 h-4" style={{ color: "#00d4ff" }} />
         </button>
+        <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.15)" }} />
         <button
           onClick={() => setSettingsOpen(true)}
-          className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
-          style={{
-            background: "rgba(0,0,0,0.55)",
-            backdropFilter: "blur(8px)",
-          }}>
+          className="flex items-center justify-center w-9 h-9 active:scale-90 transition-transform"
+        >
           <Settings className="w-4 h-4" style={{ color: "#00d4ff" }} />
         </button>
       </div>
