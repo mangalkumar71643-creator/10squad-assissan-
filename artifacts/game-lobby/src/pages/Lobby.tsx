@@ -4,7 +4,7 @@ import { useGetCurrentPlayer, useGetLobby } from "@workspace/api-client-react";
 import InstallPrompt from "@/components/InstallPrompt";
 import {
   ChevronDown, Diamond, Coins,
-  Settings, Mail,
+  Settings, Mail, Crown,
   Gauge, Volume2, Sliders, Globe, Bell, Lock, Info, LogOut, ChevronRight, X
 } from "lucide-react";
 
@@ -46,6 +46,17 @@ export default function Lobby() {
 
       {/* ── TOP-RIGHT ICONS ── */}
       <div className="absolute top-3 right-3 z-50 flex items-center gap-2">
+        <button
+          onClick={() => {}}
+          className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
+          style={{
+            background: "rgba(0,0,0,0.55)",
+            border: "1px solid rgba(212,175,55,0.45)",
+            backdropFilter: "blur(8px)",
+            boxShadow: "0 0 10px rgba(212,175,55,0.25)",
+          }}>
+          <Crown className="w-4 h-4" style={{ color: "#d4af37", filter: "drop-shadow(0 0 4px rgba(212,175,55,0.8))" }} />
+        </button>
         <button
           onClick={() => setInboxOpen(true)}
           className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
