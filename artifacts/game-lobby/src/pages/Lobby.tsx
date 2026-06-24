@@ -51,33 +51,27 @@ export default function Lobby() {
           className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
           style={{
             background: "rgba(0,0,0,0.55)",
-            border: "1px solid rgba(212,175,55,0.45)",
             backdropFilter: "blur(8px)",
-            boxShadow: "0 0 10px rgba(212,175,55,0.25)",
           }}>
-          <span style={{ fontSize: "16px", filter: "drop-shadow(0 0 4px rgba(212,175,55,0.9))" }}>🪙</span>
+          <span style={{ fontSize: "16px" }}>🪙</span>
         </button>
         <button
           onClick={() => setInboxOpen(true)}
           className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform ml-16"
           style={{
             background: "rgba(0,0,0,0.55)",
-            border: "1px solid rgba(0,210,255,0.35)",
             backdropFilter: "blur(8px)",
-            boxShadow: "0 0 10px rgba(0,210,255,0.15)",
           }}>
-          <Mail className="w-4 h-4" style={{ color: "#00d4ff", filter: "drop-shadow(0 0 4px rgba(0,212,255,0.7))" }} />
+          <Mail className="w-4 h-4" style={{ color: "#00d4ff" }} />
         </button>
         <button
           onClick={() => setSettingsOpen(true)}
           className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
           style={{
             background: "rgba(0,0,0,0.55)",
-            border: "1px solid rgba(0,210,255,0.35)",
             backdropFilter: "blur(8px)",
-            boxShadow: "0 0 10px rgba(0,210,255,0.15)",
           }}>
-          <Settings className="w-4 h-4" style={{ color: "#00d4ff", filter: "drop-shadow(0 0 4px rgba(0,212,255,0.7))" }} />
+          <Settings className="w-4 h-4" style={{ color: "#00d4ff" }} />
         </button>
       </div>
 
