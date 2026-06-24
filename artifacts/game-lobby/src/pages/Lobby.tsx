@@ -59,7 +59,7 @@ export default function Lobby() {
         </button>
         <button
           onClick={() => setInboxOpen(true)}
-          className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform"
+          className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform ml-4"
           style={{
             background: "rgba(0,0,0,0.55)",
             border: "1px solid rgba(0,210,255,0.35)",
