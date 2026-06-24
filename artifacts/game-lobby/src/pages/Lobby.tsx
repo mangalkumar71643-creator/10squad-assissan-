@@ -45,8 +45,16 @@ export default function Lobby() {
 
 
       {/* ── TOP-RIGHT ICONS ── */}
-      <div className="absolute top-3 right-3 z-50 flex items-center gap-6">
-        {/* Gold coin — standalone, no background */}
+      <div
+        className="absolute top-3 right-3 z-50 flex items-center gap-6"
+        style={{
+          background: "rgba(0,0,0,0.55)",
+          backdropFilter: "blur(8px)",
+          borderRadius: "10px",
+          padding: "0 4px",
+        }}
+      >
+        {/* Gold coin */}
         <button
           onClick={() => {}}
           className="flex items-center justify-center w-9 h-9 active:scale-90 transition-transform"
@@ -54,16 +62,8 @@ export default function Lobby() {
           <span style={{ fontSize: "18px" }}>🪙</span>
         </button>
 
-        {/* Email + Settings — connected black bar */}
-        <div
-          className="flex items-center"
-          style={{
-            background: "rgba(0,0,0,0.55)",
-            backdropFilter: "blur(8px)",
-            borderRadius: "10px",
-            overflow: "hidden",
-          }}
-        >
+        {/* Email + Settings with divider */}
+        <div className="flex items-center">
           <button
             onClick={() => setInboxOpen(true)}
             className="flex items-center justify-center w-9 h-9 active:scale-90 transition-transform"
