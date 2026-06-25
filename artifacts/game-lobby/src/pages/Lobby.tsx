@@ -152,14 +152,14 @@ export default function Lobby() {
           borderRadius: "0 0 8px 8px",
           boxShadow: "0 0 12px rgba(0,210,255,0.25), inset 0 0 20px rgba(0,210,255,0.05)",
           overflow: "hidden",
-          height: "40px",
+          height: "30px",
         }}
       >
         {/* Avatar Box */}
         <div
           style={{
             width: "40px",
-            height: "40px",
+            height: "30px",
             background: "rgba(0,20,50,0.9)",
             borderRight: "1.5px solid rgba(0,210,255,0.4)",
             display: "flex",
