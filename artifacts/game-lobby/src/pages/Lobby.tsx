@@ -177,7 +177,7 @@ export default function Lobby() {
         </div>
 
         {/* Player Name */}
-        <div style={{ padding: "0 14px", display: "flex", alignItems: "center" }}>
+        <div style={{ padding: "0 30px", display: "flex", alignItems: "center" }}>
           <span
             style={{
               fontFamily: "monospace",
