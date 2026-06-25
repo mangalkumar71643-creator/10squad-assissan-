@@ -204,8 +204,7 @@ export default function Lobby() {
             alignItems: "center",
             gap: "5px",
             padding: "0 10px",
-            background: "rgba(5,15,30,0.82)",
-            borderRadius: "0 0 6px 6px",
+            background: "transparent",
             height: "28px",
             flexShrink: 0,
           }}
