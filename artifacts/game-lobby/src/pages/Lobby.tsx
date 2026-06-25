@@ -271,7 +271,7 @@ export default function Lobby() {
           onMouseLeave={e => (e.currentTarget.style.boxShadow = "0 0 18px rgba(140,80,255,0.35), inset 0 0 12px rgba(140,80,255,0.08)")}
         >
           {/* People icon */}
-          <svg width="26" height="22" viewBox="0 0 32 28" fill="none">
+          <svg width="18" height="18" viewBox="0 0 32 28" fill="none">
             <circle cx="12" cy="8" r="5" stroke="rgba(160,100,255,0.9)" strokeWidth="1.8" fill="rgba(140,80,255,0.15)"/>
             <path d="M2 26 Q3 16 12 15 Q21 16 22 26" stroke="rgba(160,100,255,0.9)" strokeWidth="1.8" fill="rgba(140,80,255,0.1)" strokeLinecap="round"/>
             <circle cx="23" cy="7" r="4" stroke="rgba(160,100,255,0.7)" strokeWidth="1.5" fill="rgba(140,80,255,0.1)"/>
