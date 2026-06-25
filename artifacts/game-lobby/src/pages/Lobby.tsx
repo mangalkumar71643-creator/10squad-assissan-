@@ -194,28 +194,6 @@ export default function Lobby() {
           </span>
         </div>
 
-        {/* Level Badge — hexagonal */}
-        <div
-          style={{
-            marginRight: "6px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            width: "42px",
-            height: "42px",
-            background: "rgba(0,10,30,0.9)",
-            border: "1.5px solid rgba(0,210,255,0.7)",
-            clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
-            flexShrink: 0,
-          }}
-        >
-          <span style={{ fontSize: "7px", fontWeight: 700, color: "rgba(0,210,255,0.9)", letterSpacing: "0.05em", lineHeight: 1 }}>LVL</span>
-          <span style={{ fontSize: "13px", fontWeight: 900, color: "#ffffff", lineHeight: 1.1, textShadow: "0 0 8px rgba(0,210,255,0.8)" }}>
-            {player?.level ?? 1}
-          </span>
-        </div>
-
         {/* Diamond Icon */}
         <div
           style={{
@@ -242,6 +220,28 @@ export default function Lobby() {
             }}
           >
             {player?.diamonds ?? 0}
+          </span>
+        </div>
+
+        {/* Level Badge — hexagonal */}
+        <div
+          style={{
+            marginRight: "6px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "42px",
+            height: "42px",
+            background: "rgba(0,10,30,0.9)",
+            border: "1.5px solid rgba(0,210,255,0.7)",
+            clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+            flexShrink: 0,
+          }}
+        >
+          <span style={{ fontSize: "7px", fontWeight: 700, color: "rgba(0,210,255,0.9)", letterSpacing: "0.05em", lineHeight: 1 }}>LVL</span>
+          <span style={{ fontSize: "13px", fontWeight: 900, color: "#ffffff", lineHeight: 1.1, textShadow: "0 0 8px rgba(0,210,255,0.8)" }}>
+            {player?.level ?? 1}
           </span>
         </div>
       </div>
