@@ -257,14 +257,15 @@ export default function Lobby() {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "10px",
+            gap: "5px",
             background: "rgba(10,5,30,0.88)",
             border: "1.5px solid rgba(140,80,255,0.7)",
             borderLeft: "none",
             borderRadius: "0 10px 10px 0",
-            padding: "0 18px 0 14px",
+            padding: "0 8px 0 8px",
             height: "35px",
             width: "100px",
+            overflow: "hidden",
             cursor: "pointer",
             boxShadow: "0 0 18px rgba(140,80,255,0.35), inset 0 0 12px rgba(140,80,255,0.08)",
             transition: "all 0.2s",
@@ -273,7 +274,7 @@ export default function Lobby() {
           onMouseLeave={e => (e.currentTarget.style.boxShadow = "0 0 18px rgba(140,80,255,0.35), inset 0 0 12px rgba(140,80,255,0.08)")}
         >
           {/* People icon */}
-          <svg width="18" height="18" viewBox="0 0 32 28" fill="none">
+          <svg width="12" height="12" viewBox="0 0 32 28" fill="none">
             <circle cx="12" cy="8" r="5" stroke="rgba(160,100,255,0.9)" strokeWidth="1.8" fill="rgba(140,80,255,0.15)"/>
             <path d="M2 26 Q3 16 12 15 Q21 16 22 26" stroke="rgba(160,100,255,0.9)" strokeWidth="1.8" fill="rgba(140,80,255,0.1)" strokeLinecap="round"/>
             <circle cx="23" cy="7" r="4" stroke="rgba(160,100,255,0.7)" strokeWidth="1.5" fill="rgba(140,80,255,0.1)"/>
@@ -284,8 +285,8 @@ export default function Lobby() {
             style={{
               fontFamily: "monospace",
               fontWeight: 800,
-              fontSize: "13px",
-              letterSpacing: "0.18em",
+              fontSize: "10px",
+              letterSpacing: "0.08em",
               color: "rgba(190,140,255,0.95)",
               textShadow: "0 0 12px rgba(160,100,255,0.9)",
               textTransform: "uppercase",
