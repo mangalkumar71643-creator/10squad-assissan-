@@ -194,6 +194,37 @@ export default function Lobby() {
           </span>
         </div>
 
+        {/* Diamond Icon */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            padding: "0 8px 0 4px",
+            borderRight: "1.5px solid rgba(0,210,255,0.3)",
+            marginRight: "6px",
+            flexShrink: 0,
+          }}
+        >
+          <img
+            src="/diamond.png"
+            alt="diamonds"
+            style={{ width: "20px", height: "20px", objectFit: "contain", filter: "drop-shadow(0 0 4px rgba(0,210,255,0.7))" }}
+          />
+          <span
+            style={{
+              fontFamily: "monospace",
+              fontWeight: 700,
+              fontSize: "12px",
+              color: "#00d2ff",
+              textShadow: "0 0 8px rgba(0,210,255,0.8)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {player?.diamonds ?? 0}
+          </span>
+        </div>
+
         {/* Level Badge — hexagonal */}
         <div
           style={{
