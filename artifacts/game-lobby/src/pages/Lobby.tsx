@@ -144,8 +144,9 @@ export default function Lobby() {
 
       {/* ── PLAYER ID CARD — top-left ── */}
       <div
-        className="absolute top-0 left-3 z-50 flex items-center gap-0"
+        className="absolute top-0 z-50 flex items-center gap-0"
         style={{
+          left: "30px",
           background: "rgba(5,15,30,0.82)",
           border: "1.5px solid rgba(0,210,255,0.55)",
           borderRadius: "0 0 8px 8px",
