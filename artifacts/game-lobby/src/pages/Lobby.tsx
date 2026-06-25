@@ -48,7 +48,7 @@ export default function Lobby() {
       <div
         className="absolute top-0 right-3 z-50 flex items-center gap-[60px]"
         style={{
-          background: "rgba(0,0,0,0.70)",
+          background: "rgba(0,0,0,0.30)",
           backdropFilter: "blur(8px)",
           clipPath: "polygon(0 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 18px))",
           padding: "0px 10px 8px 15px",
