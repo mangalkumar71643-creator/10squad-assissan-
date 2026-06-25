@@ -151,15 +151,15 @@ export default function Lobby() {
           border: "1.5px solid rgba(0,210,255,0.55)",
           borderRadius: "0 0 6px 6px",
           boxShadow: "0 0 12px rgba(0,210,255,0.25), inset 0 0 20px rgba(0,210,255,0.05)",
-          overflow: "hidden",
-          height: "40px",
+          overflow: "visible",
+          height: "28px",
         }}
       >
         {/* Avatar Box */}
         <div
           style={{
-            width: "40px",
-            height: "40px",
+            width: "28px",
+            height: "28px",
             background: "rgba(0,20,50,0.9)",
             borderRight: "1.5px solid rgba(0,210,255,0.4)",
             display: "flex",
@@ -168,7 +168,7 @@ export default function Lobby() {
             flexShrink: 0,
           }}
         >
-          <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+          <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="10" r="6" fill="rgba(0,210,255,0.15)" stroke="rgba(0,210,255,0.6)" strokeWidth="1"/>
             <ellipse cx="16" cy="10" rx="3.5" ry="4" fill="rgba(180,200,220,0.7)"/>
             <path d="M5 30 Q6 18 16 17 Q26 18 27 30Z" fill="rgba(0,210,255,0.12)" stroke="rgba(0,210,255,0.5)" strokeWidth="1"/>
