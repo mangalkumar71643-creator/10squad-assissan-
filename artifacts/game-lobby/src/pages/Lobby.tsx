@@ -235,10 +235,7 @@ export default function Lobby() {
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            width: "42px",
-            height: "42px",
-            background: "rgba(0,10,30,0.9)",
-            clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+            background: "transparent",
             flexShrink: 0,
           }}
         >
