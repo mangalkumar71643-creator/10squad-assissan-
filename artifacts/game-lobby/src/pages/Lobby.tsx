@@ -51,7 +51,7 @@ export default function Lobby() {
           background: "rgba(0,0,0,0.55)",
           backdropFilter: "blur(8px)",
           borderRadius: "0 0 10px 10px",
-          padding: "2px 4px 6px 10px",
+          padding: "0.5px 4px 6px 10px",
         }}
       >
         {/* Gold coin */}
