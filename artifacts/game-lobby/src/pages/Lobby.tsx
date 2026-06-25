@@ -46,12 +46,12 @@ export default function Lobby() {
 
       {/* ── TOP-RIGHT ICONS ── */}
       <div
-        className="absolute top-3 right-3 z-50 flex items-center gap-6"
+        className="absolute top-0 right-3 z-50 flex items-center gap-6"
         style={{
           background: "rgba(0,0,0,0.55)",
           backdropFilter: "blur(8px)",
-          borderRadius: "10px",
-          padding: "0 4px",
+          borderRadius: "0 0 10px 10px",
+          padding: "6px 4px",
         }}
       >
         {/* Gold coin */}
