@@ -46,7 +46,7 @@ export default function Lobby() {
 
       {/* ── TOP-RIGHT ICONS ── */}
       <div
-        className="absolute top-0 right-3 z-50 flex items-center gap-6"
+        className="absolute top-0 right-3 z-50 flex items-center gap-9"
         style={{
           background: "rgba(0,0,0,0.55)",
           backdropFilter: "blur(8px)",
