@@ -4,7 +4,7 @@ import { useGetCurrentPlayer, useGetLobby } from "@workspace/api-client-react";
 import InstallPrompt from "@/components/InstallPrompt";
 import {
   ChevronDown, Diamond, Coins,
-  Settings, Mail,
+  Settings, Mail, Star, Zap,
   Gauge, Volume2, Sliders, Globe, Bell, Lock, Info, LogOut, ChevronRight, X
 } from "lucide-react";
 
@@ -77,6 +77,115 @@ export default function Lobby() {
           >
             <Settings className="w-4 h-4" style={{ color: "#00d4ff" }} />
           </button>
+        </div>
+      </div>
+
+      {/* ── PLAYER PROFILE CARD (LEFT) ── */}
+      <div className="absolute left-3 top-14 z-40 flex flex-col gap-2" style={{ width: "140px" }}>
+        {/* Avatar + Name */}
+        <div
+          className="flex flex-col items-center gap-2 p-3 rounded-xl"
+          style={{
+            background: "rgba(0,0,0,0.55)",
+            backdropFilter: "blur(10px)",
+            border: "1px solid rgba(0,212,255,0.15)",
+          }}
+        >
+          {/* Avatar circle */}
+          <div className="relative">
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center text-2xl"
+              style={{
+                background: "linear-gradient(135deg, rgba(0,180,255,0.25) 0%, rgba(120,0,255,0.25) 100%)",
+                border: "2px solid rgba(0,212,255,0.4)",
+              }}
+            >
+              {player?.avatar ? (
+                <img src={player.avatar} className="w-full h-full rounded-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              ) : (
+                <span>🥷</span>
+              )}
+            </div>
+            {/* Level badge */}
+            <div
+              className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center"
+              style={{
+                background: "linear-gradient(135deg, #f97316, #eab308)",
+                fontSize: "9px",
+                fontWeight: 900,
+                color: "#fff",
+                border: "1.5px solid rgba(0,0,0,0.6)",
+              }}
+            >
+              {player?.level ?? 1}
+            </div>
+          </div>
+
+          {/* Username */}
+          <div className="text-center">
+            <div className="font-black text-[12px] tracking-wide text-white leading-tight">
+              {player?.username ?? "OPERATIVE"}
+            </div>
+            <div
+              className="font-mono text-[9px] uppercase tracking-[0.15em] mt-0.5"
+              style={{ color: "#f97316" }}
+            >
+              {player?.title ?? "PROJECT"}
+            </div>
+          </div>
+        </div>
+
+        {/* Rank */}
+        <div
+          className="flex items-center justify-between px-3 py-2 rounded-xl"
+          style={{
+            background: "rgba(0,0,0,0.55)",
+            backdropFilter: "blur(10px)",
+            border: "1px solid rgba(0,212,255,0.15)",
+          }}
+        >
+          <div className="flex items-center gap-1.5">
+            <Star className="w-3 h-3" style={{ color: "#eab308" }} />
+            <span className="text-[10px] font-semibold text-white/60 uppercase tracking-wider">Rank</span>
+          </div>
+          <span className="font-black text-[11px]" style={{ color: "#00d4ff" }}>
+            {player?.rank ?? "Bronze"}
+          </span>
+        </div>
+
+        {/* Currency */}
+        <div
+          className="flex flex-col gap-1.5 px-3 py-2.5 rounded-xl"
+          style={{
+            background: "rgba(0,0,0,0.55)",
+            backdropFilter: "blur(10px)",
+            border: "1px solid rgba(0,212,255,0.15)",
+          }}
+        >
+          {/* Gold */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <span style={{ fontSize: "11px" }}>🪙</span>
+              <span className="text-[9px] text-white/50 uppercase tracking-wider">Gold</span>
+            </div>
+            <span className="font-black text-[11px] text-yellow-400">{(player?.gold ?? 0).toLocaleString()}</span>
+          </div>
+          {/* Diamonds */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <Diamond className="w-2.5 h-2.5" style={{ color: "#00d4ff" }} />
+              <span className="text-[9px] text-white/50 uppercase tracking-wider">Gems</span>
+            </div>
+            <span className="font-black text-[11px]" style={{ color: "#00d4ff" }}>{(player?.diamonds ?? 0).toLocaleString()}</span>
+          </div>
+          {/* Tokens */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <Zap className="w-2.5 h-2.5" style={{ color: "#a855f7" }} />
+              <span className="text-[9px] text-white/50 uppercase tracking-wider">Tokens</span>
+            </div>
+            <span className="font-black text-[11px]" style={{ color: "#a855f7" }}>{(player?.tokens ?? 0).toLocaleString()}</span>
+          </div>
         </div>
       </div>
 
