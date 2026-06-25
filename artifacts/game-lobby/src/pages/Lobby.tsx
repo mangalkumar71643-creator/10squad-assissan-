@@ -218,7 +218,7 @@ export default function Lobby() {
             style={{
               fontFamily: "monospace",
               fontWeight: 700,
-              fontSize: "6px",
+              fontSize: "8px",
               color: "#00d2ff",
               textShadow: "0 0 8px rgba(0,210,255,0.8)",
               whiteSpace: "nowrap",
