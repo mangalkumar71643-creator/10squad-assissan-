@@ -133,7 +133,90 @@ export default function Lobby() {
       </div>
 
       {/* ── BOTTOM BAR ── */}
-      <div className="relative z-20 flex items-center justify-end px-3 py-2 shrink-0">
+      <div className="relative z-20 flex items-center justify-between px-3 py-2 shrink-0">
+
+        {/* ── PLAYER ID CARD ── */}
+        <div
+          className="flex items-center gap-0"
+          style={{
+            background: "rgba(5,15,30,0.82)",
+            border: "1.5px solid rgba(0,210,255,0.55)",
+            borderRadius: "8px",
+            boxShadow: "0 0 12px rgba(0,210,255,0.25), inset 0 0 20px rgba(0,210,255,0.05)",
+            overflow: "hidden",
+            height: "52px",
+          }}
+        >
+          {/* Avatar Box */}
+          <div
+            style={{
+              width: "52px",
+              height: "52px",
+              background: "rgba(0,20,50,0.9)",
+              borderRight: "1.5px solid rgba(0,210,255,0.4)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            {/* Hooded figure SVG */}
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <circle cx="16" cy="10" r="6" fill="rgba(0,210,255,0.15)" stroke="rgba(0,210,255,0.6)" strokeWidth="1"/>
+              <ellipse cx="16" cy="10" rx="3.5" ry="4" fill="rgba(180,200,220,0.7)"/>
+              <path d="M5 30 Q6 18 16 17 Q26 18 27 30Z" fill="rgba(0,210,255,0.12)" stroke="rgba(0,210,255,0.5)" strokeWidth="1"/>
+              <path d="M8 20 Q10 15 16 14 Q22 15 24 20 Q20 19 16 19 Q12 19 8 20Z" fill="rgba(0,180,255,0.25)"/>
+            </svg>
+          </div>
+
+          {/* Player Name */}
+          <div
+            style={{
+              padding: "0 14px",
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "monospace",
+                fontWeight: 900,
+                fontSize: "15px",
+                letterSpacing: "0.12em",
+                color: "#ffffff",
+                textShadow: "0 0 10px rgba(0,210,255,0.7)",
+                textTransform: "uppercase",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {player?.username ?? "PLAYER_01"}
+            </span>
+          </div>
+
+          {/* Level Badge — hexagonal style */}
+          <div
+            style={{
+              marginRight: "10px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "42px",
+              height: "42px",
+              background: "rgba(0,10,30,0.9)",
+              border: "1.5px solid rgba(0,210,255,0.7)",
+              clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ fontSize: "7px", fontWeight: 700, color: "rgba(0,210,255,0.9)", letterSpacing: "0.05em", lineHeight: 1 }}>LVL</span>
+            <span style={{ fontSize: "13px", fontWeight: 900, color: "#ffffff", lineHeight: 1.1, textShadow: "0 0 8px rgba(0,210,255,0.8)" }}>
+              {player?.level ?? 1}
+            </span>
+          </div>
+        </div>
+
+        {/* START MISSION */}
         <button
           onClick={() => {}}
           className="px-6 py-2.5 bg-gradient-to-r from-orange-600 to-amber-500 hover:from-orange-500 hover:to-yellow-400 text-white font-black text-[11px] uppercase tracking-[0.12em] rounded-lg shadow-[0_0_20px_rgba(255,136,0,0.45)] border border-orange-400/60 transition-all hover:scale-105 hover:shadow-[0_0_30px_rgba(255,136,0,0.7)] active:scale-95 whitespace-nowrap"
