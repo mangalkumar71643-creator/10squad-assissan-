@@ -50,7 +50,7 @@ export default function Lobby() {
         style={{
           background: "rgba(0,0,0,0.72)",
           backdropFilter: "blur(8px)",
-          clipPath: "polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px))",
+          clipPath: "polygon(0 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 18px))",
           padding: "0px 10px 8px 15px",
         }}
       >
