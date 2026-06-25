@@ -148,9 +148,8 @@ export default function Lobby() {
         style={{
           left: "4px",
           background: "rgba(5,15,30,0.82)",
-          border: "1.5px solid rgba(0,210,255,0.55)",
+          border: "1.5px solid rgba(0,210,255,0.2)",
           borderRadius: "0 0 6px 6px",
-          boxShadow: "0 0 12px rgba(0,210,255,0.25), inset 0 0 20px rgba(0,210,255,0.05)",
           overflow: "visible",
           height: "28px",
         }}
