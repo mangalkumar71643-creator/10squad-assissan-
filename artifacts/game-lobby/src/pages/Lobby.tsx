@@ -158,7 +158,7 @@ export default function Lobby() {
         {/* Avatar Box */}
         <div
           style={{
-            width: "30px",
+            width: "20px",
             height: "30px",
             background: "rgba(0,20,50,0.9)",
             borderRight: "1.5px solid rgba(0,210,255,0.4)",
