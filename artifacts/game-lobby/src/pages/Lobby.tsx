@@ -203,7 +203,7 @@ export default function Lobby() {
             display: "flex",
             alignItems: "center",
             gap: "5px",
-            padding: "0 10px",
+            padding: "0 20px 0 10px",
             background: "transparent",
             height: "28px",
             flexShrink: 0,
