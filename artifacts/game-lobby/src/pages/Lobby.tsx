@@ -225,7 +225,7 @@ export default function Lobby() {
               whiteSpace: "nowrap",
             }}
           >
-            {player?.diamonds ?? 0}
+            0
           </span>
         </div>
 
