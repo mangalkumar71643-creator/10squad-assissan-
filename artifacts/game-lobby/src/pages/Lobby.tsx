@@ -247,6 +247,58 @@ export default function Lobby() {
         </div>
       </div>
 
+      {/* ── CHARACTER BUTTON — left side ── */}
+      <div
+        className="absolute z-50"
+        style={{ left: 0, top: "132px" }}
+      >
+        <button
+          onClick={() => {}}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            background: "rgba(10,5,30,0.88)",
+            border: "1.5px solid rgba(140,80,255,0.7)",
+            borderLeft: "none",
+            borderRadius: "0 10px 10px 0",
+            padding: "10px 18px 10px 14px",
+            cursor: "pointer",
+            boxShadow: "0 0 18px rgba(140,80,255,0.35), inset 0 0 12px rgba(140,80,255,0.08)",
+            transition: "all 0.2s",
+          }}
+          onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 0 28px rgba(140,80,255,0.7), inset 0 0 16px rgba(140,80,255,0.15)")}
+          onMouseLeave={e => (e.currentTarget.style.boxShadow = "0 0 18px rgba(140,80,255,0.35), inset 0 0 12px rgba(140,80,255,0.08)")}
+        >
+          {/* People icon */}
+          <svg width="26" height="22" viewBox="0 0 32 28" fill="none">
+            <circle cx="12" cy="8" r="5" stroke="rgba(160,100,255,0.9)" strokeWidth="1.8" fill="rgba(140,80,255,0.15)"/>
+            <path d="M2 26 Q3 16 12 15 Q21 16 22 26" stroke="rgba(160,100,255,0.9)" strokeWidth="1.8" fill="rgba(140,80,255,0.1)" strokeLinecap="round"/>
+            <circle cx="23" cy="7" r="4" stroke="rgba(160,100,255,0.7)" strokeWidth="1.5" fill="rgba(140,80,255,0.1)"/>
+            <path d="M18 26 Q18.5 18 23 17 Q28 18 30 26" stroke="rgba(160,100,255,0.7)" strokeWidth="1.5" fill="rgba(140,80,255,0.08)" strokeLinecap="round"/>
+          </svg>
+          {/* Text */}
+          <span
+            style={{
+              fontFamily: "monospace",
+              fontWeight: 800,
+              fontSize: "13px",
+              letterSpacing: "0.18em",
+              color: "rgba(190,140,255,0.95)",
+              textShadow: "0 0 12px rgba(160,100,255,0.9)",
+              textTransform: "uppercase",
+              whiteSpace: "nowrap",
+            }}
+          >
+            CHARACTER
+          </span>
+          {/* Arrow */}
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none" style={{ marginLeft: "4px" }}>
+            <path d="M1 1 L7 7 L1 13" stroke="rgba(160,100,255,0.8)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      </div>
+
       {/* ══ INBOX PANEL ══ */}
       {inboxOpen && (
         <>
