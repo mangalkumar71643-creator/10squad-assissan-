@@ -168,7 +168,7 @@ export default function Lobby() {
             flexShrink: 0,
           }}
         >
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <svg width="16" height="16" viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="10" r="6" fill="rgba(0,210,255,0.15)" stroke="rgba(0,210,255,0.6)" strokeWidth="1"/>
             <ellipse cx="16" cy="10" rx="3.5" ry="4" fill="rgba(180,200,220,0.7)"/>
             <path d="M5 30 Q6 18 16 17 Q26 18 27 30Z" fill="rgba(0,210,255,0.12)" stroke="rgba(0,210,255,0.5)" strokeWidth="1"/>
