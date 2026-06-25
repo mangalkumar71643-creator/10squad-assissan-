@@ -56,9 +56,10 @@ export default function Lobby() {
         {/* Gold coin */}
         <button
           onClick={() => {}}
-          className="flex items-center justify-center w-9 h-7 active:scale-90 transition-transform"
+          className="flex items-center justify-center gap-1 h-7 active:scale-90 transition-transform"
         >
           <span style={{ fontSize: "18px" }}>🪙</span>
+          <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#f0c040", textShadow: "0 0 6px rgba(240,192,64,0.8)" }}>0</span>
         </button>
 
         {/* Email + Settings with divider */}
