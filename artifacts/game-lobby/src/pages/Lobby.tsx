@@ -144,69 +144,77 @@ export default function Lobby() {
 
       {/* ── PLAYER ID CARD — top-left ── */}
       <div
-        className="absolute top-0 z-50 flex items-center gap-0"
-        style={{
-          left: "4px",
-          background: "rgba(5,15,30,0.82)",
-          border: "1.5px solid rgba(0,210,255,0.2)",
-          borderRadius: "0 0 6px 6px",
-          overflow: "visible",
-          height: "28px",
-        }}
+        className="absolute top-0 z-50 flex items-center"
+        style={{ left: "4px", gap: "5px" }}
       >
-        {/* Avatar Box */}
+        {/* Box 1 — Profile Icon + Name */}
         <div
           style={{
-            width: "28px",
-            height: "28px",
-            background: "rgba(0,20,50,0.9)",
-            borderRight: "1.5px solid rgba(0,210,255,0.4)",
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
+            gap: "0",
+            background: "rgba(5,15,30,0.82)",
+            border: "1.5px solid rgba(0,210,255,0.35)",
+            borderRadius: "0 0 6px 6px",
+            height: "28px",
+            overflow: "hidden",
           }}
         >
-          <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="10" r="6" fill="rgba(0,210,255,0.15)" stroke="rgba(0,210,255,0.6)" strokeWidth="1"/>
-            <ellipse cx="16" cy="10" rx="3.5" ry="4" fill="rgba(180,200,220,0.7)"/>
-            <path d="M5 30 Q6 18 16 17 Q26 18 27 30Z" fill="rgba(0,210,255,0.12)" stroke="rgba(0,210,255,0.5)" strokeWidth="1"/>
-            <path d="M8 20 Q10 15 16 14 Q22 15 24 20 Q20 19 16 19 Q12 19 8 20Z" fill="rgba(0,180,255,0.25)"/>
-          </svg>
-        </div>
-
-        {/* Player Name */}
-        <div style={{ padding: "0 30px", display: "flex", alignItems: "center" }}>
-          <span
+          <div
             style={{
-              fontFamily: "monospace",
-              fontWeight: 900,
-              fontSize: "15px",
-              letterSpacing: "0.12em",
-              color: "#ffffff",
-              textShadow: "0 0 10px rgba(0,210,255,0.7)",
-              textTransform: "uppercase",
-              whiteSpace: "nowrap",
+              width: "28px",
+              height: "28px",
+              background: "rgba(0,20,50,0.9)",
+              borderRight: "1.5px solid rgba(0,210,255,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
             }}
           >
-            {player?.username ?? "PLAYER_01"}
-          </span>
+            <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
+              <circle cx="16" cy="10" r="6" fill="rgba(0,210,255,0.15)" stroke="rgba(0,210,255,0.6)" strokeWidth="1"/>
+              <ellipse cx="16" cy="10" rx="3.5" ry="4" fill="rgba(180,200,220,0.7)"/>
+              <path d="M5 30 Q6 18 16 17 Q26 18 27 30Z" fill="rgba(0,210,255,0.12)" stroke="rgba(0,210,255,0.5)" strokeWidth="1"/>
+              <path d="M8 20 Q10 15 16 14 Q22 15 24 20 Q20 19 16 19 Q12 19 8 20Z" fill="rgba(0,180,255,0.25)"/>
+            </svg>
+          </div>
+          <div style={{ padding: "0 10px", display: "flex", alignItems: "center" }}>
+            <span
+              style={{
+                fontFamily: "monospace",
+                fontWeight: 900,
+                fontSize: "13px",
+                letterSpacing: "0.12em",
+                color: "#ffffff",
+                textShadow: "0 0 10px rgba(0,210,255,0.7)",
+                textTransform: "uppercase",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {player?.username ?? "PLAYER_01"}
+            </span>
+          </div>
         </div>
 
-        {/* Diamond Icon */}
+        {/* Box 2 — Diamond Icon + Count */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "4px",
+            gap: "5px",
             padding: "0 10px",
+            background: "rgba(5,15,30,0.82)",
+            border: "1.5px solid rgba(0,210,255,0.35)",
+            borderRadius: "0 0 6px 6px",
+            height: "28px",
             flexShrink: 0,
           }}
         >
           <img
             src="/diamond.png"
             alt="diamonds"
-            style={{ width: "20px", height: "20px", objectFit: "contain", filter: "drop-shadow(0 0 4px rgba(0,210,255,0.7))" }}
+            style={{ width: "16px", height: "16px", objectFit: "contain", filter: "drop-shadow(0 0 4px rgba(0,210,255,0.7))" }}
           />
           <span
             style={{
@@ -222,10 +230,9 @@ export default function Lobby() {
           </span>
         </div>
 
-        {/* Level Badge — hexagonal */}
+        {/* Box 3 — Level Badge */}
         <div
           style={{
-            marginRight: "6px",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
