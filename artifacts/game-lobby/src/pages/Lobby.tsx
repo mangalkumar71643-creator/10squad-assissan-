@@ -48,10 +48,10 @@ export default function Lobby() {
       <div
         className="absolute top-0 right-3 z-50 flex items-center gap-[60px]"
         style={{
-          background: "rgba(0,0,0,0.55)",
+          background: "rgba(0,0,0,0.72)",
           backdropFilter: "blur(8px)",
-          borderRadius: "0 0 10px 10px",
-          padding: "0px 4px 4px 15px",
+          clipPath: "polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px))",
+          padding: "0px 10px 8px 15px",
         }}
       >
         {/* Gold coin */}
