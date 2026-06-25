@@ -205,7 +205,6 @@ export default function Lobby() {
             gap: "5px",
             padding: "0 10px",
             background: "rgba(5,15,30,0.82)",
-            border: "1.5px solid rgba(0,210,255,0.35)",
             borderRadius: "0 0 6px 6px",
             height: "28px",
             flexShrink: 0,
@@ -240,7 +239,6 @@ export default function Lobby() {
             width: "42px",
             height: "42px",
             background: "rgba(0,10,30,0.9)",
-            border: "1.5px solid rgba(0,210,255,0.7)",
             clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
             flexShrink: 0,
           }}
