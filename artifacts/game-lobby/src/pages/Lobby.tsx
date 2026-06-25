@@ -51,13 +51,13 @@ export default function Lobby() {
           background: "rgba(0,0,0,0.55)",
           backdropFilter: "blur(8px)",
           borderRadius: "0 0 10px 10px",
-          padding: "0.5px 4px 6px 10px",
+          padding: "0px 4px 4px 10px",
         }}
       >
         {/* Gold coin */}
         <button
           onClick={() => {}}
-          className="flex items-center justify-center w-9 h-9 active:scale-90 transition-transform"
+          className="flex items-center justify-center w-9 h-7 active:scale-90 transition-transform"
         >
           <span style={{ fontSize: "18px" }}>🪙</span>
         </button>
@@ -66,14 +66,14 @@ export default function Lobby() {
         <div className="flex items-center">
           <button
             onClick={() => setInboxOpen(true)}
-            className="flex items-center justify-center w-9 h-9 active:scale-90 transition-transform"
+            className="flex items-center justify-center w-9 h-7 active:scale-90 transition-transform"
           >
             <Mail className="w-4 h-4" style={{ color: "#00d4ff" }} />
           </button>
-          <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.15)" }} />
+          <div style={{ width: "1px", height: "16px", background: "rgba(255,255,255,0.15)" }} />
           <button
             onClick={() => setSettingsOpen(true)}
-            className="flex items-center justify-center w-9 h-9 active:scale-90 transition-transform"
+            className="flex items-center justify-center w-9 h-7 active:scale-90 transition-transform"
           >
             <Settings className="w-4 h-4" style={{ color: "#00d4ff" }} />
           </button>
