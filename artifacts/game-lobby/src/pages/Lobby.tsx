@@ -144,8 +144,8 @@ export default function Lobby() {
 
       {/* ── PLAYER ID CARD — top-left ── */}
       <div
-        className="absolute top-0 z-50 flex items-center"
-        style={{ left: "4px", gap: "5px" }}
+        className="absolute z-50 flex items-center"
+        style={{ left: "4px", gap: "5px", top: "2px" }}
       >
         {/* Box 1 — Profile Icon + Name */}
         <div
