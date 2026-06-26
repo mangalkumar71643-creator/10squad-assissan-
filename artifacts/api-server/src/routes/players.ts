@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { playersTable, charactersTable } from "@workspace/db";
+import { playersTable, charactersTable, weaponsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 const router: IRouter = Router();
 
@@ -46,6 +46,39 @@ router.get("/players/:id", async (req, res) => {
     res.json(player[0]);
   } catch (err) {
     req.log.error({ err }, "Error getting player by ID");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get player weapons
+router.get("/players/me/weapons", async (req, res) => {
+  try {
+    const weapons = await db.select().from(weaponsTable).where(eq(weaponsTable.playerId, 1));
+    res.json(weapons);
+  } catch (err) {
+    req.log.error({ err }, "Error getting player weapons");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Equip a weapon
+router.post("/players/me/weapons/:id/equip", async (req, res) => {
+  try {
+    const weaponId = parseInt(req.params.id);
+    if (isNaN(weaponId)) {
+      res.status(400).json({ error: "Invalid weapon ID" });
+      return;
+    }
+    const weapon = await db.select().from(weaponsTable).where(eq(weaponsTable.id, weaponId)).limit(1);
+    if (weapon.length === 0 || !weapon[0].unlocked) {
+      res.status(404).json({ error: "Weapon not found or locked" });
+      return;
+    }
+    await db.update(weaponsTable).set({ selected: false }).where(eq(weaponsTable.playerId, 1));
+    await db.update(weaponsTable).set({ selected: true }).where(eq(weaponsTable.id, weaponId));
+    res.json({ success: true, weapon: weapon[0].name });
+  } catch (err) {
+    req.log.error({ err }, "Error equipping weapon");
     res.status(500).json({ error: "Internal server error" });
   }
 });

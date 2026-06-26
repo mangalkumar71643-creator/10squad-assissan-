@@ -6,6 +6,7 @@ import NotFound from "@/pages/not-found";
 import Lobby from "@/pages/Lobby";
 import Matchmaking from "@/pages/Matchmaking";
 import CharacterSelect from "@/pages/CharacterSelect";
+import WeaponSelect from "@/pages/WeaponSelect";
 
 const queryClient = new QueryClient();
 
@@ -16,6 +17,7 @@ function Router() {
       <Route path="/lobby" component={Lobby} />
       <Route path="/matchmaking" component={Matchmaking} />
       <Route path="/character" component={CharacterSelect} />
+      <Route path="/weapon" component={WeaponSelect} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -302,6 +302,61 @@ export default function Lobby() {
         </button>
       </div>
 
+      {/* ── WEAPON BUTTON — left side, below CHARACTER ── */}
+      <div
+        className="absolute z-50"
+        style={{ left: 0, top: "175px" }}
+      >
+        <button
+          onClick={() => setLocation("/weapon")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            background: "rgba(30,8,5,0.88)",
+            border: "1.5px solid rgba(255,100,30,0.7)",
+            borderLeft: "none",
+            borderRadius: "0 10px 10px 0",
+            padding: "0 8px 0 8px",
+            height: "35px",
+            width: "100px",
+            overflow: "hidden",
+            cursor: "pointer",
+            boxShadow: "0 0 18px rgba(255,100,30,0.35), inset 0 0 12px rgba(255,100,30,0.08)",
+            transition: "all 0.2s",
+          }}
+          onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 0 28px rgba(255,100,30,0.7), inset 0 0 16px rgba(255,100,30,0.15)")}
+          onMouseLeave={e => (e.currentTarget.style.boxShadow = "0 0 18px rgba(255,100,30,0.35), inset 0 0 12px rgba(255,100,30,0.08)")}
+        >
+          {/* Gun icon */}
+          <svg width="12" height="12" viewBox="0 0 32 32" fill="none">
+            <rect x="2" y="12" width="16" height="8" rx="2" stroke="rgba(255,120,50,0.9)" strokeWidth="1.8" fill="rgba(255,100,30,0.15)"/>
+            <rect x="18" y="13" width="10" height="3" rx="1" stroke="rgba(255,120,50,0.9)" strokeWidth="1.5" fill="rgba(255,100,30,0.1)"/>
+            <rect x="8" y="20" width="5" height="5" rx="1" stroke="rgba(255,120,50,0.7)" strokeWidth="1.5" fill="rgba(255,100,30,0.1)"/>
+            <circle cx="6" cy="16" r="2" fill="rgba(255,120,50,0.5)"/>
+          </svg>
+          {/* Text */}
+          <span
+            style={{
+              fontFamily: "monospace",
+              fontWeight: 800,
+              fontSize: "10px",
+              letterSpacing: "0.08em",
+              color: "rgba(255,160,100,0.95)",
+              textShadow: "0 0 12px rgba(255,100,30,0.9)",
+              textTransform: "uppercase",
+              whiteSpace: "nowrap",
+            }}
+          >
+            WEAPON
+          </span>
+          {/* Arrow */}
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none" style={{ marginLeft: "4px" }}>
+            <path d="M1 1 L7 7 L1 13" stroke="rgba(255,120,50,0.8)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      </div>
+
       {/* ══ INBOX PANEL ══ */}
       {inboxOpen && (
         <>

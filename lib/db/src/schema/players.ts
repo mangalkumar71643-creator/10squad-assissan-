@@ -33,6 +33,17 @@ export const lobbySlotsTable = pgTable("lobby_slots", {
   character: text("character"),
 });
 
+export const weaponsTable = pgTable("weapons", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").references(() => playersTable.id),
+  name: text("name").notNull(),
+  image: text("image").notNull(),
+  type: text("type").default("rifle"),
+  rarity: text("rarity").default("common"),
+  unlocked: boolean("unlocked").default(true),
+  selected: boolean("selected").default(false),
+});
+
 export const insertPlayerSchema = createInsertSchema(playersTable).omit({ id: true });
 export const insertCharacterSchema = createInsertSchema(charactersTable).omit({ id: true });
 export const insertLobbySlotSchema = createInsertSchema(lobbySlotsTable).omit({ id: true });
@@ -43,3 +54,6 @@ export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type Character = typeof charactersTable.$inferSelect;
 export type InsertLobbySlot = z.infer<typeof insertLobbySlotSchema>;
 export type LobbySlot = typeof lobbySlotsTable.$inferSelect;
+export const insertWeaponSchema = createInsertSchema(weaponsTable).omit({ id: true });
+export type InsertWeapon = z.infer<typeof insertWeaponSchema>;
+export type Weapon = typeof weaponsTable.$inferSelect;
