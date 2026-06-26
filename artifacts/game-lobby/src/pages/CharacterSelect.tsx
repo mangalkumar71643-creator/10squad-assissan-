@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useGetPlayerCharacters, useGetCurrentPlayer } from "@workspace/api-client-react";
-import { ChevronLeft, Lock, Shuffle } from "lucide-react";
+import { ChevronLeft, Lock, Shuffle, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import CharacterCanvas from "@/components/CharacterCanvas";
 
@@ -128,6 +128,15 @@ export default function CharacterSelect() {
           className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
           style={{ border: "1.5px solid rgba(0,200,255,0.45)", background: "rgba(0,0,0,0.5)" }}>
           <ChevronLeft className="w-5 h-5" style={{ color: "#00c8ff" }} />
+        </button>
+      </div>
+
+      <div className="absolute top-3 right-3 z-30">
+        <button
+          onClick={() => setLocation("/lobby")}
+          className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
+          style={{ border: "1.5px solid rgba(0,200,255,0.45)", background: "rgba(0,0,0,0.5)" }}>
+          <X className="w-5 h-5" style={{ color: "#00c8ff" }} />
         </button>
       </div>
 
