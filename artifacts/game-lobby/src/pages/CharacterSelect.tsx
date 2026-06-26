@@ -236,25 +236,6 @@ export default function CharacterSelect() {
             })}
           </div>
 
-          {/* Pagination dots */}
-          <div className="flex items-center justify-center shrink-0" style={{ gap: "8px", height: "16px" }}>
-            {Array.from({ length: totalPages }, (_, i) => (
-              <button
-                key={i}
-                onClick={() => setPage(i)}
-                style={{
-                  width: i === page ? "20px" : "6px",
-                  height: "4px",
-                  borderRadius: "2px",
-                  background: i === page ? "#00c8ff" : "rgba(0,200,255,0.22)",
-                  boxShadow: i === page ? "0 0 7px rgba(0,200,255,0.9)" : "none",
-                  transition: "all 0.2s ease",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
-                }} />
-            ))}
-          </div>
         </div>
 
         {/* RIGHT: 3D viewer */}
