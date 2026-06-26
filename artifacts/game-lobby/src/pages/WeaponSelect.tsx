@@ -156,23 +156,15 @@ export default function WeaponSelect() {
       {/* Main layout */}
       <div className="absolute inset-0 flex pt-[52px] pb-4 px-3 gap-3">
 
-        {/* ── LEFT: Weapon preview ── */}
-        <div className="flex flex-col flex-1 min-w-0 gap-3">
+        {/* ── LEFT: Weapon preview (full height panel) ── */}
+        <div className="flex flex-col flex-1 min-w-0">
 
-          {/* Weapon image panel */}
-          <div className="relative flex-1 flex items-center justify-center rounded-xl overflow-hidden"
+          {/* Weapon image panel — full height, name+stats+equip inside */}
+          <div className="relative flex-1 flex flex-col rounded-xl overflow-hidden"
             style={{ border: `1.5px solid ${cfg.border}`, boxShadow: `0 0 30px ${cfg.glow}, inset 0 0 40px rgba(0,0,0,0.5)`,
               background: "rgba(18,8,0,0.9)" }}>
 
-            {/* Rarity badge */}
-            <div className="absolute top-3 left-3 z-20 px-2 py-0.5 rounded"
-              style={{ background: "rgba(0,0,0,0.7)", border: `1px solid ${cfg.border}` }}>
-              <span className="font-mono font-black text-[9px] tracking-[0.25em]" style={{ color: cfg.text }}>
-                {cfg.label}
-              </span>
-            </div>
-
-            {/* Type badge */}
+            {/* Type badge — top-right only */}
             <div className="absolute top-3 right-3 z-20 flex items-center gap-1 px-2 py-0.5 rounded"
               style={{ background: "rgba(0,0,0,0.7)", border: `1px solid ${cfg.border}` }}>
               <WeaponIcon type={wType} />
@@ -191,92 +183,97 @@ export default function WeaponSelect() {
               </div>
             )}
 
-            {/* Glow platform */}
-            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4/5 h-14"
-              style={{ background: `radial-gradient(ellipse at 50% 100%, ${cfg.glow} 0%, transparent 70%)`, filter: "blur(10px)" }} />
+            {/* Weapon image — upper portion */}
+            <div className="relative flex-1 flex items-center justify-center">
+              {/* Crosshair decoration */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5">
+                <Crosshair className="w-48 h-48" style={{ color: cfg.text }} />
+              </div>
 
-            {/* Crosshair decoration */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5">
-              <Crosshair className="w-48 h-48" style={{ color: cfg.text }} />
-            </div>
+              {activeWeapon?.image ? (
+                <img src={activeWeapon.image} alt={activeWeapon.name}
+                  className="relative z-10 object-contain"
+                  style={{ maxHeight: "70%", maxWidth: "80%",
+                    filter: activeWeapon.unlocked
+                      ? `drop-shadow(0 0 20px ${cfg.glow}) drop-shadow(0 0 40px ${cfg.glow})`
+                      : "grayscale(1) brightness(0.3)" }}
+                  onError={(e) => {
+                    const el = e.target as HTMLImageElement;
+                    el.style.display = "none";
+                    const parent = el.parentElement;
+                    if (parent) {
+                      const placeholder = document.createElement("div");
+                      placeholder.style.cssText = `width:120px;height:50px;background:${cfg.glow};border-radius:4px;filter:blur(2px)`;
+                      parent.appendChild(placeholder);
+                    }
+                  }} />
+              ) : (
+                <div className="w-32 h-12 rounded" style={{ background: cfg.glow }} />
+              )}
 
-            {/* Weapon image */}
-            {activeWeapon?.image ? (
-              <img src={activeWeapon.image} alt={activeWeapon.name}
-                className="relative z-10 object-contain"
-                style={{ maxHeight: "60%", maxWidth: "80%",
-                  filter: activeWeapon.unlocked
-                    ? `drop-shadow(0 0 20px ${cfg.glow}) drop-shadow(0 0 40px ${cfg.glow})`
-                    : "grayscale(1) brightness(0.3)" }}
-                onError={(e) => {
-                  const el = e.target as HTMLImageElement;
-                  el.style.display = "none";
-                  const parent = el.parentElement;
-                  if (parent) {
-                    const placeholder = document.createElement("div");
-                    placeholder.style.cssText = `width:120px;height:50px;background:${cfg.glow};border-radius:4px;filter:blur(2px)`;
-                    parent.appendChild(placeholder);
-                  }
-                }} />
-            ) : (
-              <div className="w-32 h-12 rounded" style={{ background: cfg.glow }} />
-            )}
-
-            {/* Scan line */}
-            <div className="absolute inset-x-0 z-10 pointer-events-none overflow-hidden" style={{ top: 0, bottom: 0 }}>
-              <div style={{ position: "absolute", left: 0, right: 0, height: "1px",
-                background: `linear-gradient(90deg, transparent, ${cfg.glow}, transparent)`,
-                animation: "scan-line 3s linear infinite" }} />
-            </div>
-          </div>
-
-          {/* Weapon name + type */}
-          <div className="shrink-0 px-1">
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="font-mono font-black text-[18px] tracking-[0.08em] uppercase"
-                style={{ color: "#ffffff", textShadow: `0 0 15px ${cfg.glow}` }}>
-                {activeWeapon?.name ?? "—"}
-              </h2>
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded"
-                style={{ background: "rgba(0,0,0,0.5)", border: `1px solid ${cfg.border}` }}>
-                {wType === "SNIPER" ? <Target className="w-3 h-3" style={{ color: cfg.text }} /> :
-                 wType === "SHOTGUN" ? <Flame className="w-3 h-3" style={{ color: cfg.text }} /> :
-                 <Zap className="w-3 h-3" style={{ color: cfg.text }} />}
-                <span className="font-mono font-black text-[9px] tracking-[0.15em]" style={{ color: cfg.text }}>
-                  {wType}
-                </span>
+              {/* Scan line */}
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div style={{ position: "absolute", left: 0, right: 0, height: "1px",
+                  background: `linear-gradient(90deg, transparent, ${cfg.glow}, transparent)`,
+                  animation: "scan-line 3s linear infinite" }} />
               </div>
             </div>
 
-            {/* Stats */}
-            <div className="flex flex-col gap-1.5">
-              {[
-                { label: "DMG", value: stats.damage, color: typeColor },
-                { label: "RNG", value: stats.range,  color: "#ffb400" },
-                { label: "SPD", value: stats.speed,  color: "#00d2ff" },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="flex items-center gap-2">
-                  <span className="font-mono text-[9px] w-6 shrink-0" style={{ color: "rgba(255,255,255,0.4)" }}>{label}</span>
-                  <StatBar value={value} color={color} />
-                  <span className="font-mono text-[9px] w-5 text-right shrink-0" style={{ color: "rgba(255,255,255,0.5)" }}>{value}</span>
+            {/* Glow platform divider */}
+            <div className="shrink-0 h-px mx-4"
+              style={{ background: `linear-gradient(90deg, transparent, ${cfg.border}, transparent)` }} />
+
+            {/* Bottom section: name + stats + equip — inside panel */}
+            <div className="shrink-0 px-4 pt-3 pb-4 flex flex-col gap-2"
+              style={{ background: "rgba(0,0,0,0.4)" }}>
+
+              {/* Name + type row */}
+              <div className="flex items-center justify-between">
+                <h2 className="font-mono font-black text-[17px] tracking-[0.06em] uppercase"
+                  style={{ color: "#ffffff", textShadow: `0 0 15px ${cfg.glow}` }}>
+                  {activeWeapon?.name ?? "—"}
+                </h2>
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded"
+                  style={{ background: "rgba(0,0,0,0.5)", border: `1px solid ${cfg.border}` }}>
+                  {wType === "SNIPER" ? <Target className="w-3 h-3" style={{ color: cfg.text }} /> :
+                   wType === "SHOTGUN" ? <Flame className="w-3 h-3" style={{ color: cfg.text }} /> :
+                   <Zap className="w-3 h-3" style={{ color: cfg.text }} />}
+                  <span className="font-mono font-black text-[9px] tracking-[0.15em]" style={{ color: cfg.text }}>
+                    {wType}
+                  </span>
                 </div>
-              ))}
+              </div>
+
+              {/* Stats */}
+              <div className="flex flex-col gap-1.5">
+                {[
+                  { label: "DMG", value: stats.damage, color: typeColor },
+                  { label: "RNG", value: stats.range,  color: "#ffb400" },
+                  { label: "SPD", value: stats.speed,  color: "#00d2ff" },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="flex items-center gap-2">
+                    <span className="font-mono text-[9px] w-6 shrink-0" style={{ color: "rgba(255,255,255,0.4)" }}>{label}</span>
+                    <StatBar value={value} color={color} />
+                    <span className="font-mono text-[9px] w-5 text-right shrink-0" style={{ color: "rgba(255,255,255,0.5)" }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Equip button — inside panel */}
+              <button
+                disabled={!activeWeapon?.unlocked || equipMutation.isPending || (activeWeapon?.selected ?? false)}
+                onClick={() => activeWeapon?.id && equipMutation.mutate(activeWeapon.id)}
+                className="w-full py-2.5 font-mono font-black text-[11px] tracking-[0.25em] uppercase rounded-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={activeWeapon?.selected
+                  ? { background: "rgba(255,100,30,0.12)", border: "1.5px solid rgba(255,100,30,0.4)", color: "#ff6420",
+                      boxShadow: "0 0 12px rgba(255,100,30,0.2)" }
+                  : { background: "linear-gradient(135deg, rgba(255,80,0,0.9), rgba(255,150,20,0.9))",
+                      border: "1.5px solid rgba(255,100,30,0.6)", color: "#fff",
+                      boxShadow: "0 0 20px rgba(255,100,30,0.4)" }}>
+                {equipMutation.isPending ? "EQUIPPING..." : activeWeapon?.selected ? "✓ EQUIPPED" : "EQUIP WEAPON"}
+              </button>
             </div>
           </div>
-
-          {/* Equip button */}
-          <button
-            disabled={!activeWeapon?.unlocked || equipMutation.isPending || (activeWeapon?.selected ?? false)}
-            onClick={() => activeWeapon?.id && equipMutation.mutate(activeWeapon.id)}
-            className="shrink-0 w-full py-3 font-mono font-black text-[11px] tracking-[0.25em] uppercase rounded-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={activeWeapon?.selected
-              ? { background: "rgba(255,100,30,0.12)", border: "1.5px solid rgba(255,100,30,0.4)", color: "#ff6420",
-                  boxShadow: "0 0 12px rgba(255,100,30,0.2)" }
-              : { background: "linear-gradient(135deg, rgba(255,80,0,0.9), rgba(255,150,20,0.9))",
-                  border: "1.5px solid rgba(255,100,30,0.6)", color: "#fff",
-                  boxShadow: "0 0 20px rgba(255,100,30,0.4)" }}>
-            {equipMutation.isPending ? "EQUIPPING..." : activeWeapon?.selected ? "✓ EQUIPPED" : "EQUIP WEAPON"}
-          </button>
         </div>
 
         {/* ── RIGHT: Roster ── */}
