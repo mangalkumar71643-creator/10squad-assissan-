@@ -164,14 +164,22 @@ export default function WeaponSelect() {
             style={{ border: `1.5px solid ${cfg.border}`, boxShadow: `0 0 30px ${cfg.glow}, inset 0 0 40px rgba(0,0,0,0.5)`,
               background: "rgba(18,8,0,0.9)" }}>
 
-            {/* Type badge — top-right only */}
-            <div className="absolute top-3 right-3 z-20 flex items-center gap-1 px-2 py-0.5 rounded"
-              style={{ background: "rgba(0,0,0,0.7)", border: `1px solid ${cfg.border}` }}>
-              <WeaponIcon type={wType} />
-              <span className="font-mono font-black text-[9px] tracking-[0.15em]" style={{ color: cfg.text }}>
-                {wType}
+            {/* Equip button — top-right, same size as old type badge */}
+            <button
+              disabled={!activeWeapon?.unlocked || equipMutation.isPending || (activeWeapon?.selected ?? false)}
+              onClick={() => activeWeapon?.id && equipMutation.mutate(activeWeapon.id)}
+              className="absolute top-3 right-3 z-20 flex items-center gap-1 px-2 py-0.5 rounded transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={activeWeapon?.selected
+                ? { background: "rgba(0,0,0,0.7)", border: `1px solid ${cfg.border}` }
+                : { background: "rgba(255,80,0,0.85)", border: `1px solid ${cfg.border}`, boxShadow: `0 0 8px ${cfg.glow}` }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <path d="M5 12l5 5L19 7" stroke={activeWeapon?.selected ? cfg.text : "#fff"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span className="font-mono font-black text-[9px] tracking-[0.15em]"
+                style={{ color: activeWeapon?.selected ? cfg.text : "#fff" }}>
+                {equipMutation.isPending ? "..." : activeWeapon?.selected ? "EQUIPPED" : "EQUIP"}
               </span>
-            </div>
+            </button>
 
             {/* Lock overlay */}
             {activeWeapon && !activeWeapon.unlocked && (
