@@ -50,4 +50,27 @@ router.get("/players/:id", async (req, res) => {
   }
 });
 
+// Equip a character
+router.post("/players/me/characters/:id/equip", async (req, res) => {
+  try {
+    const charId = parseInt(req.params.id);
+    if (isNaN(charId)) {
+      res.status(400).json({ error: "Invalid character ID" });
+      return;
+    }
+    const char = await db.select().from(charactersTable).where(eq(charactersTable.id, charId)).limit(1);
+    if (char.length === 0 || !char[0].unlocked) {
+      res.status(404).json({ error: "Character not found or locked" });
+      return;
+    }
+    await db.update(charactersTable).set({ selected: false }).where(eq(charactersTable.playerId, 1));
+    await db.update(charactersTable).set({ selected: true }).where(eq(charactersTable.id, charId));
+    await db.update(playersTable).set({ character: char[0].name }).where(eq(playersTable.id, 1));
+    res.json({ success: true, character: char[0].name });
+  } catch (err) {
+    req.log.error({ err }, "Error equipping character");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;
