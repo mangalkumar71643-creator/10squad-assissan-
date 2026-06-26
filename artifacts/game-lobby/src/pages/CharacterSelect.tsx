@@ -280,21 +280,6 @@ export default function CharacterSelect() {
             <PlatformRing />
           </div>
 
-          {/* Character name + rarity */}
-          {previewChar && (
-            <div className="shrink-0 flex flex-col items-center pb-2" style={{ gap: "2px" }}>
-              <p
-                className="font-mono font-black text-[10px] tracking-[0.25em] uppercase"
-                style={{ color: previewCfg.text, textShadow: `0 0 8px ${previewCfg.glow}` }}>
-                {previewCfg.label}
-              </p>
-              <p
-                className="font-mono font-bold text-[12px] tracking-[0.15em] uppercase"
-                style={{ color: "#ffffff", textShadow: "0 0 10px rgba(0,200,255,0.5)" }}>
-                {previewChar.name}
-              </p>
-            </div>
-          )}
         </div>
       </div>
 
