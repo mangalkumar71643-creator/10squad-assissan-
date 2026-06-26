@@ -122,15 +122,6 @@ export default function CharacterSelect() {
         style={{ background: "radial-gradient(ellipse at 100% 100%, rgba(0,80,200,0.10) 0%, transparent 55%)" }} />
 
       {/* ── HEADER ── */}
-      <div className="absolute top-3 left-3 z-30">
-        <button
-          onClick={() => setLocation("/lobby")}
-          className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
-          style={{ border: "1.5px solid rgba(0,200,255,0.45)", background: "rgba(0,0,0,0.5)" }}>
-          <ChevronLeft className="w-5 h-5" style={{ color: "#00c8ff" }} />
-        </button>
-      </div>
-
       <div className="absolute top-3 right-3 z-30">
         <button
           onClick={() => setLocation("/lobby")}
