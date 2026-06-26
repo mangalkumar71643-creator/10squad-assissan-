@@ -303,9 +303,11 @@ export default function CharacterSelect() {
 
         </div>
 
-        {/* Right: currency + skins */}
+        {/* Right: currency + buy */}
         <div className="flex items-center" style={{ gap: "12px" }}>
           <div className="flex items-center" style={{ gap: "6px" }}>
+            <span style={{ fontSize: "14px", lineHeight: 1 }}>💎</span>
+            <div style={{ width: "20px" }} />
             <div
               className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
               style={{
@@ -332,9 +334,7 @@ export default function CharacterSelect() {
               border: "1.5px solid rgba(130,80,255,0.55)",
               background: "rgba(90,50,200,0.12)",
               color: "#a080ff",
-              gap: "5px",
             }}>
-            <span style={{ fontSize: "11px" }}>💎</span>
             BUY
           </button>
         </div>
