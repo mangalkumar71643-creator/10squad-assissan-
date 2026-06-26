@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Lock, Crosshair, Zap, Flame, Target } from "lucide-react";
+import { ChevronLeft, Lock, Shuffle } from "lucide-react";
+import WeaponCanvas from "@/components/WeaponCanvas";
 
 type Weapon = {
   id: number;
@@ -15,58 +16,52 @@ type Weapon = {
 };
 
 const RARITY_CONFIG = {
-  common:    { border: "rgba(150,150,150,0.6)", glow: "rgba(150,150,150,0.3)", text: "#aaaaaa", label: "COMMON" },
-  rare:      { border: "rgba(255,180,0,0.7)",   glow: "rgba(255,180,0,0.4)",   text: "#ffb400", label: "RARE" },
-  epic:      { border: "rgba(255,100,30,0.8)",  glow: "rgba(255,100,30,0.45)", text: "#ff6420", label: "EPIC" },
-  legendary: { border: "rgba(255,40,40,0.9)",   glow: "rgba(255,40,40,0.5)",   text: "#ff2828", label: "LEGENDARY" },
+  common:    { border: "rgba(255,140,40,0.4)",  glow: "rgba(255,140,40,0.2)",  text: "#ff9428", label: "COMMON" },
+  rare:      { border: "rgba(255,180,0,0.65)",  glow: "rgba(255,180,0,0.32)",  text: "#ffb400", label: "RARE" },
+  epic:      { border: "rgba(255,100,30,0.8)",  glow: "rgba(255,100,30,0.38)", text: "#ff6420", label: "EPIC" },
+  legendary: { border: "rgba(255,40,40,0.85)",  glow: "rgba(255,40,40,0.42)",  text: "#ff2828", label: "LEGENDARY" },
 } as const;
 
-const WEAPON_STATS: Record<string, { damage: number; range: number; speed: number; icon: string }> = {
-  "CYBER RIFLE":     { damage: 82, range: 88, speed: 72, icon: "rifle" },
-  "PLASMA SHOTGUN":  { damage: 95, range: 45, speed: 65, icon: "shotgun" },
-  "GHOST SNIPER":    { damage: 99, range: 99, speed: 38, icon: "sniper" },
-  "NANO PISTOL":     { damage: 60, range: 55, speed: 99, icon: "pistol" },
+const WEAPON_3D_MAP: Record<string, string> = {
+  "Plasma Rifle": "purple-mirage-rifle",
+  "Shadow Blade": "",
+  "Shock Pistol": "",
+  "Nano SMG":     "",
 };
 
-const TYPE_COLORS: Record<string, string> = {
-  RIFLE:   "rgba(255,100,30,0.9)",
-  SHOTGUN: "rgba(255,60,60,0.9)",
-  SNIPER:  "rgba(255,40,40,0.9)",
-  PISTOL:  "rgba(255,140,60,0.9)",
-};
+const CARDS_PER_PAGE = 8;
 
-function StatBar({ value, color }: { value: number; color: string }) {
+function CyberpunkCorners({ color }: { color: string }) {
   return (
-    <div style={{ flex: 1, height: "4px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
-      <div style={{ width: `${value}%`, height: "100%", background: color, borderRadius: "2px",
-        boxShadow: `0 0 6px ${color}` }} />
-    </div>
+    <>
+      <span className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 pointer-events-none" style={{ borderColor: color }} />
+      <span className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 pointer-events-none" style={{ borderColor: color }} />
+      <span className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 pointer-events-none" style={{ borderColor: color }} />
+      <span className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 pointer-events-none" style={{ borderColor: color }} />
+    </>
   );
 }
 
-function WeaponIcon({ type }: { type: string }) {
-  const color = "rgba(255,120,50,0.9)";
-  if (type === "SNIPER") return (
-    <svg width="14" height="14" viewBox="0 0 32 32" fill="none">
-      <rect x="1" y="14" width="28" height="4" rx="1" stroke={color} strokeWidth="1.8" fill="rgba(255,80,20,0.15)"/>
-      <rect x="22" y="9" width="4" height="14" rx="1" stroke={color} strokeWidth="1.5" fill="rgba(255,80,20,0.1)"/>
-      <circle cx="16" cy="16" r="3" stroke={color} strokeWidth="1.5" fill="rgba(255,80,20,0.2)"/>
-    </svg>
-  );
-  if (type === "SHOTGUN") return (
-    <svg width="14" height="14" viewBox="0 0 32 32" fill="none">
-      <rect x="2" y="12" width="20" height="8" rx="2" stroke={color} strokeWidth="1.8" fill="rgba(255,80,20,0.15)"/>
-      <rect x="22" y="14" width="8" height="4" rx="1" stroke={color} strokeWidth="1.5" fill="rgba(255,80,20,0.1)"/>
-      <rect x="8" y="20" width="6" height="5" rx="1" stroke={color} strokeWidth="1.5" fill="rgba(255,80,20,0.1)"/>
-    </svg>
-  );
+function PlatformRing() {
   return (
-    <svg width="14" height="14" viewBox="0 0 32 32" fill="none">
-      <rect x="2" y="12" width="16" height="8" rx="2" stroke={color} strokeWidth="1.8" fill="rgba(255,80,20,0.15)"/>
-      <rect x="18" y="13" width="10" height="3" rx="1" stroke={color} strokeWidth="1.5" fill="rgba(255,80,20,0.1)"/>
-      <rect x="8" y="20" width="5" height="5" rx="1" stroke={color} strokeWidth="1.5" fill="rgba(255,80,20,0.1)"/>
-      <circle cx="6" cy="16" r="2" fill="rgba(255,120,50,0.5)"/>
-    </svg>
+    <div className="absolute bottom-0 left-0 right-0 pointer-events-none" style={{ bottom: "6%" }}>
+      <svg viewBox="0 0 240 70" className="w-full" style={{ overflow: "visible" }}>
+        <defs>
+          <radialGradient id="wpgFill" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="rgba(255,120,30,0.3)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0)" />
+          </radialGradient>
+        </defs>
+        <ellipse cx="120" cy="50" rx="105" ry="18" fill="url(#wpgFill)" opacity="0.7" />
+        <ellipse cx="120" cy="50" rx="105" ry="18"
+          fill="none" stroke="rgba(255,140,40,0.6)" strokeWidth="1.5"
+          style={{ filter: "drop-shadow(0 0 5px rgba(255,140,40,0.9))" }} />
+        <ellipse cx="120" cy="50" rx="72" ry="12"
+          fill="none" stroke="rgba(255,100,20,0.3)" strokeWidth="0.75" strokeDasharray="10 5" />
+        <ellipse cx="120" cy="50" rx="42" ry="7"
+          fill="none" stroke="rgba(255,80,0,0.2)" strokeWidth="0.5" />
+      </svg>
+    </div>
   );
 }
 
@@ -83,9 +78,15 @@ export default function WeaponSelect() {
     },
   });
 
-  const selected = weapons?.find(w => w.selected) ?? weapons?.[0];
-  const [activeId, setActiveId] = useState<number | null>(null);
-  const activeWeapon = weapons?.find(w => w.id === activeId) ?? selected;
+  const equippedWeapon = weapons?.find(w => w.selected) ?? weapons?.[0];
+  const [previewId, setPreviewId] = useState<number | null>(null);
+  const [page, setPage] = useState(0);
+
+  const previewWeapon = previewId
+    ? weapons?.find(w => w.id === previewId)
+    : equippedWeapon;
+
+  const weaponId3D = WEAPON_3D_MAP[previewWeapon?.name ?? ""] ?? "";
 
   const equipMutation = useMutation({
     mutationFn: async (weaponId: number) => {
@@ -95,14 +96,25 @@ export default function WeaponSelect() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/players/me/weapons"] });
+      setTimeout(() => setLocation("/lobby"), 600);
     },
   });
 
+  const allWeapons = weapons ?? [];
+  const totalSlots = Math.max(CARDS_PER_PAGE, allWeapons.length);
+  const totalPages = Math.ceil(totalSlots / CARDS_PER_PAGE);
+  const pageSlots = Array.from({ length: CARDS_PER_PAGE }, (_, i) => allWeapons[page * CARDS_PER_PAGE + i] ?? null);
+
+  const previewRarity = (previewWeapon?.rarity ?? "common") as keyof typeof RARITY_CONFIG;
+  const previewCfg = RARITY_CONFIG[previewRarity] ?? RARITY_CONFIG.common;
+  const previewType = (previewWeapon?.type ?? "RIFLE").toUpperCase();
+
   if (isLoading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-black">
+      <div className="h-screen w-screen flex items-center justify-center" style={{ background: "#0f0600" }}>
         <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin"
+            style={{ borderColor: "rgba(255,120,50,0.8)", borderTopColor: "transparent" }} />
           <span className="font-mono text-[11px] tracking-[0.3em] animate-pulse"
             style={{ color: "rgba(255,120,50,0.8)" }}>LOADING ARSENAL...</span>
         </div>
@@ -110,195 +122,343 @@ export default function WeaponSelect() {
     );
   }
 
-  const rarity = ((activeWeapon?.rarity ?? "common") as keyof typeof RARITY_CONFIG);
-  const cfg = RARITY_CONFIG[rarity] ?? RARITY_CONFIG.common;
-  const stats = WEAPON_STATS[activeWeapon?.name ?? ""] ?? { damage: 70, range: 70, speed: 70, icon: "rifle" };
-  const wType = (activeWeapon?.type ?? "RIFLE").toUpperCase();
-  const typeColor = TYPE_COLORS[wType] ?? TYPE_COLORS.RIFLE;
-
   return (
-    <div className="relative h-screen w-screen text-white font-sans overflow-hidden"
-      style={{ background: "linear-gradient(135deg, #0f0600 0%, #180a00 60%, #0c0400 100%)" }}>
+    <div className="relative h-screen w-screen overflow-hidden text-white select-none"
+      style={{ background: "linear-gradient(155deg, #120800 0%, #0d0500 60%, #110700 100%)" }}>
 
-      {/* Background */}
-      <div className="absolute inset-0 bg-cover bg-center opacity-10"
-        style={{ backgroundImage: 'url("/assets/cyberpunk-bg.png")' }} />
-      <div className="absolute inset-0"
-        style={{ background: "radial-gradient(ellipse at 30% 50%, rgba(255,100,30,0.07) 0%, transparent 60%)" }} />
-      <div className="absolute inset-0"
-        style={{ background: "radial-gradient(ellipse at 80% 50%, rgba(255,40,0,0.06) 0%, transparent 60%)" }} />
-
-      {/* Diagonal grid lines */}
+      {/* Grid background */}
       <div className="absolute inset-0 pointer-events-none opacity-[0.03]"
-        style={{ backgroundImage: "repeating-linear-gradient(45deg, rgba(255,100,30,1) 0px, rgba(255,100,30,1) 1px, transparent 1px, transparent 40px)" }} />
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,140,40,1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,140,40,1) 1px, transparent 1px)",
+          backgroundSize: "36px 36px",
+        }} />
 
-      {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-3"
-        style={{ borderBottom: "1px solid rgba(255,100,30,0.15)", background: "rgba(15,6,0,0.85)", backdropFilter: "blur(8px)" }}>
-        <button onClick={() => setLocation("/lobby")}
-          className="flex items-center gap-2 active:scale-95 transition-transform"
-          style={{ color: "rgba(255,120,50,0.8)" }}>
-          <ChevronLeft className="w-5 h-5" />
-          <span className="font-mono text-[11px] tracking-[0.2em] uppercase">Back</span>
+      {/* Diagonal hazard lines */}
+      <div className="absolute inset-0 pointer-events-none opacity-[0.025]"
+        style={{
+          backgroundImage: "repeating-linear-gradient(45deg, rgba(255,100,30,1) 0px, rgba(255,100,30,1) 1px, transparent 1px, transparent 48px)",
+        }} />
+
+      {/* Ambient glows */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ background: "radial-gradient(ellipse at 0% 0%, rgba(255,80,10,0.12) 0%, transparent 55%)" }} />
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ background: "radial-gradient(ellipse at 100% 100%, rgba(200,60,0,0.08) 0%, transparent 55%)" }} />
+
+      {/* ── HEADER ── */}
+      <div className="relative z-30 flex items-center justify-center px-4"
+        style={{
+          height: "50px",
+          borderBottom: "1px solid rgba(255,140,40,0.18)",
+          background: "rgba(15,5,0,0.9)",
+          backdropFilter: "blur(10px)",
+        }}>
+
+        <button
+          onClick={() => setLocation("/lobby")}
+          className="absolute left-3 flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
+          style={{ border: "1.5px solid rgba(255,140,40,0.5)", background: "rgba(0,0,0,0.5)" }}>
+          <ChevronLeft className="w-5 h-5" style={{ color: "#ff9428" }} />
         </button>
-        <span className="font-mono font-black text-[13px] tracking-[0.35em] uppercase"
-          style={{ color: "#ff6420", textShadow: "0 0 12px rgba(255,100,30,0.7)" }}>
-          SELECT WEAPON
-        </span>
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>EQUIPPED:</span>
-          <span className="font-mono font-bold text-[10px]" style={{ color: "#ff6420" }}>
-            {weapons?.find(w => w.selected)?.name ?? "—"}
-          </span>
-        </div>
+
+        <h1
+          className="font-mono font-black text-[13px] tracking-[0.35em] uppercase"
+          style={{ color: "#ffffff", textShadow: "0 0 18px rgba(255,140,40,0.65)" }}>
+          WEAPON SELECTION
+        </h1>
       </div>
 
-      {/* Main layout */}
-      <div className="absolute inset-0 flex pt-[52px] pb-4 px-3 gap-3">
+      {/* ── BODY ── */}
+      <div className="flex" style={{ height: "calc(100vh - 50px - 60px)" }}>
 
-        {/* ── LEFT: Weapon preview (full height panel) ── */}
-        <div className="flex flex-col flex-1 min-w-0">
+        {/* LEFT: Card grid */}
+        <div className="flex flex-col" style={{ flex: "3 3 0%", padding: "10px 8px 6px 10px", gap: "8px" }}>
 
-          {/* Weapon image panel — full height, name+stats+equip inside */}
-          <div className="relative flex-1 flex flex-col rounded-xl overflow-hidden"
-            style={{ border: `1.5px solid ${cfg.border}`, boxShadow: `0 0 30px ${cfg.glow}, inset 0 0 40px rgba(0,0,0,0.5)`,
-              background: "rgba(18,8,0,0.9)" }}>
+          {/* 2×4 grid */}
+          <div className="grid grid-cols-4 grid-rows-2 flex-1" style={{ gap: "6px" }}>
+            {pageSlots.map((weapon, i) => {
+              if (!weapon) {
+                return (
+                  <div
+                    key={`empty-${page}-${i}`}
+                    className="relative rounded overflow-hidden flex items-center justify-center"
+                    style={{
+                      border: "1.5px solid rgba(255,140,40,0.1)",
+                      background: "rgba(20,8,0,0.55)",
+                    }}>
+                    <CyberpunkCorners color="rgba(255,140,40,0.22)" />
+                    <Lock className="w-4 h-4" style={{ color: "rgba(255,255,255,0.07)" }} />
+                  </div>
+                );
+              }
 
-            {/* Equip button — top-right, same size as old type badge */}
-            <button
-              disabled={!activeWeapon?.unlocked || equipMutation.isPending || (activeWeapon?.selected ?? false)}
-              onClick={() => activeWeapon?.id && equipMutation.mutate(activeWeapon.id)}
-              className="absolute top-3 right-3 z-20 flex items-center gap-1 px-2 py-0.5 rounded transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={activeWeapon?.selected
-                ? { background: "rgba(0,0,0,0.7)", border: `1px solid ${cfg.border}` }
-                : { background: "rgba(255,80,0,0.85)", border: `1px solid ${cfg.border}`, boxShadow: `0 0 8px ${cfg.glow}` }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                <path d="M5 12l5 5L19 7" stroke={activeWeapon?.selected ? cfg.text : "#fff"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <span className="font-mono font-black text-[9px] tracking-[0.15em]"
-                style={{ color: activeWeapon?.selected ? cfg.text : "#fff" }}>
-                {equipMutation.isPending ? "..." : activeWeapon?.selected ? "EQUIPPED" : "EQUIP"}
-              </span>
-            </button>
+              const r = (weapon.rarity ?? "common") as keyof typeof RARITY_CONFIG;
+              const cfg = RARITY_CONFIG[r] ?? RARITY_CONFIG.common;
+              const isActive = weapon.id === previewWeapon?.id;
+              const isEquipped = weapon.selected;
+              const wType = (weapon.type ?? "rifle").toUpperCase();
 
-            {/* Lock overlay */}
-            {activeWeapon && !activeWeapon.unlocked && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3"
-                style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}>
-                <Lock className="w-10 h-10" style={{ color: "rgba(255,255,255,0.3)" }} />
-                <span className="font-mono text-[10px] tracking-[0.2em] uppercase"
-                  style={{ color: "rgba(255,255,255,0.4)" }}>LOCKED</span>
-              </div>
-            )}
+              return (
+                <button
+                  key={weapon.id}
+                  onClick={() => setPreviewId(weapon.id)}
+                  className="relative rounded overflow-hidden flex flex-col transition-all active:scale-95"
+                  style={{
+                    border: isActive
+                      ? `2px solid ${cfg.border}`
+                      : "1.5px solid rgba(255,140,40,0.15)",
+                    background: isActive
+                      ? `rgba(40,15,0,0.9)`
+                      : "rgba(20,8,0,0.65)",
+                    boxShadow: isActive ? `0 0 18px ${cfg.glow}` : "none",
+                    transition: "all 0.15s ease",
+                  }}>
 
-            {/* Weapon image — upper portion */}
-            <div className="relative flex-1 flex items-center justify-center">
-              {/* Crosshair decoration */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5">
-                <Crosshair className="w-48 h-48" style={{ color: cfg.text }} />
-              </div>
+                  <CyberpunkCorners color={isActive ? cfg.border : "rgba(255,140,40,0.25)"} />
 
-              {activeWeapon?.image ? (
-                <img src={activeWeapon.image} alt={activeWeapon.name}
-                  className="relative z-10 object-contain"
-                  style={{ maxHeight: "70%", maxWidth: "80%",
-                    filter: activeWeapon.unlocked
-                      ? `drop-shadow(0 0 20px ${cfg.glow}) drop-shadow(0 0 40px ${cfg.glow})`
-                      : "grayscale(1) brightness(0.3)" }}
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-              ) : (
-                <div className="w-32 h-12 rounded" style={{ background: cfg.glow }} />
-              )}
+                  {/* Image area */}
+                  <div
+                    className="flex-1 relative overflow-hidden flex items-center justify-center"
+                    style={{
+                      background: isActive
+                        ? `radial-gradient(ellipse at 50% 60%, ${cfg.glow} 0%, rgba(0,0,0,0.5) 70%)`
+                        : "rgba(0,0,0,0.4)",
+                      minHeight: 0,
+                    }}>
 
-              {/* Scan line */}
-              <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <div style={{ position: "absolute", left: 0, right: 0, height: "1px",
-                  background: `linear-gradient(90deg, transparent, ${cfg.glow}, transparent)`,
-                  animation: "scan-line 3s linear infinite" }} />
-              </div>
-            </div>
+                    {weapon.image ? (
+                      <img
+                        src={weapon.image}
+                        alt={weapon.name}
+                        className="w-full h-full object-cover absolute inset-0"
+                        style={{
+                          filter: weapon.unlocked
+                            ? isActive ? `drop-shadow(0 0 8px ${cfg.glow}) brightness(1.1)` : "none"
+                            : "grayscale(1) brightness(0.22)",
+                        }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    ) : (
+                      /* SVG weapon silhouette fallback */
+                      <div className="flex items-center justify-center w-full h-full">
+                        <svg viewBox="0 0 48 24" className="w-4/5" fill="none">
+                          <rect x="2" y="9" width="26" height="6" rx="2"
+                            stroke={isActive ? cfg.text : "rgba(255,140,40,0.3)"}
+                            strokeWidth="1.5"
+                            fill={isActive ? `${cfg.glow}` : "rgba(255,100,20,0.08)"} />
+                          <rect x="28" y="10" width="16" height="2.5" rx="1"
+                            stroke={isActive ? cfg.text : "rgba(255,140,40,0.3)"}
+                            strokeWidth="1.2"
+                            fill={isActive ? `${cfg.glow}` : "rgba(255,100,20,0.08)"} />
+                          <rect x="10" y="15" width="8" height="6" rx="1"
+                            stroke={isActive ? cfg.text : "rgba(255,140,40,0.3)"}
+                            strokeWidth="1.2"
+                            fill={isActive ? `${cfg.glow}` : "rgba(255,100,20,0.08)"} />
+                        </svg>
+                      </div>
+                    )}
 
+                    {!weapon.unlocked && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center"
+                        style={{ background: "rgba(0,0,0,0.75)" }}>
+                        <Lock className="w-3.5 h-3.5" style={{ color: "rgba(255,255,255,0.2)" }} />
+                      </div>
+                    )}
+
+                    {isEquipped && (
+                      <div
+                        className="absolute top-1 right-1 w-3 h-3 rounded-full flex items-center justify-center z-10"
+                        style={{ background: "#ff6420", boxShadow: "0 0 5px rgba(255,100,30,0.9)" }}>
+                        <span style={{ fontSize: "6px", color: "#fff", fontWeight: 900, lineHeight: 1 }}>✓</span>
+                      </div>
+                    )}
+
+                    {/* Type chip */}
+                    <div
+                      className="absolute bottom-1 left-1 px-1 rounded z-10"
+                      style={{ background: "rgba(0,0,0,0.72)" }}>
+                      <span
+                        className="font-mono font-black"
+                        style={{ fontSize: "6px", color: cfg.text }}>
+                        {wType}
+                      </span>
+                    </div>
+
+                    {isActive && (
+                      <div
+                        className="absolute inset-x-0 bottom-0 h-[2px]"
+                        style={{ background: `linear-gradient(90deg, transparent, ${cfg.border}, transparent)` }} />
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Pagination dots */}
+          <div className="flex items-center justify-center shrink-0" style={{ gap: "8px", height: "16px" }}>
+            {Array.from({ length: totalPages }, (_, i) => (
+              <button
+                key={i}
+                onClick={() => setPage(i)}
+                style={{
+                  width: i === page ? "20px" : "6px",
+                  height: "4px",
+                  borderRadius: "2px",
+                  background: i === page ? "#ff9428" : "rgba(255,140,40,0.2)",
+                  boxShadow: i === page ? "0 0 7px rgba(255,140,40,0.9)" : "none",
+                  transition: "all 0.2s ease",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                }} />
+            ))}
           </div>
         </div>
 
-        {/* ── RIGHT: Roster ── */}
-        <div className="flex flex-col w-[130px] shrink-0 gap-2 overflow-y-auto"
-          style={{ scrollbarWidth: "none" }}>
-          <span className="font-mono text-[9px] tracking-[0.25em] uppercase shrink-0 mb-1"
-            style={{ color: "rgba(255,255,255,0.3)" }}>ARSENAL</span>
+        {/* RIGHT: 3D viewer */}
+        <div
+          className="flex flex-col relative"
+          style={{
+            flex: "2 2 0%",
+            borderLeft: "1px solid rgba(255,140,40,0.14)",
+          }}>
 
-          {weapons?.map((weapon) => {
-            const r = ((weapon.rarity ?? "common") as keyof typeof RARITY_CONFIG);
-            const c = RARITY_CONFIG[r] ?? RARITY_CONFIG.common;
-            const isActive = weapon.id === (activeWeapon?.id);
-            const wt = (weapon.type ?? "RIFLE").toUpperCase();
-            return (
-              <button key={weapon.id}
-                onClick={() => setActiveId(weapon.id)}
-                className="relative shrink-0 rounded-lg overflow-hidden transition-all active:scale-95"
+          {/* 3D canvas */}
+          <div className="flex-1 relative overflow-hidden">
+            {weaponId3D ? (
+              <WeaponCanvas key={weaponId3D} weaponId={weaponId3D} />
+            ) : (
+              /* Fallback: SVG crosshair */
+              <div
+                className="w-full h-full flex items-center justify-center"
                 style={{
-                  border: isActive ? `1.5px solid ${c.border}` : "1.5px solid rgba(255,255,255,0.07)",
-                  boxShadow: isActive ? `0 0 14px ${c.glow}` : "none",
-                  background: isActive ? "rgba(0,0,0,0.75)" : "rgba(0,0,0,0.35)",
+                  background: "radial-gradient(ellipse at 50% 55%, rgba(255,100,20,0.06) 0%, transparent 70%)",
                 }}>
-                {/* Thumbnail */}
-                <div className="w-full aspect-square flex items-center justify-center overflow-hidden relative"
-                  style={{ background: "rgba(18,8,0,0.7)" }}>
-                  {weapon.image ? (
-                    <img src={weapon.image} alt={weapon.name}
-                      className="w-full h-full object-cover"
-                      style={{ filter: weapon.unlocked ? "none" : "grayscale(1) brightness(0.3)" }}
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                  ) : (
-                    <div className="w-full h-full" style={{ background: weapon.unlocked ? c.glow : "rgba(40,20,10,0.5)" }} />
-                  )}
-                  {!weapon.unlocked && (
-                    <div className="absolute inset-0 flex items-center justify-center"
-                      style={{ background: "rgba(0,0,0,0.55)" }}>
-                      <Lock className="w-5 h-5" style={{ color: "rgba(255,255,255,0.3)" }} />
-                    </div>
-                  )}
-                  {weapon.selected && (
-                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full flex items-center justify-center"
-                      style={{ background: "rgba(255,100,30,0.9)" }}>
-                      <span style={{ fontSize: "8px", color: "#fff", fontWeight: 900 }}>✓</span>
-                    </div>
-                  )}
-                  {/* Type label in corner */}
-                  <div className="absolute bottom-1 left-1 px-1 rounded"
-                    style={{ background: "rgba(0,0,0,0.7)" }}>
-                    <span className="font-mono text-[6px] font-black" style={{ color: c.text }}>{wt}</span>
-                  </div>
-                </div>
-
-                {/* Name + rarity */}
-                <div className="px-1.5 py-1.5">
-                  <p className="font-mono font-bold text-[8px] leading-tight uppercase truncate"
-                    style={{ color: weapon.unlocked ? "#fff" : "rgba(255,255,255,0.3)" }}>
-                    {weapon.name}
-                  </p>
-                  <p className="font-mono text-[7px] tracking-[0.1em] uppercase"
-                    style={{ color: weapon.unlocked ? c.text : "rgba(255,255,255,0.2)" }}>
-                    {c.label}
-                  </p>
-                </div>
-              </button>
-            );
-          })}
-
-          {/* Empty slots */}
-          {[...Array(Math.max(0, 4 - (weapons?.length ?? 0)))].map((_, i) => (
-            <div key={`empty-${i}`} className="shrink-0 rounded-lg overflow-hidden"
-              style={{ border: "1.5px solid rgba(255,255,255,0.04)", background: "rgba(0,0,0,0.2)" }}>
-              <div className="w-full aspect-square flex items-center justify-center"
-                style={{ background: "rgba(20,10,0,0.5)" }}>
-                <span className="font-mono text-[18px]" style={{ color: "rgba(255,255,255,0.08)" }}>?</span>
+                {previewWeapon && (
+                  <svg viewBox="0 0 120 60" className="w-4/5 opacity-25" fill="none">
+                    <rect x="4" y="22" width="58" height="16" rx="4"
+                      stroke={previewCfg.text} strokeWidth="2"
+                      fill={`${previewCfg.glow}`} />
+                    <rect x="62" y="26" width="40" height="6" rx="2"
+                      stroke={previewCfg.text} strokeWidth="1.5"
+                      fill={`${previewCfg.glow}`} />
+                    <rect x="20" y="38" width="18" height="14" rx="2"
+                      stroke={previewCfg.text} strokeWidth="1.5"
+                      fill={`${previewCfg.glow}`} />
+                    <circle cx="14" cy="30" r="5"
+                      stroke={previewCfg.text} strokeWidth="1.2"
+                      fill="none" opacity="0.6" />
+                    <line x1="14" y1="25" x2="14" y2="35" stroke={previewCfg.text} strokeWidth="0.8" opacity="0.6" />
+                    <line x1="9" y1="30" x2="19" y2="30" stroke={previewCfg.text} strokeWidth="0.8" opacity="0.6" />
+                  </svg>
+                )}
               </div>
-              <div className="px-1.5 py-1.5">
-                <div className="h-2 w-full rounded" style={{ background: "rgba(255,255,255,0.04)" }} />
+            )}
+            <PlatformRing />
+          </div>
+
+          {/* Weapon name + type */}
+          {previewWeapon && (
+            <div className="shrink-0 flex flex-col items-center pb-2" style={{ gap: "2px" }}>
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="font-mono font-black text-[9px] tracking-[0.2em] uppercase px-1.5 py-0.5 rounded"
+                  style={{
+                    color: previewCfg.text,
+                    border: `1px solid ${previewCfg.border}`,
+                    background: "rgba(0,0,0,0.5)",
+                  }}>
+                  {previewCfg.label}
+                </span>
+                <span
+                  className="font-mono font-bold text-[9px] tracking-[0.15em] uppercase"
+                  style={{ color: "rgba(255,255,255,0.4)" }}>
+                  {previewType}
+                </span>
               </div>
+              <p
+                className="font-mono font-bold text-[12px] tracking-[0.15em] uppercase"
+                style={{ color: "#ffffff", textShadow: `0 0 10px ${previewCfg.glow}` }}>
+                {previewWeapon.name}
+              </p>
             </div>
-          ))}
+          )}
+        </div>
+      </div>
+
+      {/* ── BOTTOM BAR ── */}
+      <div
+        className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-4"
+        style={{
+          height: "60px",
+          borderTop: "1px solid rgba(255,140,40,0.18)",
+          background: "rgba(10,4,0,0.95)",
+          backdropFilter: "blur(12px)",
+          gap: "10px",
+        }}>
+
+        {/* CONFIRM + RANDOM */}
+        <div className="flex items-center" style={{ gap: "10px" }}>
+          <button
+            disabled={!previewWeapon?.unlocked || equipMutation.isPending}
+            onClick={() => previewWeapon?.id && equipMutation.mutate(previewWeapon.id)}
+            className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              fontSize: "11px",
+              padding: "9px 22px",
+              borderRadius: "4px",
+              border: previewWeapon?.selected
+                ? "1.5px solid rgba(255,140,40,0.5)"
+                : "1.5px solid rgba(255,140,40,0.75)",
+              background: previewWeapon?.selected
+                ? "rgba(255,140,40,0.08)"
+                : "rgba(255,140,40,0.12)",
+              color: "#ffffff",
+              boxShadow: "0 0 14px rgba(255,140,40,0.15), inset 0 0 12px rgba(255,140,40,0.04)",
+            }}>
+            {equipMutation.isPending
+              ? "..."
+              : previewWeapon?.selected
+              ? "✓ EQUIPPED"
+              : "CONFIRM"}
+          </button>
+
+          <button
+            onClick={() => {
+              const unlocked = weapons?.filter(w => w.unlocked) ?? [];
+              if (unlocked.length > 0) {
+                const rand = unlocked[Math.floor(Math.random() * unlocked.length)];
+                setPreviewId(rand.id);
+              }
+            }}
+            className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 flex items-center gap-1.5"
+            style={{
+              fontSize: "11px",
+              padding: "9px 18px",
+              borderRadius: "4px",
+              border: "1.5px solid rgba(255,255,255,0.18)",
+              background: "rgba(255,255,255,0.04)",
+              color: "rgba(255,255,255,0.65)",
+            }}>
+            <Shuffle className="w-3 h-3" />
+            RANDOM
+          </button>
+        </div>
+
+        {/* Right: equipped weapon indicator */}
+        <div className="flex flex-col items-end" style={{ gap: "2px" }}>
+          <span
+            className="font-mono text-[8px] tracking-[0.2em] uppercase"
+            style={{ color: "rgba(255,255,255,0.3)" }}>
+            EQUIPPED
+          </span>
+          <span
+            className="font-mono font-bold text-[10px] tracking-[0.1em] uppercase truncate max-w-[110px]"
+            style={{ color: "#ff9428" }}>
+            {weapons?.find(w => w.selected)?.name ?? "—"}
+          </span>
         </div>
       </div>
     </div>
