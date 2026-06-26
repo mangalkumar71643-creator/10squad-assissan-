@@ -219,26 +219,6 @@ export default function WeaponSelect() {
               </div>
             </div>
 
-            {/* Glow platform divider */}
-            <div className="shrink-0 h-px mx-4"
-              style={{ background: `linear-gradient(90deg, transparent, ${cfg.border}, transparent)` }} />
-
-            {/* Bottom section: equip button only — inside panel */}
-            <div className="shrink-0 px-4 pb-4 pt-3"
-              style={{ background: "rgba(0,0,0,0.4)" }}>
-              <button
-                disabled={!activeWeapon?.unlocked || equipMutation.isPending || (activeWeapon?.selected ?? false)}
-                onClick={() => activeWeapon?.id && equipMutation.mutate(activeWeapon.id)}
-                className="w-full py-2.5 font-mono font-black text-[11px] tracking-[0.25em] uppercase rounded-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                style={activeWeapon?.selected
-                  ? { background: "rgba(255,100,30,0.12)", border: "1.5px solid rgba(255,100,30,0.4)", color: "#ff6420",
-                      boxShadow: "0 0 12px rgba(255,100,30,0.2)" }
-                  : { background: "linear-gradient(135deg, rgba(255,80,0,0.9), rgba(255,150,20,0.9))",
-                      border: "1.5px solid rgba(255,100,30,0.6)", color: "#fff",
-                      boxShadow: "0 0 20px rgba(255,100,30,0.4)" }}>
-                {equipMutation.isPending ? "EQUIPPING..." : activeWeapon?.selected ? "✓ EQUIPPED" : "EQUIP WEAPON"}
-              </button>
-            </div>
           </div>
         </div>
 
