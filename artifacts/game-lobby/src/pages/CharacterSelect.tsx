@@ -335,7 +335,7 @@ export default function CharacterSelect() {
               gap: "5px",
             }}>
             <span style={{ fontSize: "11px" }}>💎</span>
-            SKINS
+            BUY
           </button>
         </div>
       </div>
