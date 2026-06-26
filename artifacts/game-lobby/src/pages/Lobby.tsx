@@ -253,7 +253,7 @@ export default function Lobby() {
         style={{ left: 0, top: "132px" }}
       >
         <button
-          onClick={() => {}}
+          onClick={() => setLocation("/character")}
           style={{
             display: "flex",
             alignItems: "center",
