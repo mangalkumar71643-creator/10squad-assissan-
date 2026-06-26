@@ -205,16 +205,7 @@ export default function WeaponSelect() {
                     filter: activeWeapon.unlocked
                       ? `drop-shadow(0 0 20px ${cfg.glow}) drop-shadow(0 0 40px ${cfg.glow})`
                       : "grayscale(1) brightness(0.3)" }}
-                  onError={(e) => {
-                    const el = e.target as HTMLImageElement;
-                    el.style.display = "none";
-                    const parent = el.parentElement;
-                    if (parent) {
-                      const placeholder = document.createElement("div");
-                      placeholder.style.cssText = `width:120px;height:50px;background:${cfg.glow};border-radius:4px;filter:blur(2px)`;
-                      parent.appendChild(placeholder);
-                    }
-                  }} />
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
               ) : (
                 <div className="w-32 h-12 rounded" style={{ background: cfg.glow }} />
               )}
@@ -257,12 +248,7 @@ export default function WeaponSelect() {
                     <img src={weapon.image} alt={weapon.name}
                       className="w-full h-full object-cover"
                       style={{ filter: weapon.unlocked ? "none" : "grayscale(1) brightness(0.3)" }}
-                      onError={(e) => {
-                        const el = e.target as HTMLImageElement;
-                        el.style.display = "none";
-                        const parent = el.parentElement;
-                        if (parent) parent.style.background = weapon.unlocked ? c.glow : "rgba(40,20,10,0.5)";
-                      }} />
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                   ) : (
                     <div className="w-full h-full" style={{ background: weapon.unlocked ? c.glow : "rgba(40,20,10,0.5)" }} />
                   )}
