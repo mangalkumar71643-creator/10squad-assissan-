@@ -122,30 +122,17 @@ export default function CharacterSelect() {
         style={{ background: "radial-gradient(ellipse at 100% 100%, rgba(0,80,200,0.10) 0%, transparent 55%)" }} />
 
       {/* ── HEADER ── */}
-      <div className="relative z-30 flex items-center justify-center px-4"
-        style={{
-          height: "50px",
-          borderBottom: "1px solid rgba(0,200,255,0.15)",
-          background: "rgba(5,9,20,0.88)",
-          backdropFilter: "blur(10px)",
-        }}>
-
+      <div className="absolute top-3 left-3 z-30">
         <button
           onClick={() => setLocation("/lobby")}
-          className="absolute left-3 flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
+          className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
           style={{ border: "1.5px solid rgba(0,200,255,0.45)", background: "rgba(0,0,0,0.5)" }}>
           <ChevronLeft className="w-5 h-5" style={{ color: "#00c8ff" }} />
         </button>
-
-        <h1
-          className="font-mono font-black text-[13px] tracking-[0.35em] uppercase"
-          style={{ color: "#ffffff", textShadow: "0 0 18px rgba(0,200,255,0.65)" }}>
-          CHARACTER SELECTION
-        </h1>
       </div>
 
       {/* ── BODY ── */}
-      <div className="flex" style={{ height: "calc(100vh - 50px - 60px)" }}>
+      <div className="flex" style={{ height: "calc(100vh - 60px)" }}>
 
         {/* LEFT: Card grid */}
         <div className="flex flex-col" style={{ flex: "3 3 0%", padding: "10px 8px 6px 10px", gap: "8px" }}>
