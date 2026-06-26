@@ -223,43 +223,9 @@ export default function WeaponSelect() {
             <div className="shrink-0 h-px mx-4"
               style={{ background: `linear-gradient(90deg, transparent, ${cfg.border}, transparent)` }} />
 
-            {/* Bottom section: name + stats + equip — inside panel */}
-            <div className="shrink-0 px-4 pt-3 pb-4 flex flex-col gap-2"
+            {/* Bottom section: equip button only — inside panel */}
+            <div className="shrink-0 px-4 pb-4 pt-3"
               style={{ background: "rgba(0,0,0,0.4)" }}>
-
-              {/* Name + type row */}
-              <div className="flex items-center justify-between">
-                <h2 className="font-mono font-black text-[17px] tracking-[0.06em] uppercase"
-                  style={{ color: "#ffffff", textShadow: `0 0 15px ${cfg.glow}` }}>
-                  {activeWeapon?.name ?? "—"}
-                </h2>
-                <div className="flex items-center gap-1 px-2 py-0.5 rounded"
-                  style={{ background: "rgba(0,0,0,0.5)", border: `1px solid ${cfg.border}` }}>
-                  {wType === "SNIPER" ? <Target className="w-3 h-3" style={{ color: cfg.text }} /> :
-                   wType === "SHOTGUN" ? <Flame className="w-3 h-3" style={{ color: cfg.text }} /> :
-                   <Zap className="w-3 h-3" style={{ color: cfg.text }} />}
-                  <span className="font-mono font-black text-[9px] tracking-[0.15em]" style={{ color: cfg.text }}>
-                    {wType}
-                  </span>
-                </div>
-              </div>
-
-              {/* Stats */}
-              <div className="flex flex-col gap-1.5">
-                {[
-                  { label: "DMG", value: stats.damage, color: typeColor },
-                  { label: "RNG", value: stats.range,  color: "#ffb400" },
-                  { label: "SPD", value: stats.speed,  color: "#00d2ff" },
-                ].map(({ label, value, color }) => (
-                  <div key={label} className="flex items-center gap-2">
-                    <span className="font-mono text-[9px] w-6 shrink-0" style={{ color: "rgba(255,255,255,0.4)" }}>{label}</span>
-                    <StatBar value={value} color={color} />
-                    <span className="font-mono text-[9px] w-5 text-right shrink-0" style={{ color: "rgba(255,255,255,0.5)" }}>{value}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Equip button — inside panel */}
               <button
                 disabled={!activeWeapon?.unlocked || equipMutation.isPending || (activeWeapon?.selected ?? false)}
                 onClick={() => activeWeapon?.id && equipMutation.mutate(activeWeapon.id)}
