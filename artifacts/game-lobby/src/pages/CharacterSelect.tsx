@@ -301,26 +301,6 @@ export default function CharacterSelect() {
               : "CONFIRM"}
           </button>
 
-          <button
-            onClick={() => {
-              const unlocked = characters?.filter(c => c.unlocked) ?? [];
-              if (unlocked.length > 0) {
-                const rand = unlocked[Math.floor(Math.random() * unlocked.length)];
-                setPreviewId(rand.id);
-              }
-            }}
-            className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 flex items-center gap-1.5"
-            style={{
-              fontSize: "11px",
-              padding: "9px 18px",
-              borderRadius: "4px",
-              border: "1.5px solid rgba(255,255,255,0.2)",
-              background: "rgba(255,255,255,0.05)",
-              color: "rgba(255,255,255,0.7)",
-            }}>
-            <Shuffle className="w-3 h-3" />
-            RANDOM
-          </button>
         </div>
 
         {/* Right: currency + skins */}
