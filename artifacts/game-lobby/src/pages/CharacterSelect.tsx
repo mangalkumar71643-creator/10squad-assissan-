@@ -1,28 +1,56 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useGetPlayerCharacters, useGetCurrentPlayer } from "@workspace/api-client-react";
-import { ChevronLeft, Lock, Star, Zap, Shield, Crosshair } from "lucide-react";
+import { ChevronLeft, Lock, Shuffle } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import CharacterCanvas from "@/components/CharacterCanvas";
 
 const RARITY_CONFIG = {
-  common:    { border: "rgba(150,150,150,0.6)", glow: "rgba(150,150,150,0.3)", text: "#aaaaaa", label: "COMMON" },
-  rare:      { border: "rgba(0,180,255,0.7)",   glow: "rgba(0,180,255,0.4)",   text: "#00b4ff", label: "RARE" },
-  epic:      { border: "rgba(160,80,255,0.8)",  glow: "rgba(160,80,255,0.4)",  text: "#a050ff", label: "EPIC" },
-  legendary: { border: "rgba(255,180,0,0.9)",   glow: "rgba(255,180,0,0.5)",   text: "#ffb400", label: "LEGENDARY" },
+  common:    { border: "rgba(0,200,255,0.45)", glow: "rgba(0,200,255,0.25)", text: "#60c8ff", label: "COMMON" },
+  rare:      { border: "rgba(0,180,255,0.7)",  glow: "rgba(0,180,255,0.35)", text: "#00b4ff", label: "RARE" },
+  epic:      { border: "rgba(160,80,255,0.8)", glow: "rgba(160,80,255,0.4)", text: "#a050ff", label: "EPIC" },
+  legendary: { border: "rgba(255,180,0,0.9)", glow: "rgba(255,180,0,0.5)",  text: "#ffb400", label: "LEGENDARY" },
 } as const;
 
-const CHAR_STATS: Record<string, { speed: number; power: number; defense: number; role: string }> = {
-  "HACKER GIRL":       { speed: 90, power: 75, defense: 60, role: "ASSAULT" },
-  "PHANTOM":           { speed: 95, power: 65, defense: 55, role: "RECON" },
-  "NINJA X":           { speed: 99, power: 88, defense: 45, role: "STEALTH" },
-  "SPACE HEIST OPS":   { speed: 70, power: 92, defense: 85, role: "TANK" },
+const CHAR_3D_MAP: Record<string, string> = {
+  "Cyber Ghost":   "ninja-x-1",
+  "Neon Striker":  "nova",
+  "Shadow Runner": "phantom",
+  "Volt Reaper":   "",
 };
 
-function StatBar({ value, color }: { value: number; color: string }) {
+const CARDS_PER_PAGE = 8;
+
+function CyberpunkCorners({ color }: { color: string }) {
   return (
-    <div style={{ flex: 1, height: "4px", background: "rgba(255,255,255,0.08)", borderRadius: "2px", overflow: "hidden" }}>
-      <div style={{ width: `${value}%`, height: "100%", background: color, borderRadius: "2px",
-        boxShadow: `0 0 6px ${color}` }} />
+    <>
+      <span className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 pointer-events-none" style={{ borderColor: color }} />
+      <span className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 pointer-events-none" style={{ borderColor: color }} />
+      <span className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 pointer-events-none" style={{ borderColor: color }} />
+      <span className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 pointer-events-none" style={{ borderColor: color }} />
+    </>
+  );
+}
+
+function PlatformRing() {
+  return (
+    <div className="absolute bottom-0 left-0 right-0 pointer-events-none" style={{ bottom: "6%" }}>
+      <svg viewBox="0 0 240 70" className="w-full" style={{ overflow: "visible" }}>
+        <defs>
+          <radialGradient id="pgFill" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="rgba(0,160,255,0.35)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0)" />
+          </radialGradient>
+        </defs>
+        <ellipse cx="120" cy="50" rx="105" ry="18" fill="url(#pgFill)" opacity="0.7" />
+        <ellipse cx="120" cy="50" rx="105" ry="18"
+          fill="none" stroke="rgba(0,200,255,0.55)" strokeWidth="1.5"
+          style={{ filter: "drop-shadow(0 0 5px rgba(0,200,255,0.9))" }} />
+        <ellipse cx="120" cy="50" rx="72" ry="12"
+          fill="none" stroke="rgba(0,140,255,0.35)" strokeWidth="0.75" strokeDasharray="10 5" />
+        <ellipse cx="120" cy="50" rx="42" ry="7"
+          fill="none" stroke="rgba(0,100,255,0.25)" strokeWidth="0.5" />
+      </svg>
     </div>
   );
 }
@@ -33,9 +61,15 @@ export default function CharacterSelect() {
   const { data: player } = useGetCurrentPlayer();
   const queryClient = useQueryClient();
 
-  const selected = characters?.find(c => c.selected) ?? characters?.[0];
-  const [activeId, setActiveId] = useState<number | null>(null);
-  const activeChar = characters?.find(c => c.id === activeId) ?? selected;
+  const equippedChar = characters?.find(c => c.selected) ?? characters?.[0];
+  const [previewId, setPreviewId] = useState<number | null>(null);
+  const [page, setPage] = useState(0);
+
+  const previewChar = previewId
+    ? characters?.find(c => c.id === previewId)
+    : equippedChar;
+
+  const characterId3D = CHAR_3D_MAP[previewChar?.name ?? ""] ?? "";
 
   const equipMutation = useMutation({
     mutationFn: async (charId: number) => {
@@ -46,236 +80,330 @@ export default function CharacterSelect() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/players/me/characters"] });
       queryClient.invalidateQueries({ queryKey: ["/api/players/me"] });
+      setTimeout(() => setLocation("/lobby"), 600);
     },
   });
 
+  const allChars = characters ?? [];
+  const totalSlots = Math.max(CARDS_PER_PAGE, allChars.length);
+  const totalPages = Math.ceil(totalSlots / CARDS_PER_PAGE);
+  const pageSlots = Array.from({ length: CARDS_PER_PAGE }, (_, i) => allChars[page * CARDS_PER_PAGE + i] ?? null);
+
+  const previewRarity = (previewChar?.rarity ?? "common") as keyof typeof RARITY_CONFIG;
+  const previewCfg = RARITY_CONFIG[previewRarity] ?? RARITY_CONFIG.common;
+
   if (isLoading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-black">
+      <div className="h-screen w-screen flex items-center justify-center" style={{ background: "#06090f" }}>
         <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-          <span className="text-cyan-400 font-mono text-sm tracking-[0.3em] animate-pulse">LOADING ARSENAL...</span>
+          <div className="w-10 h-10 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+          <span className="font-mono text-[11px] tracking-[0.3em] text-cyan-400 animate-pulse">LOADING...</span>
         </div>
       </div>
     );
   }
 
-  const rarity = (activeChar?.rarity ?? "common") as keyof typeof RARITY_CONFIG;
-  const cfg = RARITY_CONFIG[rarity] ?? RARITY_CONFIG.common;
-  const stats = CHAR_STATS[activeChar?.name ?? ""] ?? { speed: 70, power: 70, defense: 70, role: "ASSAULT" };
-
   return (
-    <div className="relative h-screen w-screen text-white font-sans overflow-hidden"
-      style={{ background: "linear-gradient(135deg, #06090f 0%, #0a0d18 60%, #060a12 100%)" }}>
+    <div className="relative h-screen w-screen overflow-hidden text-white select-none"
+      style={{ background: "linear-gradient(155deg, #07101f 0%, #050a14 60%, #060c18 100%)" }}>
 
-      {/* Background */}
-      <div className="absolute inset-0 bg-cover bg-center opacity-10"
-        style={{ backgroundImage: 'url("/assets/cyberpunk-bg.png")' }} />
-      <div className="absolute inset-0"
-        style={{ background: "radial-gradient(ellipse at 30% 50%, rgba(0,180,255,0.06) 0%, transparent 60%)" }} />
-      <div className="absolute inset-0"
-        style={{ background: "radial-gradient(ellipse at 80% 50%, rgba(140,60,255,0.06) 0%, transparent 60%)" }} />
+      {/* Grid background */}
+      <div className="absolute inset-0 pointer-events-none opacity-[0.035]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(0,210,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(0,210,255,1) 1px, transparent 1px)",
+          backgroundSize: "36px 36px",
+        }} />
 
-      {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-3"
-        style={{ borderBottom: "1px solid rgba(0,210,255,0.12)", background: "rgba(6,9,15,0.85)", backdropFilter: "blur(8px)" }}>
-        <button onClick={() => setLocation("/lobby")}
-          className="flex items-center gap-2 active:scale-95 transition-transform"
-          style={{ color: "rgba(0,210,255,0.8)" }}>
-          <ChevronLeft className="w-5 h-5" />
-          <span className="font-mono text-[11px] tracking-[0.2em] uppercase">Back</span>
+      {/* Ambient glows */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ background: "radial-gradient(ellipse at 0% 0%, rgba(0,100,200,0.14) 0%, transparent 55%)" }} />
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ background: "radial-gradient(ellipse at 100% 100%, rgba(0,80,200,0.10) 0%, transparent 55%)" }} />
+
+      {/* ── HEADER ── */}
+      <div className="relative z-30 flex items-center justify-center px-4"
+        style={{
+          height: "50px",
+          borderBottom: "1px solid rgba(0,200,255,0.15)",
+          background: "rgba(5,9,20,0.88)",
+          backdropFilter: "blur(10px)",
+        }}>
+
+        <button
+          onClick={() => setLocation("/lobby")}
+          className="absolute left-3 flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
+          style={{ border: "1.5px solid rgba(0,200,255,0.45)", background: "rgba(0,0,0,0.5)" }}>
+          <ChevronLeft className="w-5 h-5" style={{ color: "#00c8ff" }} />
         </button>
-        <span className="font-mono font-black text-[13px] tracking-[0.35em] uppercase"
-          style={{ color: "#00d2ff", textShadow: "0 0 12px rgba(0,210,255,0.7)" }}>
-          SELECT OPERATIVE
-        </span>
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-[10px]" style={{ color: "rgba(255,255,255,0.35)" }}>OPERATIVE:</span>
-          <span className="font-mono font-bold text-[10px]" style={{ color: "#00d2ff" }}>
-            {player?.character ?? "—"}
-          </span>
+
+        <h1
+          className="font-mono font-black text-[13px] tracking-[0.35em] uppercase"
+          style={{ color: "#ffffff", textShadow: "0 0 18px rgba(0,200,255,0.65)" }}>
+          CHARACTER SELECTION
+        </h1>
+      </div>
+
+      {/* ── BODY ── */}
+      <div className="flex" style={{ height: "calc(100vh - 50px - 60px)" }}>
+
+        {/* LEFT: Card grid */}
+        <div className="flex flex-col" style={{ flex: "3 3 0%", padding: "10px 8px 6px 10px", gap: "8px" }}>
+
+          {/* 2×4 grid */}
+          <div className="grid grid-cols-4 grid-rows-2 flex-1" style={{ gap: "6px" }}>
+            {pageSlots.map((char, i) => {
+              if (!char) {
+                return (
+                  <div
+                    key={`empty-${page}-${i}`}
+                    className="relative rounded overflow-hidden flex items-center justify-center"
+                    style={{
+                      border: "1.5px solid rgba(0,200,255,0.13)",
+                      background: "rgba(0,8,22,0.55)",
+                    }}>
+                    <CyberpunkCorners color="rgba(0,200,255,0.25)" />
+                    <Lock className="w-4 h-4" style={{ color: "rgba(255,255,255,0.08)" }} />
+                  </div>
+                );
+              }
+
+              const r = (char.rarity ?? "common") as keyof typeof RARITY_CONFIG;
+              const cfg = RARITY_CONFIG[r] ?? RARITY_CONFIG.common;
+              const isActive = char.id === previewChar?.id;
+              const isEquipped = char.selected;
+
+              return (
+                <button
+                  key={char.id}
+                  onClick={() => setPreviewId(char.id)}
+                  className="relative rounded overflow-hidden flex flex-col transition-all active:scale-95"
+                  style={{
+                    border: isActive
+                      ? `2px solid ${cfg.border}`
+                      : "1.5px solid rgba(0,200,255,0.18)",
+                    background: isActive
+                      ? `rgba(0,25,55,0.9)`
+                      : "rgba(0,8,22,0.65)",
+                    boxShadow: isActive ? `0 0 18px ${cfg.glow}` : "none",
+                    transition: "all 0.15s ease",
+                  }}>
+
+                  <CyberpunkCorners color={isActive ? cfg.border : "rgba(0,200,255,0.28)"} />
+
+                  {/* Image fill */}
+                  <div
+                    className="flex-1 relative overflow-hidden flex items-end justify-center"
+                    style={{
+                      background: isActive
+                        ? `radial-gradient(ellipse at 50% 90%, ${cfg.glow} 0%, rgba(0,0,0,0.4) 70%)`
+                        : "rgba(0,0,0,0.35)",
+                      minHeight: 0,
+                    }}>
+
+                    {char.image ? (
+                      <img
+                        src={char.image}
+                        alt={char.name}
+                        className="w-full h-full object-cover absolute inset-0"
+                        style={{
+                          filter: char.unlocked
+                            ? isActive ? `drop-shadow(0 0 8px ${cfg.glow})` : "none"
+                            : "grayscale(1) brightness(0.25)",
+                        }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    ) : (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center"
+                        style={{ opacity: 0.3 }}>
+                        <div
+                          className="w-6 h-6 rounded-full"
+                          style={{ background: cfg.glow }} />
+                      </div>
+                    )}
+
+                    {!char.unlocked && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center"
+                        style={{ background: "rgba(0,0,0,0.72)" }}>
+                        <Lock className="w-3.5 h-3.5" style={{ color: "rgba(255,255,255,0.22)" }} />
+                      </div>
+                    )}
+
+                    {isEquipped && (
+                      <div
+                        className="absolute top-1 right-1 w-3 h-3 rounded-full flex items-center justify-center z-10"
+                        style={{ background: "#00c8ff", boxShadow: "0 0 5px rgba(0,200,255,0.9)" }}>
+                        <span style={{ fontSize: "6px", color: "#000", fontWeight: 900, lineHeight: 1 }}>✓</span>
+                      </div>
+                    )}
+
+                    {isActive && (
+                      <div
+                        className="absolute inset-x-0 bottom-0 h-[2px]"
+                        style={{ background: `linear-gradient(90deg, transparent, ${cfg.border}, transparent)` }} />
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Pagination dots */}
+          <div className="flex items-center justify-center shrink-0" style={{ gap: "8px", height: "16px" }}>
+            {Array.from({ length: totalPages }, (_, i) => (
+              <button
+                key={i}
+                onClick={() => setPage(i)}
+                style={{
+                  width: i === page ? "20px" : "6px",
+                  height: "4px",
+                  borderRadius: "2px",
+                  background: i === page ? "#00c8ff" : "rgba(0,200,255,0.22)",
+                  boxShadow: i === page ? "0 0 7px rgba(0,200,255,0.9)" : "none",
+                  transition: "all 0.2s ease",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                }} />
+            ))}
+          </div>
+        </div>
+
+        {/* RIGHT: 3D viewer */}
+        <div
+          className="flex flex-col relative"
+          style={{
+            flex: "2 2 0%",
+            borderLeft: "1px solid rgba(0,200,255,0.14)",
+          }}>
+
+          {/* 3D canvas */}
+          <div className="flex-1 relative overflow-hidden">
+            {characterId3D ? (
+              <CharacterCanvas key={characterId3D} characterId={characterId3D} />
+            ) : (
+              <div
+                className="w-full h-full"
+                style={{
+                  background:
+                    "radial-gradient(ellipse at 50% 65%, rgba(0,120,255,0.07) 0%, transparent 70%)",
+                }} />
+            )}
+            <PlatformRing />
+          </div>
+
+          {/* Character name + rarity */}
+          {previewChar && (
+            <div className="shrink-0 flex flex-col items-center pb-2" style={{ gap: "2px" }}>
+              <p
+                className="font-mono font-black text-[10px] tracking-[0.25em] uppercase"
+                style={{ color: previewCfg.text, textShadow: `0 0 8px ${previewCfg.glow}` }}>
+                {previewCfg.label}
+              </p>
+              <p
+                className="font-mono font-bold text-[12px] tracking-[0.15em] uppercase"
+                style={{ color: "#ffffff", textShadow: "0 0 10px rgba(0,200,255,0.5)" }}>
+                {previewChar.name}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Main layout */}
-      <div className="absolute inset-0 flex pt-[52px] pb-4 px-3 gap-3">
+      {/* ── BOTTOM BAR ── */}
+      <div
+        className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-4"
+        style={{
+          height: "60px",
+          borderTop: "1px solid rgba(0,200,255,0.18)",
+          background: "rgba(4,7,18,0.95)",
+          backdropFilter: "blur(12px)",
+          gap: "10px",
+        }}>
 
-        {/* ── LEFT: Character preview ── */}
-        <div className="flex flex-col flex-1 min-w-0 gap-3">
-
-          {/* Character image panel */}
-          <div className="relative flex-1 flex items-center justify-center rounded-xl overflow-hidden"
-            style={{ border: `1.5px solid ${cfg.border}`, boxShadow: `0 0 30px ${cfg.glow}, inset 0 0 40px rgba(0,0,0,0.5)`,
-              background: "rgba(8,12,24,0.9)" }}>
-
-            {/* Rarity badge */}
-            <div className="absolute top-3 left-3 z-20 px-2 py-0.5 rounded"
-              style={{ background: "rgba(0,0,0,0.7)", border: `1px solid ${cfg.border}` }}>
-              <span className="font-mono font-black text-[9px] tracking-[0.25em]" style={{ color: cfg.text }}>
-                {cfg.label}
-              </span>
-            </div>
-
-            {/* Lock overlay for locked characters */}
-            {activeChar && !activeChar.unlocked && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3"
-                style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}>
-                <Lock className="w-10 h-10" style={{ color: "rgba(255,255,255,0.3)" }} />
-                <span className="font-mono text-[10px] tracking-[0.2em] uppercase"
-                  style={{ color: "rgba(255,255,255,0.4)" }}>LOCKED</span>
-              </div>
-            )}
-
-            {/* Glow platform */}
-            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3/4 h-16"
-              style={{ background: `radial-gradient(ellipse at 50% 100%, ${cfg.glow} 0%, transparent 70%)`, filter: "blur(8px)" }} />
-
-            {/* Character image */}
-            {activeChar?.image ? (
-              <img src={activeChar.image} alt={activeChar.name}
-                className="relative z-10 object-contain"
-                style={{ maxHeight: "75%", filter: activeChar.unlocked
-                  ? `drop-shadow(0 0 20px ${cfg.glow})`
-                  : "grayscale(1) brightness(0.4)" }}
-                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-            ) : (
-              <div className="w-24 h-24 rounded-full" style={{ background: cfg.glow }} />
-            )}
-
-            {/* Scan line */}
-            <div className="absolute inset-x-0 z-10 pointer-events-none overflow-hidden" style={{ top: 0, bottom: 0 }}>
-              <div style={{ position: "absolute", left: 0, right: 0, height: "1px",
-                background: `linear-gradient(90deg, transparent, ${cfg.glow}, transparent)`,
-                animation: "scan-line 4s linear infinite" }} />
-            </div>
-          </div>
-
-          {/* Character name + role */}
-          <div className="shrink-0 px-1">
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="font-mono font-black text-[18px] tracking-[0.1em] uppercase"
-                style={{ color: "#ffffff", textShadow: `0 0 15px ${cfg.glow}` }}>
-                {activeChar?.name ?? "—"}
-              </h2>
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded"
-                style={{ background: "rgba(0,0,0,0.5)", border: `1px solid ${cfg.border}` }}>
-                {stats.role === "STEALTH" ? <Crosshair className="w-3 h-3" style={{ color: cfg.text }} /> :
-                 stats.role === "RECON"   ? <Zap className="w-3 h-3" style={{ color: cfg.text }} /> :
-                 stats.role === "TANK"    ? <Shield className="w-3 h-3" style={{ color: cfg.text }} /> :
-                 <Star className="w-3 h-3" style={{ color: cfg.text }} />}
-                <span className="font-mono font-black text-[9px] tracking-[0.15em]" style={{ color: cfg.text }}>
-                  {stats.role}
-                </span>
-              </div>
-            </div>
-
-            {/* Stats */}
-            <div className="flex flex-col gap-1.5">
-              {[
-                { label: "SPD", value: stats.speed,   color: "#00d2ff" },
-                { label: "PWR", value: stats.power,   color: "#a050ff" },
-                { label: "DEF", value: stats.defense, color: "#ff8c00" },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="flex items-center gap-2">
-                  <span className="font-mono text-[9px] w-6 shrink-0" style={{ color: "rgba(255,255,255,0.4)" }}>{label}</span>
-                  <StatBar value={value} color={color} />
-                  <span className="font-mono text-[9px] w-5 text-right shrink-0" style={{ color: "rgba(255,255,255,0.5)" }}>{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Equip button */}
+        {/* CONFIRM + RANDOM */}
+        <div className="flex items-center" style={{ gap: "10px" }}>
           <button
-            disabled={!activeChar?.unlocked || equipMutation.isPending || (activeChar?.selected ?? false)}
-            onClick={() => activeChar?.id && equipMutation.mutate(activeChar.id)}
-            className="shrink-0 w-full py-3 font-mono font-black text-[11px] tracking-[0.25em] uppercase rounded-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={activeChar?.selected
-              ? { background: "rgba(0,210,255,0.12)", border: "1.5px solid rgba(0,210,255,0.4)", color: "#00d2ff",
-                  boxShadow: "0 0 12px rgba(0,210,255,0.2)" }
-              : { background: "linear-gradient(135deg, rgba(249,115,22,0.9), rgba(234,179,8,0.9))",
-                  border: "1.5px solid rgba(249,115,22,0.6)", color: "#fff",
-                  boxShadow: "0 0 20px rgba(249,115,22,0.4)" }}>
-            {equipMutation.isPending ? "EQUIPPING..." : activeChar?.selected ? "✓ EQUIPPED" : "EQUIP OPERATIVE"}
+            disabled={!previewChar?.unlocked || equipMutation.isPending}
+            onClick={() => previewChar?.id && equipMutation.mutate(previewChar.id)}
+            className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              fontSize: "11px",
+              padding: "9px 22px",
+              borderRadius: "4px",
+              border: previewChar?.selected
+                ? "1.5px solid rgba(0,200,255,0.5)"
+                : "1.5px solid rgba(0,200,255,0.7)",
+              background: previewChar?.selected
+                ? "rgba(0,200,255,0.08)"
+                : "rgba(0,200,255,0.12)",
+              color: "#ffffff",
+              boxShadow: "0 0 14px rgba(0,200,255,0.18), inset 0 0 12px rgba(0,200,255,0.05)",
+            }}>
+            {equipMutation.isPending
+              ? "..."
+              : previewChar?.selected
+              ? "✓ EQUIPPED"
+              : "CONFIRM"}
+          </button>
+
+          <button
+            onClick={() => {
+              const unlocked = characters?.filter(c => c.unlocked) ?? [];
+              if (unlocked.length > 0) {
+                const rand = unlocked[Math.floor(Math.random() * unlocked.length)];
+                setPreviewId(rand.id);
+              }
+            }}
+            className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 flex items-center gap-1.5"
+            style={{
+              fontSize: "11px",
+              padding: "9px 18px",
+              borderRadius: "4px",
+              border: "1.5px solid rgba(255,255,255,0.2)",
+              background: "rgba(255,255,255,0.05)",
+              color: "rgba(255,255,255,0.7)",
+            }}>
+            <Shuffle className="w-3 h-3" />
+            RANDOM
           </button>
         </div>
 
-        {/* ── RIGHT: Roster ── */}
-        <div className="flex flex-col w-[130px] shrink-0 gap-2 overflow-y-auto"
-          style={{ scrollbarWidth: "none" }}>
-          <span className="font-mono text-[9px] tracking-[0.25em] uppercase shrink-0 mb-1"
-            style={{ color: "rgba(255,255,255,0.3)" }}>ROSTER</span>
-
-          {characters?.map((char) => {
-            const r = (char.rarity ?? "common") as keyof typeof RARITY_CONFIG;
-            const c = RARITY_CONFIG[r] ?? RARITY_CONFIG.common;
-            const isActive = char.id === (activeChar?.id);
-            return (
-              <button key={char.id}
-                onClick={() => setActiveId(char.id)}
-                className="relative shrink-0 rounded-lg overflow-hidden transition-all active:scale-95"
-                style={{
-                  border: isActive ? `1.5px solid ${c.border}` : "1.5px solid rgba(255,255,255,0.08)",
-                  boxShadow: isActive ? `0 0 14px ${c.glow}` : "none",
-                  background: isActive ? `rgba(0,0,0,0.7)` : "rgba(0,0,0,0.4)",
-                }}>
-                {/* Thumbnail */}
-                <div className="w-full aspect-square flex items-center justify-center overflow-hidden"
-                  style={{ background: "rgba(0,0,0,0.5)" }}>
-                  {char.image ? (
-                    <img src={char.image} alt={char.name}
-                      className="w-full h-full object-cover"
-                      style={{ filter: char.unlocked ? "none" : "grayscale(1) brightness(0.3)" }}
-                      onError={(e) => {
-                        const el = e.target as HTMLImageElement;
-                        el.style.display = "none";
-                        el.parentElement!.style.background = c.glow;
-                      }} />
-                  ) : (
-                    <div className="w-full h-full" style={{ background: char.unlocked ? c.glow : "rgba(40,40,40,0.5)" }} />
-                  )}
-                  {!char.unlocked && (
-                    <div className="absolute inset-0 flex items-center justify-center"
-                      style={{ background: "rgba(0,0,0,0.55)" }}>
-                      <Lock className="w-5 h-5" style={{ color: "rgba(255,255,255,0.3)" }} />
-                    </div>
-                  )}
-                  {char.selected && (
-                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full flex items-center justify-center"
-                      style={{ background: "rgba(0,210,255,0.9)" }}>
-                      <span style={{ fontSize: "8px", color: "#000", fontWeight: 900 }}>✓</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Name + rarity */}
-                <div className="px-1.5 py-1.5">
-                  <p className="font-mono font-bold text-[8px] leading-tight uppercase truncate"
-                    style={{ color: char.unlocked ? "#fff" : "rgba(255,255,255,0.3)" }}>
-                    {char.name}
-                  </p>
-                  <p className="font-mono text-[7px] tracking-[0.1em] uppercase"
-                    style={{ color: char.unlocked ? c.text : "rgba(255,255,255,0.2)" }}>
-                    {c.label}
-                  </p>
-                </div>
-              </button>
-            );
-          })}
-
-          {/* Locked placeholder slots */}
-          {[...Array(Math.max(0, 4 - (characters?.length ?? 0)))].map((_, i) => (
-            <div key={`empty-${i}`} className="shrink-0 rounded-lg overflow-hidden"
-              style={{ border: "1.5px solid rgba(255,255,255,0.05)", background: "rgba(0,0,0,0.2)" }}>
-              <div className="w-full aspect-square flex items-center justify-center"
-                style={{ background: "rgba(20,20,20,0.5)" }}>
-                <span className="font-mono text-[18px]" style={{ color: "rgba(255,255,255,0.1)" }}>?</span>
-              </div>
-              <div className="px-1.5 py-1.5">
-                <div className="h-2 w-full rounded" style={{ background: "rgba(255,255,255,0.05)" }} />
-              </div>
+        {/* Right: currency + skins */}
+        <div className="flex items-center" style={{ gap: "12px" }}>
+          <div className="flex items-center" style={{ gap: "6px" }}>
+            <div
+              className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+              style={{
+                background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                boxShadow: "0 0 8px rgba(245,158,11,0.6)",
+              }}>
+              <span style={{ fontSize: "8px", fontWeight: 900, color: "#000", lineHeight: 1 }}>G</span>
             </div>
-          ))}
+            <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
+              {player?.gold ?? 0}
+            </span>
+          </div>
+
+          <div
+            className="h-4 w-px"
+            style={{ background: "rgba(255,255,255,0.12)" }} />
+
+          <button
+            className="flex items-center font-mono font-black tracking-[0.15em] uppercase transition-all active:scale-95"
+            style={{
+              fontSize: "10px",
+              padding: "6px 12px",
+              borderRadius: "4px",
+              border: "1.5px solid rgba(130,80,255,0.55)",
+              background: "rgba(90,50,200,0.12)",
+              color: "#a080ff",
+              gap: "5px",
+            }}>
+            <span style={{ fontSize: "11px" }}>💎</span>
+            SKINS
+          </button>
         </div>
       </div>
     </div>
