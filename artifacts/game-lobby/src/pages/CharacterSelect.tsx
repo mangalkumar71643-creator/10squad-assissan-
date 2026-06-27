@@ -210,13 +210,6 @@ export default function CharacterSelect() {
                       </div>
                     )}
 
-                    {isEquipped && (
-                      <div
-                        className="absolute top-1 right-1 w-3 h-3 rounded-full flex items-center justify-center z-10"
-                        style={{ background: "#00c8ff", boxShadow: "0 0 5px rgba(0,200,255,0.9)" }}>
-                        <span style={{ fontSize: "6px", color: "#000", fontWeight: 900, lineHeight: 1 }}>✓</span>
-                      </div>
-                    )}
 
                     {isActive && (
                       <div
@@ -307,7 +300,7 @@ export default function CharacterSelect() {
               {equipMutation.isPending
                 ? "..."
                 : previewChar?.selected
-                ? "✓ EQUIPPED"
+                ? "EQUIPPED"
                 : "CONFIRM"}
             </button>
           )}
