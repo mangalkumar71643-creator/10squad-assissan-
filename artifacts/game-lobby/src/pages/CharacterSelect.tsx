@@ -259,10 +259,11 @@ export default function CharacterSelect() {
 
       {/* ── BOTTOM BAR ── */}
       <div
-        className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-4"
+        className="absolute bottom-0 left-0 right-0 flex items-end justify-between px-4"
         style={{
           height: "60px",
           gap: "10px",
+          paddingBottom: "10px",
         }}>
 
         {/* CONFIRM + RANDOM */}
