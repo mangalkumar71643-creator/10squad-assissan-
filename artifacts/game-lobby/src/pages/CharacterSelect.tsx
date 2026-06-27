@@ -266,9 +266,9 @@ export default function CharacterSelect() {
               className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95"
               style={{
                 fontSize: "11px",
-                width: "50px",
-                height: "14px",
-                padding: "0px",
+                width: "80px",
+                height: "28px",
+                padding: "0px 8px",
                 borderRadius: "4px",
                 border: "1.5px solid rgba(160,100,255,0.8)",
                 background: "rgba(100,50,220,0.22)",
@@ -284,9 +284,9 @@ export default function CharacterSelect() {
               className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 fontSize: "11px",
-                width: "50px",
-                height: "14px",
-                padding: "0px",
+                width: "80px",
+                height: "28px",
+                padding: "0px 8px",
                 borderRadius: "4px",
                 border: previewChar?.selected
                   ? "1.5px solid rgba(0,200,255,0.5)"
