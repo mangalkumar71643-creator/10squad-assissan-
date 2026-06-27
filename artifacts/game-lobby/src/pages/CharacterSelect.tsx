@@ -311,7 +311,7 @@ export default function CharacterSelect() {
           <div className="flex items-center" style={{ gap: "6px" }}>
             <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)", marginLeft: "-165px" }}>💎</span>
             <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>0</span>
-            <div style={{ width: "20px" }} />
+            <div style={{ width: "38px" }} />
             <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
             <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
               {player?.gold ?? 0}
