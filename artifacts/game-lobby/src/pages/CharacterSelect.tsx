@@ -263,7 +263,7 @@ export default function CharacterSelect() {
         style={{
           height: "60px",
           gap: "10px",
-          paddingBottom: "10px",
+          paddingBottom: "0px",
         }}>
 
         {/* CONFIRM + RANDOM */}
