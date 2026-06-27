@@ -260,7 +260,7 @@ export default function CharacterSelect() {
         }}>
 
         {/* CONFIRM / EQUIPPED / BUY */}
-        <div className="flex items-center" style={{ gap: "10px", marginBottom: "55px", marginLeft: "570px" }}>
+        <div className="flex items-center" style={{ gap: "10px", marginBottom: "45px", marginLeft: "570px" }}>
           {previewChar?.unlocked === false ? (
             <button
               className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95"
