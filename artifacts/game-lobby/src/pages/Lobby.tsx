@@ -53,14 +53,18 @@ export default function Lobby() {
           padding: "0px 10px 8px 15px",
         }}
       >
-        {/* Gold coin */}
-        <button
-          onClick={() => {}}
-          className="flex items-center justify-center gap-1 h-7 active:scale-90 transition-transform"
-        >
-          <span style={{ fontSize: "18px" }}>🪙</span>
-          <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#f0c040", textShadow: "0 0 6px rgba(240,192,64,0.8)" }}>0</span>
-        </button>
+        {/* Diamond + Gold currency */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            <span style={{ fontSize: "14px", display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
+            <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#00d4ff", textShadow: "0 0 6px rgba(0,212,255,0.8)" }}>{player?.diamonds ?? 0}</span>
+          </div>
+          <div style={{ width: "1px", height: "14px", background: "rgba(255,255,255,0.15)" }} />
+          <div className="flex items-center gap-1">
+            <span style={{ fontSize: "16px" }}>🪙</span>
+            <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#f0c040", textShadow: "0 0 6px rgba(240,192,64,0.8)" }}>{player?.gold ?? 0}</span>
+          </div>
+        </div>
 
         {/* Email + Settings with divider */}
         <div className="flex items-center">
