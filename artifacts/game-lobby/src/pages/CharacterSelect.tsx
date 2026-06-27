@@ -274,7 +274,9 @@ export default function CharacterSelect() {
             className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               fontSize: "11px",
-              padding: "9px 22px",
+              width: "50px",
+              height: "14px",
+              padding: "0px",
               borderRadius: "4px",
               border: previewChar?.selected
                 ? "1.5px solid rgba(0,200,255,0.5)"
