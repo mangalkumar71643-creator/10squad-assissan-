@@ -96,7 +96,7 @@ export default function WeaponSelect() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/players/me/weapons"] });
-      setTimeout(() => setLocation("/lobby"), 600);
+      setTimeout(() => setLocation("/lobby", { replace: true }), 600);
     },
   });
 
@@ -156,7 +156,7 @@ export default function WeaponSelect() {
         }}>
 
         <button
-          onClick={() => setLocation("/lobby")}
+          onClick={() => setLocation("/lobby", { replace: true })}
           className="absolute left-3 flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
           style={{ border: "1.5px solid rgba(255,140,40,0.5)", background: "rgba(0,0,0,0.5)" }}>
           <ChevronLeft className="w-5 h-5" style={{ color: "#ff9428" }} />

@@ -80,7 +80,7 @@ export default function CharacterSelect() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/players/me/characters"] });
       queryClient.invalidateQueries({ queryKey: ["/api/players/me"] });
-      setTimeout(() => setLocation("/lobby"), 600);
+      setTimeout(() => setLocation("/lobby", { replace: true }), 600);
     },
   });
 
@@ -117,7 +117,7 @@ export default function CharacterSelect() {
       {/* ── HEADER ── */}
       <div className="absolute top-3 right-3 z-30">
         <button
-          onClick={() => setLocation("/lobby")}
+          onClick={() => setLocation("/lobby", { replace: true })}
           className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
           style={{ border: "1.5px solid rgba(0,200,255,0.45)", background: "rgba(0,0,0,0.5)" }}>
           <X className="w-5 h-5" style={{ color: "#00c8ff" }} />
