@@ -306,7 +306,8 @@ export default function CharacterSelect() {
         {/* Right: currency + buy */}
         <div className="flex items-center" style={{ gap: "12px" }}>
           <div className="flex items-center" style={{ gap: "6px" }}>
-            <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(20deg)" }}>💎</span>
+            <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
+            <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>0</span>
             <div style={{ width: "20px" }} />
             <div
               className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
