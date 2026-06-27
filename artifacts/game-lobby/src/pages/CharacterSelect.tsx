@@ -107,13 +107,6 @@ export default function CharacterSelect() {
     <div className="relative h-screen w-screen overflow-hidden text-white select-none"
       style={{ background: "linear-gradient(155deg, #07101f 0%, #050a14 60%, #060c18 100%)" }}>
 
-      {/* Grid background */}
-      <div className="absolute inset-0 pointer-events-none opacity-[0.035]"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(0,210,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(0,210,255,1) 1px, transparent 1px)",
-          backgroundSize: "36px 36px",
-        }} />
 
       {/* Ambient glows */}
       <div className="absolute inset-0 pointer-events-none"
