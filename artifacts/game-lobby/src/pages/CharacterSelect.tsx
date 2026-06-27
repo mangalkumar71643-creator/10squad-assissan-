@@ -318,22 +318,6 @@ export default function CharacterSelect() {
             </span>
           </div>
 
-          <div
-            className="h-4 w-px"
-            style={{ background: "rgba(255,255,255,0.12)" }} />
-
-          <button
-            className="flex items-center font-mono font-black tracking-[0.15em] uppercase transition-all active:scale-95"
-            style={{
-              fontSize: "10px",
-              padding: "6px 12px",
-              borderRadius: "4px",
-              border: "1.5px solid rgba(130,80,255,0.55)",
-              background: "rgba(90,50,200,0.12)",
-              color: "#a080ff",
-            }}>
-            BUY
-          </button>
         </div>
       </div>
     </div>
