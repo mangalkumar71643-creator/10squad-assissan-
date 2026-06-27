@@ -302,14 +302,7 @@ export default function CharacterSelect() {
             <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
             <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>0</span>
             <div style={{ width: "20px" }} />
-            <div
-              className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
-              style={{
-                background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
-                boxShadow: "0 0 8px rgba(245,158,11,0.6)",
-              }}>
-              <span style={{ fontSize: "8px", fontWeight: 900, color: "#000", lineHeight: 1 }}>G</span>
-            </div>
+            <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
             <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
               {player?.gold ?? 0}
             </span>
