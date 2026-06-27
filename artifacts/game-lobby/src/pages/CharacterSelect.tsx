@@ -262,9 +262,6 @@ export default function CharacterSelect() {
         className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-4"
         style={{
           height: "60px",
-          borderTop: "1px solid rgba(0,200,255,0.18)",
-          background: "rgba(4,7,18,0.95)",
-          backdropFilter: "blur(12px)",
           gap: "10px",
         }}>
 
