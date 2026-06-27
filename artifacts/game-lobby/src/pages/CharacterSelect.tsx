@@ -267,7 +267,7 @@ export default function CharacterSelect() {
         }}>
 
         {/* CONFIRM + RANDOM */}
-        <div className="flex items-center" style={{ gap: "10px", marginBottom: "5px", marginLeft: "500px" }}>
+        <div className="flex items-center" style={{ gap: "10px", marginBottom: "55px", marginLeft: "500px" }}>
           <button
             disabled={!previewChar?.unlocked || equipMutation.isPending}
             onClick={() => previewChar?.id && equipMutation.mutate(previewChar.id)}
