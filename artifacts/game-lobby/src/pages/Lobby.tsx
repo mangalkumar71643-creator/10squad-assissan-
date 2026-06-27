@@ -202,36 +202,6 @@ export default function Lobby() {
           </div>
         </div>
 
-        {/* Box 2 — Diamond Icon + Count */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "5px",
-            padding: "0 60px 0 10px",
-            background: "transparent",
-            height: "28px",
-            flexShrink: 0,
-          }}
-        >
-          <img
-            src="/diamond.png"
-            alt="diamonds"
-            style={{ width: "16px", height: "16px", objectFit: "contain", filter: "drop-shadow(0 0 4px rgba(0,210,255,0.7))" }}
-          />
-          <span
-            style={{
-              fontFamily: "monospace",
-              fontWeight: 700,
-              fontSize: "8px",
-              color: "#00d2ff",
-              textShadow: "0 0 8px rgba(0,210,255,0.8)",
-              whiteSpace: "nowrap",
-            }}
-          >
-            0
-          </span>
-        </div>
 
         {/* Box 3 — Level Badge */}
         <div
