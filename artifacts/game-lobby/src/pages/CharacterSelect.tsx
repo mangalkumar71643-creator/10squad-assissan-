@@ -263,7 +263,7 @@ export default function CharacterSelect() {
 
       {/* ── BOTTOM BAR ── */}
       <div
-        className="flex items-end justify-between px-4 shrink-0 z-20"
+        className="flex items-end justify-end px-4 shrink-0 z-20"
         style={{
           height: "50px",
           gap: "10px",
