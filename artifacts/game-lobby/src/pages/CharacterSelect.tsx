@@ -127,7 +127,7 @@ export default function CharacterSelect() {
       <div className="flex" style={{ height: "calc(100vh - 60px)" }}>
 
         {/* LEFT: Card grid */}
-        <div className="flex flex-col" style={{ flex: "0 0 calc(60% - 25px)", padding: "10px 8px 6px 10px", gap: "8px", overflow: "hidden" }}>
+        <div className="flex flex-col" style={{ flex: "0 0 calc(60% - 25px)", padding: "10px 0px 6px 10px", gap: "8px", overflow: "hidden" }}>
 
           {/* 2×4 grid */}
           <div style={{
