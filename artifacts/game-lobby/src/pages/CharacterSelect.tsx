@@ -19,7 +19,7 @@ const CHAR_3D_MAP: Record<string, string> = {
   "Volt Reaper":   "",
 };
 
-const CARDS_PER_PAGE = 2;
+const CARDS_PER_PAGE = 3;
 
 function CyberpunkCorners({ color }: { color: string }) {
   return (
@@ -130,7 +130,14 @@ export default function CharacterSelect() {
         <div className="flex flex-col" style={{ flex: "3 3 0%", padding: "10px 8px 6px 10px", gap: "8px" }}>
 
           {/* 2×4 grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "170px 170px", gridTemplateRows: "300px", gap: "10px" }}>
+          <div style={{
+            width: "350px",
+            overflowX: "scroll",
+            overflowY: "hidden",
+            WebkitOverflowScrolling: "touch" as any,
+            scrollbarWidth: "none" as any,
+          }}>
+          <div style={{ display: "grid", gridTemplateColumns: "170px 170px 170px", gridTemplateRows: "300px", gap: "10px", width: "max-content" }}>
             {pageSlots.map((char, i) => {
               if (!char) {
                 return (
@@ -222,6 +229,7 @@ export default function CharacterSelect() {
                 </button>
               );
             })}
+          </div>
           </div>
 
         </div>
