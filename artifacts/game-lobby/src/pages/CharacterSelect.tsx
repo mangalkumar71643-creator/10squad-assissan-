@@ -130,7 +130,7 @@ export default function CharacterSelect() {
         <div className="flex flex-col" style={{ flex: "3 3 0%", padding: "10px 8px 6px 10px", gap: "8px" }}>
 
           {/* 2×4 grid */}
-          <div className="grid grid-cols-2 grid-rows-1" style={{ gap: "10px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "170px 170px", gridTemplateRows: "300px", gap: "10px" }}>
             {pageSlots.map((char, i) => {
               if (!char) {
                 return (
