@@ -130,7 +130,7 @@ export default function CharacterSelect() {
         <div className="flex flex-col" style={{ flex: "3 3 0%", padding: "10px 8px 6px 10px", gap: "8px" }}>
 
           {/* 2×4 grid */}
-          <div className="grid grid-cols-1 grid-rows-1 flex-1" style={{ gap: "6px" }}>
+          <div className="grid grid-cols-1 grid-rows-1" style={{ gap: "6px" }}>
             {pageSlots.map((char, i) => {
               if (!char) {
                 return (
@@ -140,6 +140,8 @@ export default function CharacterSelect() {
                     style={{
                       border: "1.5px solid rgba(0,200,255,0.13)",
                       background: "rgba(0,8,22,0.55)",
+                      width: "170px",
+                      height: "300px",
                     }}>
                     <CyberpunkCorners color="rgba(0,200,255,0.25)" />
                     <Lock className="w-4 h-4" style={{ color: "rgba(255,255,255,0.08)" }} />
@@ -158,6 +160,8 @@ export default function CharacterSelect() {
                   onClick={() => setPreviewId(char.id)}
                   className="relative rounded overflow-hidden flex flex-col transition-all active:scale-95"
                   style={{
+                    width: "170px",
+                    height: "300px",
                     border: isActive
                       ? `2px solid ${cfg.border}`
                       : "1.5px solid rgba(0,200,255,0.18)",
