@@ -328,10 +328,12 @@ export default function CharacterSelect() {
           )}
 
           {/* Gold */}
-          <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
-          <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
-            {player?.gold ?? 0}
-          </span>
+          <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-20px" }}>
+            <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
+            <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
+              {player?.gold ?? 0}
+            </span>
+          </div>
         </div>
       </div>
     </div>
