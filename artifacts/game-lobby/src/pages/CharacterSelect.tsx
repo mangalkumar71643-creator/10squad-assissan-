@@ -292,6 +292,8 @@ export default function CharacterSelect() {
                 background: "rgba(100,50,220,0.22)",
                 color: "#c080ff",
                 boxShadow: "0 0 14px rgba(140,80,255,0.28), inset 0 0 12px rgba(120,60,220,0.1)",
+                position: "relative",
+                left: "-25px",
               }}>
               BUY
             </button>
@@ -314,6 +316,8 @@ export default function CharacterSelect() {
                   : "rgba(0,200,255,0.12)",
                 color: "#ffffff",
                 boxShadow: "0 0 14px rgba(0,200,255,0.18), inset 0 0 12px rgba(0,200,255,0.05)",
+                position: "relative",
+                left: "-25px",
               }}>
               {equipMutation.isPending
                 ? "..."
