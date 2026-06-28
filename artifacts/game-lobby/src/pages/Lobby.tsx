@@ -44,6 +44,15 @@ export default function Lobby() {
       </div>
 
 
+      {/* ── DIAMOND (standalone, 200px left of gold area) ── */}
+      <div
+        className="absolute top-0 z-50 flex items-center gap-1"
+        style={{ right: "290px", padding: "0px 10px 8px 10px", background: "rgba(0,0,0,0.25)", clipPath: "polygon(0 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 18px))" }}
+      >
+        <span style={{ fontSize: "14px", display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
+        <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#00d4ff", textShadow: "0 0 6px rgba(0,212,255,0.8)" }}>{player?.diamonds ?? 0}</span>
+      </div>
+
       {/* ── TOP-RIGHT ICONS ── */}
       <div
         className="absolute top-0 right-3 z-50 flex items-center gap-[60px]"
@@ -53,13 +62,8 @@ export default function Lobby() {
           padding: "0px 10px 8px 15px",
         }}
       >
-        {/* Diamond + Gold currency */}
+        {/* Gold currency */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1" style={{ position: "relative", left: "-200px" }}>
-            <span style={{ fontSize: "14px", display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
-            <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#00d4ff", textShadow: "0 0 6px rgba(0,212,255,0.8)" }}>{player?.diamonds ?? 0}</span>
-          </div>
-          <div style={{ width: "1px", height: "14px", background: "rgba(255,255,255,0.15)" }} />
           <div className="flex items-center gap-1">
             <span style={{ fontSize: "16px" }}>🪙</span>
             <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#f0c040", textShadow: "0 0 6px rgba(240,192,64,0.8)" }}>{player?.gold ?? 0}</span>
