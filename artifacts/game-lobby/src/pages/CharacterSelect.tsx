@@ -275,7 +275,7 @@ export default function CharacterSelect() {
           {/* Diamond + count */}
           <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-50px" }}>
             <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
-            <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>0</span>
+            <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>{player?.diamonds ?? 0}</span>
           </div>
 
           {/* EQUIPPED / CONFIRM / BUY — between the two icons */}
