@@ -104,7 +104,7 @@ export default function CharacterSelect() {
   }
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden text-white select-none"
+    <div className="relative h-screen w-screen overflow-hidden text-white select-none flex flex-col"
       style={{ background: "linear-gradient(155deg, #07101f 0%, #050a14 60%, #060c18 100%)" }}>
 
       {/* Ambient glows */}
@@ -124,7 +124,7 @@ export default function CharacterSelect() {
       </div>
 
       {/* ── BODY ── */}
-      <div className="flex" style={{ height: "calc(100vh - 60px)" }}>
+      <div className="flex flex-1 min-h-0">
 
         {/* LEFT: Card grid */}
         <div className="flex flex-col" style={{ flex: "0 0 calc(60% - 25px)", padding: "10px 0px 6px 10px", gap: "8px", overflow: "hidden" }}>
@@ -263,15 +263,14 @@ export default function CharacterSelect() {
 
       {/* ── BOTTOM BAR ── */}
       <div
-        className="absolute bottom-0 left-0 right-0 flex items-end justify-between px-4"
+        className="flex items-center justify-between px-4 shrink-0 z-20"
         style={{
-          height: "60px",
+          height: "50px",
           gap: "10px",
-          paddingBottom: "0px",
         }}>
 
         {/* CONFIRM / EQUIPPED / BUY */}
-        <div className="flex items-center" style={{ gap: "10px", marginBottom: "30px", marginLeft: "570px" }}>
+        <div className="flex items-center" style={{ gap: "10px" }}>
           {previewChar?.unlocked === false ? (
             <button
               className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95"
@@ -320,7 +319,7 @@ export default function CharacterSelect() {
         {/* Right: currency */}
         <div className="flex items-center" style={{ gap: "12px" }}>
           <div className="flex items-center" style={{ gap: "6px" }}>
-            <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)", marginLeft: "-165px" }}>💎</span>
+            <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
             <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>0</span>
             <div style={{ width: "38px" }} />
             <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
