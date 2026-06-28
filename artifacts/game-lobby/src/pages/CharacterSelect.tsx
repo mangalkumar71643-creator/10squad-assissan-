@@ -1,75 +1,57 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useGetPlayerCharacters, useGetCurrentPlayer } from "@workspace/api-client-react";
-import { Lock } from "lucide-react";
+import { ChevronLeft, Lock, Shuffle, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import CharacterCanvas from "@/components/CharacterCanvas";
 
 const RARITY_CONFIG = {
-  common:    { border: "#3ab8ff", glow: "rgba(58,184,255,0.5)",  dim: "rgba(58,184,255,0.18)" },
-  rare:      { border: "#00c8ff", glow: "rgba(0,200,255,0.55)",  dim: "rgba(0,200,255,0.2)"  },
-  epic:      { border: "#b060ff", glow: "rgba(176,96,255,0.55)", dim: "rgba(176,96,255,0.2)" },
-  legendary: { border: "#ffb400", glow: "rgba(255,180,0,0.6)",   dim: "rgba(255,180,0,0.22)" },
+  common:    { border: "rgba(0,200,255,0.45)", glow: "rgba(0,200,255,0.25)", text: "#60c8ff", label: "COMMON" },
+  rare:      { border: "rgba(0,180,255,0.7)",  glow: "rgba(0,180,255,0.35)", text: "#00b4ff", label: "RARE" },
+  epic:      { border: "rgba(160,80,255,0.8)", glow: "rgba(160,80,255,0.4)", text: "#a050ff", label: "EPIC" },
+  legendary: { border: "rgba(255,180,0,0.9)", glow: "rgba(255,180,0,0.5)",  text: "#ffb400", label: "LEGENDARY" },
 } as const;
 
-const CARDS_PER_PAGE = 10;
+const CHAR_3D_MAP: Record<string, string> = {
+  "Cyber Ghost":   "ninja-x-1",
+  "Neon Striker":  "nova",
+  "Shadow Runner": "phantom",
+  "Volt Reaper":   "",
+};
 
-function TechFrame({ active, color, glow }: { active: boolean; color: string; glow: string }) {
-  const c = active ? color : "rgba(0,180,255,0.45)";
-  const g = active ? glow  : "rgba(0,180,255,0.0)";
-  const bw = active ? 2 : 1.2;
-  const cw = active ? 2.5 : 1.8;
+const CARDS_PER_PAGE = 8;
 
+function CyberpunkCorners({ color }: { color: string }) {
   return (
-    <svg
-      className="absolute inset-0 w-full h-full pointer-events-none"
-      viewBox="0 0 110 190"
-      preserveAspectRatio="none"
-      style={{ overflow: "visible" }}
-    >
-      <defs>
-        <filter id={`glow-${active ? "a" : "b"}`} x="-30%" y="-30%" width="160%" height="160%">
-          <feGaussianBlur stdDeviation={active ? "2.5" : "1.5"} result="blur" />
-          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
-      </defs>
+    <>
+      <span className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 pointer-events-none" style={{ borderColor: color }} />
+      <span className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 pointer-events-none" style={{ borderColor: color }} />
+      <span className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 pointer-events-none" style={{ borderColor: color }} />
+      <span className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 pointer-events-none" style={{ borderColor: color }} />
+    </>
+  );
+}
 
-      {/* Main border - full rect with rounded corners */}
-      <rect
-        x="1" y="1" width="108" height="188" rx="5"
-        fill="none"
-        stroke={c}
-        strokeWidth={bw}
-        opacity="0.55"
-      />
-
-      {/* Corner brackets — top-left */}
-      <path d={`M1,28 L1,5 Q1,1 5,1 L28,1`}
-        fill="none" stroke={c} strokeWidth={cw}
-        filter={active ? `url(#glow-a)` : undefined}
-        style={{ filter: active ? `drop-shadow(0 0 4px ${g})` : undefined }}
-      />
-      {/* Corner brackets — top-right */}
-      <path d={`M82,1 L105,1 Q109,1 109,5 L109,28`}
-        fill="none" stroke={c} strokeWidth={cw}
-        style={{ filter: active ? `drop-shadow(0 0 4px ${g})` : undefined }}
-      />
-      {/* Corner brackets — bottom-left */}
-      <path d={`M1,162 L1,185 Q1,189 5,189 L28,189`}
-        fill="none" stroke={c} strokeWidth={cw}
-        style={{ filter: active ? `drop-shadow(0 0 4px ${g})` : undefined }}
-      />
-      {/* Corner brackets — bottom-right */}
-      <path d={`M82,189 L105,189 Q109,189 109,185 L109,162`}
-        fill="none" stroke={c} strokeWidth={cw}
-        style={{ filter: active ? `drop-shadow(0 0 4px ${g})` : undefined }}
-      />
-
-      {/* Small tick marks on sides */}
-      <line x1="1" y1="94" x2="6" y2="94" stroke={c} strokeWidth="1" opacity="0.5" />
-      <line x1="104" y1="94" x2="109" y2="94" stroke={c} strokeWidth="1" opacity="0.5" />
-      <line x1="54" y1="1" x2="54" y2="6" stroke={c} strokeWidth="1" opacity="0.5" />
-      <line x1="54" y1="184" x2="54" y2="189" stroke={c} strokeWidth="1" opacity="0.5" />
-    </svg>
+function PlatformRing() {
+  return (
+    <div className="absolute bottom-0 left-0 right-0 pointer-events-none" style={{ bottom: "6%" }}>
+      <svg viewBox="0 0 240 70" className="w-full" style={{ overflow: "visible" }}>
+        <defs>
+          <radialGradient id="pgFill" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="rgba(0,160,255,0.35)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0)" />
+          </radialGradient>
+        </defs>
+        <ellipse cx="120" cy="50" rx="105" ry="18" fill="url(#pgFill)" opacity="0.7" />
+        <ellipse cx="120" cy="50" rx="105" ry="18"
+          fill="none" stroke="rgba(0,200,255,0.55)" strokeWidth="1.5"
+          style={{ filter: "drop-shadow(0 0 5px rgba(0,200,255,0.9))" }} />
+        <ellipse cx="120" cy="50" rx="72" ry="12"
+          fill="none" stroke="rgba(0,140,255,0.35)" strokeWidth="0.75" strokeDasharray="10 5" />
+        <ellipse cx="120" cy="50" rx="42" ry="7"
+          fill="none" stroke="rgba(0,100,255,0.25)" strokeWidth="0.5" />
+      </svg>
+    </div>
   );
 }
 
@@ -80,12 +62,14 @@ export default function CharacterSelect() {
   const queryClient = useQueryClient();
 
   const equippedChar = characters?.find(c => c.selected) ?? characters?.[0];
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [previewId, setPreviewId] = useState<number | null>(null);
   const [page, setPage] = useState(0);
 
-  const selectedChar = selectedId
-    ? characters?.find(c => c.id === selectedId)
+  const previewChar = previewId
+    ? characters?.find(c => c.id === previewId)
     : equippedChar;
+
+  const characterId3D = CHAR_3D_MAP[previewChar?.name ?? ""] ?? "";
 
   const equipMutation = useMutation({
     mutationFn: async (charId: number) => {
@@ -96,21 +80,17 @@ export default function CharacterSelect() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/players/me/characters"] });
       queryClient.invalidateQueries({ queryKey: ["/api/players/me"] });
-      setTimeout(() => setLocation("/lobby", { replace: true }), 400);
+      setTimeout(() => setLocation("/lobby", { replace: true }), 600);
     },
   });
-
-  const handleRandom = () => {
-    const unlocked = (characters ?? []).filter(c => c.unlocked);
-    if (!unlocked.length) return;
-    const pick = unlocked[Math.floor(Math.random() * unlocked.length)];
-    setSelectedId(pick.id);
-  };
 
   const allChars = characters ?? [];
   const totalSlots = Math.max(CARDS_PER_PAGE, allChars.length);
   const totalPages = Math.ceil(totalSlots / CARDS_PER_PAGE);
   const pageSlots = Array.from({ length: CARDS_PER_PAGE }, (_, i) => allChars[page * CARDS_PER_PAGE + i] ?? null);
+
+  const previewRarity = (previewChar?.rarity ?? "common") as keyof typeof RARITY_CONFIG;
+  const previewCfg = RARITY_CONFIG[previewRarity] ?? RARITY_CONFIG.common;
 
   if (isLoading) {
     return (
@@ -124,234 +104,218 @@ export default function CharacterSelect() {
   }
 
   return (
-    <div
-      className="relative h-screen w-screen overflow-hidden text-white select-none flex flex-col"
-      style={{ background: "linear-gradient(180deg, #08111f 0%, #060d1c 60%, #070e1d 100%)" }}
-    >
-      {/* Ambient bg glow */}
-      <div className="absolute inset-0 pointer-events-none"
-        style={{ background: "radial-gradient(ellipse at 50% 0%, rgba(0,120,255,0.10) 0%, transparent 65%)" }} />
-      <div className="absolute inset-0 pointer-events-none"
-        style={{ background: "radial-gradient(ellipse at 50% 100%, rgba(0,80,200,0.07) 0%, transparent 60%)" }} />
+    <div className="relative h-screen w-screen overflow-hidden text-white select-none"
+      style={{ background: "linear-gradient(155deg, #07101f 0%, #050a14 60%, #060c18 100%)" }}>
 
-      {/* ── TOP BAR ── */}
-      <div className="relative z-20 flex items-center px-4 shrink-0" style={{ height: "52px" }}>
-        {/* Back button */}
+      {/* Ambient glows */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ background: "radial-gradient(ellipse at 0% 0%, rgba(0,100,200,0.14) 0%, transparent 55%)" }} />
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ background: "radial-gradient(ellipse at 100% 100%, rgba(0,80,200,0.10) 0%, transparent 55%)" }} />
+
+      {/* ── HEADER ── */}
+      <div className="absolute top-3 right-3 z-30">
         <button
           onClick={() => setLocation("/lobby", { replace: true })}
-          className="flex items-center justify-center active:scale-90 transition-transform"
-          style={{
-            width: "36px", height: "36px",
-            border: "1.5px solid rgba(0,200,255,0.4)",
-            borderRadius: "8px",
-            background: "rgba(0,20,50,0.7)",
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M19 12H5M5 12L12 19M5 12L12 5" stroke="#00c8ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
+          style={{ border: "1.5px solid rgba(0,200,255,0.45)", background: "rgba(0,0,0,0.5)" }}>
+          <X className="w-5 h-5" style={{ color: "#00c8ff" }} />
         </button>
-
-        {/* Title */}
-        <div className="flex-1 flex items-center justify-end pr-1">
-          <span
-            className="font-black tracking-[0.18em] uppercase"
-            style={{
-              fontFamily: "monospace",
-              fontSize: "clamp(14px, 3vw, 20px)",
-              color: "#ffffff",
-              textShadow: "0 0 18px rgba(0,200,255,0.6), 0 0 40px rgba(0,150,255,0.3)",
-              letterSpacing: "0.18em",
-            }}
-          >
-            CHARACTER SELECT
-          </span>
-          {/* Title accent dot */}
-          <span
-            className="ml-2 inline-block rounded-full"
-            style={{ width: "6px", height: "6px", background: "#00c8ff", boxShadow: "0 0 8px #00c8ff" }}
-          />
-        </div>
       </div>
 
-      {/* Thin divider line under header */}
-      <div style={{ height: "1px", background: "linear-gradient(90deg, transparent, rgba(0,200,255,0.3), transparent)", flexShrink: 0 }} />
+      {/* ── BODY ── */}
+      <div className="flex" style={{ height: "calc(100vh - 60px)" }}>
 
-      {/* ── CARD GRID ── */}
-      <div className="flex-1 flex flex-col" style={{ padding: "12px 14px 8px", minHeight: 0 }}>
-        <div
-          className="grid flex-1"
-          style={{
-            gridTemplateColumns: "repeat(5, 1fr)",
-            gridTemplateRows: "repeat(2, 1fr)",
-            gap: "10px",
-            minHeight: 0,
-          }}
-        >
-          {pageSlots.map((char, i) => {
-            if (!char) {
+        {/* LEFT: Card grid */}
+        <div className="flex flex-col" style={{ flex: "3 3 0%", padding: "10px 8px 6px 10px", gap: "8px" }}>
+
+          {/* 2×4 grid */}
+          <div className="grid grid-cols-4 grid-rows-2 flex-1" style={{ gap: "6px" }}>
+            {pageSlots.map((char, i) => {
+              if (!char) {
+                return (
+                  <div
+                    key={`empty-${page}-${i}`}
+                    className="relative rounded overflow-hidden flex items-center justify-center"
+                    style={{
+                      border: "1.5px solid rgba(0,200,255,0.13)",
+                      background: "rgba(0,8,22,0.55)",
+                    }}>
+                    <CyberpunkCorners color="rgba(0,200,255,0.25)" />
+                    <Lock className="w-4 h-4" style={{ color: "rgba(255,255,255,0.08)" }} />
+                  </div>
+                );
+              }
+
+              const r = (char.rarity ?? "common") as keyof typeof RARITY_CONFIG;
+              const cfg = RARITY_CONFIG[r] ?? RARITY_CONFIG.common;
+              const isActive = char.id === previewChar?.id;
+              const isEquipped = char.selected;
+
               return (
-                <div
-                  key={`empty-${page}-${i}`}
-                  className="relative flex items-center justify-center"
-                  style={{ background: "rgba(0,8,24,0.7)", borderRadius: "6px" }}
-                >
-                  <TechFrame active={false} color="rgba(0,200,255,0.45)" glow="rgba(0,200,255,0.3)" />
-                  <Lock className="w-4 h-4" style={{ color: "rgba(255,255,255,0.08)", position: "relative", zIndex: 1 }} />
-                </div>
+                <button
+                  key={char.id}
+                  onClick={() => setPreviewId(char.id)}
+                  className="relative rounded overflow-hidden flex flex-col transition-all active:scale-95"
+                  style={{
+                    border: isActive
+                      ? `2px solid ${cfg.border}`
+                      : "1.5px solid rgba(0,200,255,0.18)",
+                    background: isActive
+                      ? `rgba(0,25,55,0.9)`
+                      : "rgba(0,8,22,0.65)",
+                    boxShadow: isActive ? `0 0 18px ${cfg.glow}` : "none",
+                    transition: "all 0.15s ease",
+                  }}>
+
+                  <CyberpunkCorners color={isActive ? cfg.border : "rgba(0,200,255,0.28)"} />
+
+                  {/* Image fill */}
+                  <div
+                    className="flex-1 relative overflow-hidden flex items-end justify-center"
+                    style={{
+                      background: isActive
+                        ? `radial-gradient(ellipse at 50% 90%, ${cfg.glow} 0%, rgba(0,0,0,0.4) 70%)`
+                        : "rgba(0,0,0,0.35)",
+                      minHeight: 0,
+                    }}>
+
+                    {char.image ? (
+                      <img
+                        src={char.image}
+                        alt={char.name}
+                        className="w-full h-full object-cover absolute inset-0"
+                        style={{
+                          filter: char.unlocked
+                            ? isActive ? `drop-shadow(0 0 8px ${cfg.glow})` : "none"
+                            : "grayscale(1) brightness(0.25)",
+                        }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    ) : (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center"
+                        style={{ opacity: 0.3 }}>
+                        <div
+                          className="w-6 h-6 rounded-full"
+                          style={{ background: cfg.glow }} />
+                      </div>
+                    )}
+
+                    {!char.unlocked && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center"
+                        style={{ background: "rgba(0,0,0,0.72)" }}>
+                        <Lock className="w-3.5 h-3.5" style={{ color: "rgba(255,255,255,0.22)" }} />
+                      </div>
+                    )}
+
+                    {isActive && (
+                      <div
+                        className="absolute inset-x-0 bottom-0 h-[2px]"
+                        style={{ background: `linear-gradient(90deg, transparent, ${cfg.border}, transparent)` }} />
+                    )}
+                  </div>
+                </button>
               );
-            }
+            })}
+          </div>
 
-            const r = (char.rarity ?? "common") as keyof typeof RARITY_CONFIG;
-            const cfg = RARITY_CONFIG[r] ?? RARITY_CONFIG.common;
-            const isActive = char.id === selectedChar?.id;
+        </div>
 
-            return (
-              <button
-                key={char.id}
-                onClick={() => setSelectedId(char.id)}
-                className="relative flex flex-col items-center justify-end overflow-hidden active:scale-95 transition-all"
+        {/* RIGHT: 3D viewer */}
+        <div
+          className="flex flex-col relative"
+          style={{
+            flex: "2 2 0%",
+            borderLeft: "1px solid rgba(0,200,255,0.14)",
+          }}>
+
+          {/* 3D canvas */}
+          <div className="flex-1 relative overflow-hidden">
+            {characterId3D ? (
+              <CharacterCanvas key={characterId3D} characterId={characterId3D} />
+            ) : (
+              <div
+                className="w-full h-full"
                 style={{
-                  background: isActive
-                    ? `radial-gradient(ellipse at 50% 80%, ${cfg.dim} 0%, rgba(0,5,18,0.9) 80%)`
-                    : "rgba(0,8,24,0.75)",
-                  borderRadius: "6px",
-                  boxShadow: isActive ? `0 0 20px ${cfg.glow}, inset 0 0 20px rgba(0,0,0,0.4)` : "none",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <TechFrame active={isActive} color={cfg.border} glow={cfg.glow} />
+                  background:
+                    "radial-gradient(ellipse at 50% 65%, rgba(0,120,255,0.07) 0%, transparent 70%)",
+                }} />
+            )}
+            <PlatformRing />
+          </div>
 
-                {/* Character image */}
-                {char.image && (
-                  <img
-                    src={char.image}
-                    alt={char.name}
-                    className="absolute inset-0 w-full h-full object-cover"
-                    style={{
-                      filter: char.unlocked
-                        ? isActive ? `drop-shadow(0 0 10px ${cfg.glow}) brightness(1.05)` : "brightness(0.85)"
-                        : "grayscale(1) brightness(0.2)",
-                      zIndex: 1,
-                    }}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                  />
-                )}
-
-                {/* Lock overlay */}
-                {!char.unlocked && (
-                  <div
-                    className="absolute inset-0 flex items-center justify-center"
-                    style={{ background: "rgba(0,0,0,0.75)", zIndex: 2 }}
-                  >
-                    <Lock className="w-4 h-4" style={{ color: "rgba(255,255,255,0.25)" }} />
-                  </div>
-                )}
-
-                {/* Equipped indicator strip */}
-                {char.selected && (
-                  <div
-                    className="absolute bottom-0 inset-x-0 flex items-center justify-center"
-                    style={{
-                      height: "18px",
-                      background: "rgba(0,200,255,0.15)",
-                      borderTop: "1px solid rgba(0,200,255,0.4)",
-                      zIndex: 3,
-                    }}
-                  >
-                    <span
-                      className="font-mono font-black uppercase tracking-widest"
-                      style={{ fontSize: "7px", color: "#00d4ff" }}
-                    >
-                      EQUIPPED
-                    </span>
-                  </div>
-                )}
-
-                {/* Active bottom glow line */}
-                {isActive && !char.selected && (
-                  <div
-                    className="absolute inset-x-0 bottom-0 h-[2px]"
-                    style={{
-                      background: `linear-gradient(90deg, transparent, ${cfg.border}, transparent)`,
-                      zIndex: 4,
-                    }}
-                  />
-                )}
-              </button>
-            );
-          })}
         </div>
       </div>
 
-      {/* ── PAGE DOTS ── */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center shrink-0" style={{ gap: "6px", paddingBottom: "6px" }}>
-          {Array.from({ length: totalPages }, (_, pi) => (
-            <button
-              key={pi}
-              onClick={() => setPage(pi)}
-              className="rounded-full transition-all"
-              style={{
-                width: pi === page ? "18px" : "6px",
-                height: "6px",
-                background: pi === page ? "#00c8ff" : "rgba(0,200,255,0.28)",
-                boxShadow: pi === page ? "0 0 6px #00c8ff" : "none",
-              }}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* ── BOTTOM BUTTONS ── */}
+      {/* ── BOTTOM BAR ── */}
       <div
-        className="shrink-0 flex items-center"
-        style={{ gap: "10px", padding: "8px 14px 14px" }}
-      >
-        {/* CONFIRM */}
-        <button
-          disabled={equipMutation.isPending || !selectedChar?.unlocked}
-          onClick={() => selectedChar?.id && equipMutation.mutate(selectedChar.id)}
-          className="flex-1 flex items-center justify-center font-black uppercase tracking-[0.18em] transition-all active:scale-95 disabled:opacity-40"
-          style={{
-            fontFamily: "monospace",
-            fontSize: "clamp(12px, 2.5vw, 16px)",
-            height: "48px",
-            borderRadius: "6px",
-            border: selectedChar?.selected
-              ? "1.5px solid rgba(0,200,255,0.4)"
-              : "1.5px solid rgba(0,200,255,0.65)",
-            background: selectedChar?.selected
-              ? "linear-gradient(135deg, rgba(0,30,60,0.9) 0%, rgba(0,20,45,0.95) 100%)"
-              : "linear-gradient(135deg, rgba(0,40,80,0.85) 0%, rgba(0,25,55,0.9) 100%)",
-            color: "#ffffff",
-            boxShadow: "0 0 18px rgba(0,200,255,0.12)",
-          }}
-        >
-          {equipMutation.isPending
-            ? "..."
-            : selectedChar?.selected
-            ? "EQUIPPED"
-            : "CONFIRM"}
-        </button>
+        className="absolute bottom-0 left-0 right-0 flex items-end justify-between px-4"
+        style={{
+          height: "60px",
+          gap: "10px",
+          paddingBottom: "0px",
+        }}>
 
-        {/* RANDOM */}
-        <button
-          onClick={handleRandom}
-          className="flex-1 flex items-center justify-center font-black uppercase tracking-[0.18em] transition-all active:scale-95"
-          style={{
-            fontFamily: "monospace",
-            fontSize: "clamp(12px, 2.5vw, 16px)",
-            height: "48px",
-            borderRadius: "6px",
-            border: "1.5px solid rgba(120,130,160,0.45)",
-            background: "linear-gradient(135deg, rgba(30,35,55,0.9) 0%, rgba(20,25,45,0.95) 100%)",
-            color: "rgba(255,255,255,0.75)",
-            boxShadow: "0 0 12px rgba(0,0,0,0.3)",
-          }}
-        >
-          RANDOM
-        </button>
+        {/* CONFIRM / EQUIPPED / BUY */}
+        <div className="flex items-center" style={{ gap: "10px", marginBottom: "30px", marginLeft: "570px" }}>
+          {previewChar?.unlocked === false ? (
+            <button
+              className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95"
+              style={{
+                fontSize: "11px",
+                width: "80px",
+                height: "28px",
+                padding: "0px 8px",
+                borderRadius: "4px",
+                border: "1.5px solid rgba(160,100,255,0.8)",
+                background: "rgba(100,50,220,0.22)",
+                color: "#c080ff",
+                boxShadow: "0 0 14px rgba(140,80,255,0.28), inset 0 0 12px rgba(120,60,220,0.1)",
+              }}>
+              BUY
+            </button>
+          ) : (
+            <button
+              disabled={equipMutation.isPending}
+              onClick={() => previewChar?.id && equipMutation.mutate(previewChar.id)}
+              className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{
+                fontSize: "11px",
+                width: "80px",
+                height: "28px",
+                padding: "0px 8px",
+                borderRadius: "4px",
+                border: previewChar?.selected
+                  ? "1.5px solid rgba(0,200,255,0.5)"
+                  : "1.5px solid rgba(0,200,255,0.7)",
+                background: previewChar?.selected
+                  ? "rgba(0,200,255,0.08)"
+                  : "rgba(0,200,255,0.12)",
+                color: "#ffffff",
+                boxShadow: "0 0 14px rgba(0,200,255,0.18), inset 0 0 12px rgba(0,200,255,0.05)",
+              }}>
+              {equipMutation.isPending
+                ? "..."
+                : previewChar?.selected
+                ? "EQUIPPED"
+                : "CONFIRM"}
+            </button>
+          )}
+        </div>
+
+        {/* Right: currency */}
+        <div className="flex items-center" style={{ gap: "12px" }}>
+          <div className="flex items-center" style={{ gap: "6px" }}>
+            <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)", marginLeft: "-165px" }}>💎</span>
+            <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>0</span>
+            <div style={{ width: "38px" }} />
+            <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
+            <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
+              {player?.gold ?? 0}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
