@@ -270,8 +270,13 @@ export default function CharacterSelect() {
           paddingBottom: "5px",
         }}>
 
-        {/* CONFIRM / EQUIPPED / BUY */}
-        <div className="flex items-center" style={{ gap: "10px" }}>
+        {/* Currency row with button in the middle */}
+        <div className="flex items-center" style={{ gap: "8px" }}>
+          {/* Diamond */}
+          <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
+          <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>0</span>
+
+          {/* EQUIPPED / CONFIRM / BUY — between the two icons */}
           {previewChar?.unlocked === false ? (
             <button
               className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95"
@@ -315,19 +320,12 @@ export default function CharacterSelect() {
                 : "CONFIRM"}
             </button>
           )}
-        </div>
 
-        {/* Right: currency */}
-        <div className="flex items-center" style={{ gap: "12px" }}>
-          <div className="flex items-center" style={{ gap: "6px" }}>
-            <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
-            <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>0</span>
-            <div style={{ width: "108px" }} />
-            <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
-            <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
-              {player?.gold ?? 0}
-            </span>
-          </div>
+          {/* Gold */}
+          <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
+          <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
+            {player?.gold ?? 0}
+          </span>
         </div>
       </div>
     </div>
