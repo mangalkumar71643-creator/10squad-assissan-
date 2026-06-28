@@ -132,12 +132,13 @@ export default function CharacterSelect() {
           {/* 2×4 grid */}
           <div style={{
             width: "100%",
+            height: "100%",
             overflowX: "scroll",
             overflowY: "hidden",
             WebkitOverflowScrolling: "touch" as any,
             scrollbarWidth: "none" as any,
           }}>
-          <div style={{ display: "grid", gridTemplateColumns: "170px 170px 170px", gridTemplateRows: "300px", gap: "10px", width: "max-content" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "170px 170px 170px", gridTemplateRows: "max(300px, calc(100vh - 96px))", gap: "10px", width: "max-content", height: "100%" }}>
             {pageSlots.map((char, i) => {
               if (!char) {
                 return (
@@ -148,7 +149,7 @@ export default function CharacterSelect() {
                       border: "1.5px solid rgba(0,200,255,0.13)",
                       background: "rgba(0,8,22,0.55)",
                       width: "170px",
-                      height: "300px",
+                      height: "100%",
                     }}>
                     <CyberpunkCorners color="rgba(0,200,255,0.25)" />
                     <Lock className="w-4 h-4" style={{ color: "rgba(255,255,255,0.08)" }} />
@@ -168,7 +169,7 @@ export default function CharacterSelect() {
                   className="relative rounded overflow-hidden flex flex-col transition-all active:scale-95"
                   style={{
                     width: "170px",
-                    height: "300px",
+                    height: "100%",
                     border: isActive
                       ? `2px solid ${cfg.border}`
                       : "1.5px solid rgba(0,200,255,0.18)",
