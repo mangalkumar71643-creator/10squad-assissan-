@@ -55,7 +55,7 @@ export default function Lobby() {
       >
         {/* Diamond + Gold currency */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1" style={{ position: "relative", left: "-200px" }}>
             <span style={{ fontSize: "14px", display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
             <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#00d4ff", textShadow: "0 0 6px rgba(0,212,255,0.8)" }}>{player?.diamonds ?? 0}</span>
           </div>
