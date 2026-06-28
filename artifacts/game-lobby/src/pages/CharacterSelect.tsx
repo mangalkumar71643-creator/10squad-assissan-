@@ -273,7 +273,7 @@ export default function CharacterSelect() {
         {/* Currency row with button in the middle */}
         <div className="flex items-center" style={{ gap: "8px" }}>
           {/* Diamond */}
-          <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
+          <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)", position: "relative", left: "-50px" }}>💎</span>
           <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>0</span>
 
           {/* EQUIPPED / CONFIRM / BUY — between the two icons */}
