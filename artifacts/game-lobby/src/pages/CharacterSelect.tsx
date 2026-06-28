@@ -136,6 +136,7 @@ export default function CharacterSelect() {
             overflowY: "hidden",
             WebkitOverflowScrolling: "touch" as any,
             scrollbarWidth: "none" as any,
+            marginLeft: "-20px",
           }}>
           <div style={{ display: "grid", gridTemplateColumns: "170px 170px 170px", gridTemplateRows: "300px", gap: "10px", width: "max-content" }}>
             {pageSlots.map((char, i) => {
