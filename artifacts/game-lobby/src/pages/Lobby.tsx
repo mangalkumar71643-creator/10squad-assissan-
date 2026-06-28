@@ -47,7 +47,7 @@ export default function Lobby() {
       {/* ── DIAMOND (standalone, 200px left of gold area) ── */}
       <div
         className="absolute top-0 z-50 flex items-center gap-1"
-        style={{ right: "540px", padding: "0px 10px 8px 10px", background: "rgba(0,0,0,0.25)", clipPath: "polygon(0 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 18px))" }}
+        style={{ right: "500px", padding: "0px 10px 8px 10px", background: "rgba(0,0,0,0.25)", clipPath: "polygon(0 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 18px))" }}
       >
         <span style={{ fontSize: "14px", display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
         <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#00d4ff", textShadow: "0 0 6px rgba(0,212,255,0.8)" }}>{player?.diamonds ?? 0}</span>
