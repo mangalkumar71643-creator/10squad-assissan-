@@ -267,7 +267,7 @@ export default function CharacterSelect() {
         style={{
           height: "50px",
           gap: "10px",
-          paddingBottom: "5px",
+          paddingBottom: "2px",
         }}>
 
         {/* Currency row with button in the middle */}
