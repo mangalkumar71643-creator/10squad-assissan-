@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { Lock, X } from "lucide-react";
+import { X } from "lucide-react";
 import WeaponCanvas from "@/components/WeaponCanvas";
 
 type Weapon = {
@@ -24,9 +24,7 @@ const RARITY_CONFIG = {
 
 const WEAPON_3D_MAP: Record<string, string> = {};
 
-const VISIBLE_COLS = 4;
-const TOTAL_COLS   = 6;
-const TOTAL_SLOTS  = TOTAL_COLS * 2;
+const VISIBLE_COLS = 3;
 
 function CyberpunkCorners({ color }: { color: string }) {
   return (
@@ -97,37 +95,35 @@ export default function WeaponSelect() {
   });
 
   const allWeapons: Weapon[] = weapons ?? [];
-  const slots = Array.from({ length: TOTAL_SLOTS }, (_, i) => allWeapons[i] ?? null);
+  const TOTAL_COLS = Math.max(VISIBLE_COLS, allWeapons.length);
 
   const previewRarity = (previewWeapon?.rarity ?? "common") as keyof typeof RARITY_CONFIG;
   const previewCfg = RARITY_CONFIG[previewRarity] ?? RARITY_CONFIG.common;
   const previewType = (previewWeapon?.type ?? "RIFLE").toUpperCase();
 
-  /* ── Swipe / drag scroll state ── */
-  const containerRef  = useRef<HTMLDivElement>(null);
-  const touchStartX   = useRef(0);
+  /* ── Swipe / drag scroll ── */
+  const containerRef     = useRef<HTMLDivElement>(null);
+  const touchStartX      = useRef(0);
   const touchStartScroll = useRef(0);
-  const isDragging    = useRef(false);
+  const isDragging       = useRef(false);
   const [scrollX, setScrollX]     = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
 
   const getCardWidth  = () => (containerRef.current?.clientWidth ?? 300) / VISIBLE_COLS;
-  const getMaxScroll  = () => getCardWidth() * (TOTAL_COLS - VISIBLE_COLS);
+  const getMaxScroll  = () => Math.max(0, getCardWidth() * (TOTAL_COLS - VISIBLE_COLS));
 
-  const clampedSet = (raw: number) => {
-    const max = getMaxScroll();
-    return Math.max(0, Math.min(max, raw));
-  };
+  const clampedSet = (raw: number) => Math.max(0, Math.min(getMaxScroll(), raw));
 
   const snap = (current: number) => {
     const cardW = getCardWidth();
-    const page  = Math.round(current / cardW);
-    const max   = TOTAL_COLS - VISIBLE_COLS;
-    setScrollX(Math.max(0, Math.min(max, page)) * cardW);
+    if (!cardW) return;
+    const page = Math.round(current / cardW);
+    const maxPage = TOTAL_COLS - VISIBLE_COLS;
+    setScrollX(Math.max(0, Math.min(maxPage, page)) * cardW);
   };
 
   const onTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current     = e.touches[0].clientX;
+    touchStartX.current      = e.touches[0].clientX;
     touchStartScroll.current = scrollX;
     setIsSwiping(true);
   };
@@ -135,10 +131,7 @@ export default function WeaponSelect() {
     const delta = touchStartX.current - e.touches[0].clientX;
     setScrollX(clampedSet(touchStartScroll.current + delta));
   };
-  const onTouchEnd = () => {
-    setIsSwiping(false);
-    snap(scrollX);
-  };
+  const onTouchEnd = () => { setIsSwiping(false); snap(scrollX); };
 
   const onMouseDown = (e: React.MouseEvent) => {
     isDragging.current       = true;
@@ -148,8 +141,7 @@ export default function WeaponSelect() {
   };
   const onMouseMove = (e: React.MouseEvent) => {
     if (!isDragging.current) return;
-    const delta = touchStartX.current - e.clientX;
-    setScrollX(clampedSet(touchStartScroll.current + delta));
+    setScrollX(clampedSet(touchStartScroll.current + (touchStartX.current - e.clientX)));
   };
   const onMouseUp = () => {
     if (!isDragging.current) return;
@@ -158,7 +150,10 @@ export default function WeaponSelect() {
     snap(scrollX);
   };
 
-  const activeDot = Math.round(scrollX / (getCardWidth() || 1));
+  const cardW     = getCardWidth();
+  const activeDot = cardW > 0 ? Math.round(scrollX / cardW) : 0;
+  const numPages  = Math.max(1, TOTAL_COLS - VISIBLE_COLS + 1);
+  const canScroll = TOTAL_COLS > VISIBLE_COLS;
 
   if (isLoading) {
     return (
@@ -208,20 +203,15 @@ export default function WeaponSelect() {
       </div>
 
       {/* ── BODY ── */}
-      <div className="absolute inset-0" style={{ top: 0 }}>
+      <div className="absolute inset-0">
 
-        {/* ─── LEFT: swipeable card strip ─── */}
-        {/*
-          overflow: visible so the 5th+ columns extend into the right panel's area.
-          The right panel (z-index 10, opaque bg) visually covers those extra cards.
-          Swiping shifts the grid left, pulling hidden cards into view.
-        */}
+        {/* ─── LEFT: swipeable weapon cards (only real weapons, no empty slots) ─── */}
         <div
           ref={containerRef}
           className="absolute top-0 bottom-0 left-0"
           style={{
             right: "40%",
-            padding: "10px 0 6px 10px",
+            padding: "12px 0 8px 10px",
             overflow: "visible",
             cursor: isDragging.current ? "grabbing" : "grab",
             zIndex: 1,
@@ -234,157 +224,174 @@ export default function WeaponSelect() {
           onMouseUp={onMouseUp}
           onMouseLeave={onMouseUp}
         >
-          {/* 6-column × 2-row card grid */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: `repeat(${TOTAL_COLS}, 1fr)`,
-              gridTemplateRows: "1fr 1fr",
-              width: `${(TOTAL_COLS / VISIBLE_COLS) * 100}%`,
-              height: "calc(100% - 28px)",
-              gap: "6px",
-              transform: `translateX(-${scrollX}px)`,
-              transition: isSwiping ? "none" : "transform 0.32s cubic-bezier(0.4,0,0.2,1)",
-              willChange: "transform",
-            }}>
-            {slots.map((weapon, i) => {
-              if (!weapon) {
-                return (
-                  <div
-                    key={`empty-${i}`}
-                    className="relative rounded overflow-hidden flex items-center justify-center"
-                    style={{
-                      border: "1.5px solid rgba(255,140,40,0.1)",
-                      background: "rgba(20,8,0,0.55)",
-                    }}>
-                    <CyberpunkCorners color="rgba(255,140,40,0.22)" />
-                    <Lock className="w-4 h-4" style={{ color: "rgba(255,255,255,0.07)" }} />
-                  </div>
-                );
-              }
-
-              const r = (weapon.rarity ?? "common") as keyof typeof RARITY_CONFIG;
-              const cfg = RARITY_CONFIG[r] ?? RARITY_CONFIG.common;
-              const isActive   = weapon.id === previewWeapon?.id;
-              const isEquipped = weapon.selected;
-              const wType      = (weapon.type ?? "rifle").toUpperCase();
-
-              return (
-                <button
-                  key={weapon.id}
-                  onClick={() => setPreviewId(weapon.id)}
-                  className="relative rounded overflow-hidden flex flex-col transition-all active:scale-95"
-                  style={{
-                    border: isActive
-                      ? `2px solid ${cfg.border}`
-                      : "1.5px solid rgba(255,140,40,0.15)",
-                    background: isActive ? "rgba(40,15,0,0.9)" : "rgba(20,8,0,0.65)",
-                    boxShadow: isActive ? `0 0 18px ${cfg.glow}` : "none",
-                    transition: "all 0.15s ease",
-                  }}>
-
-                  <CyberpunkCorners color={isActive ? cfg.border : "rgba(255,140,40,0.25)"} />
-
-                  <div
-                    className="flex-1 relative overflow-hidden flex items-center justify-center"
-                    style={{
-                      background: isActive
-                        ? `radial-gradient(ellipse at 50% 60%, ${cfg.glow} 0%, rgba(0,0,0,0.5) 70%)`
-                        : "rgba(0,0,0,0.4)",
-                      minHeight: 0,
-                    }}>
-
-                    {weapon.image ? (
-                      <img
-                        src={weapon.image}
-                        alt={weapon.name}
-                        className="w-full h-full object-cover absolute inset-0"
-                        style={{
-                          filter: weapon.unlocked
-                            ? isActive ? `drop-shadow(0 0 8px ${cfg.glow}) brightness(1.1)` : "none"
-                            : "grayscale(1) brightness(0.22)",
-                        }}
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                    ) : (
-                      <div className="flex items-center justify-center w-full h-full">
-                        <svg viewBox="0 0 48 24" className="w-4/5" fill="none">
-                          <rect x="2" y="9" width="26" height="6" rx="2"
-                            stroke={isActive ? cfg.text : "rgba(255,140,40,0.3)"}
-                            strokeWidth="1.5"
-                            fill={isActive ? cfg.glow : "rgba(255,100,20,0.08)"} />
-                          <rect x="28" y="10" width="16" height="2.5" rx="1"
-                            stroke={isActive ? cfg.text : "rgba(255,140,40,0.3)"}
-                            strokeWidth="1.2"
-                            fill={isActive ? cfg.glow : "rgba(255,100,20,0.08)"} />
-                          <rect x="10" y="15" width="8" height="6" rx="1"
-                            stroke={isActive ? cfg.text : "rgba(255,140,40,0.3)"}
-                            strokeWidth="1.2"
-                            fill={isActive ? cfg.glow : "rgba(255,100,20,0.08)"} />
-                        </svg>
-                      </div>
-                    )}
-
-                    {!weapon.unlocked && (
-                      <div className="absolute inset-0 flex items-center justify-center"
-                        style={{ background: "rgba(0,0,0,0.75)" }}>
-                        <Lock className="w-3.5 h-3.5" style={{ color: "rgba(255,255,255,0.2)" }} />
-                      </div>
-                    )}
-
-                    {isEquipped && (
-                      <div className="absolute top-1 right-1 w-3 h-3 rounded-full flex items-center justify-center z-10"
-                        style={{ background: "#ff6420", boxShadow: "0 0 5px rgba(255,100,30,0.9)" }}>
-                        <span style={{ fontSize: "6px", color: "#fff", fontWeight: 900, lineHeight: 1 }}>✓</span>
-                      </div>
-                    )}
-
-                    <div className="absolute bottom-1 left-1 px-1 rounded z-10"
-                      style={{ background: "rgba(0,0,0,0.72)" }}>
-                      <span className="font-mono font-black" style={{ fontSize: "6px", color: cfg.text }}>
-                        {wType}
-                      </span>
-                    </div>
-
-                    {isActive && (
-                      <div className="absolute inset-x-0 bottom-0 h-[2px]"
-                        style={{ background: `linear-gradient(90deg, transparent, ${cfg.border}, transparent)` }} />
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* ── Scroll dots indicator ── */}
-          <div className="absolute bottom-1.5 left-0 right-0 flex justify-center items-center gap-1.5"
-            style={{ paddingRight: "8px" }}>
-            {Array.from({ length: TOTAL_COLS - VISIBLE_COLS + 1 }).map((_, dot) => (
+          {allWeapons.length === 0 ? (
+            <div className="h-full flex items-center justify-center">
+              <span className="font-mono text-[11px] tracking-[0.2em] uppercase"
+                style={{ color: "rgba(255,140,40,0.4)" }}>NO WEAPONS</span>
+            </div>
+          ) : (
+            <>
+              {/* Weapon cards — single row, scrollable */}
               <div
-                key={dot}
                 style={{
-                  width: dot === activeDot ? "14px" : "5px",
-                  height: "4px",
-                  borderRadius: "2px",
-                  background: dot === activeDot
-                    ? "rgba(255,140,40,0.95)"
-                    : "rgba(255,140,40,0.28)",
-                  transition: "all 0.25s ease",
-                }} />
-            ))}
-          </div>
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${TOTAL_COLS}, 1fr)`,
+                  gridTemplateRows: "1fr",
+                  width: `${(TOTAL_COLS / VISIBLE_COLS) * 100}%`,
+                  height: "calc(100% - 30px)",
+                  gap: "8px",
+                  transform: `translateX(-${scrollX}px)`,
+                  transition: isSwiping ? "none" : "transform 0.32s cubic-bezier(0.4,0,0.2,1)",
+                  willChange: "transform",
+                }}>
+                {allWeapons.map((weapon) => {
+                  const r        = (weapon.rarity ?? "common") as keyof typeof RARITY_CONFIG;
+                  const cfg      = RARITY_CONFIG[r] ?? RARITY_CONFIG.common;
+                  const isActive   = weapon.id === previewWeapon?.id;
+                  const isEquipped = weapon.selected;
+                  const wType    = (weapon.type ?? "rifle").toUpperCase();
 
-          {/* ── Right-edge fade hint (when more cards are hidden) ── */}
-          {activeDot < TOTAL_COLS - VISIBLE_COLS && (
-            <div className="absolute top-0 bottom-6 pointer-events-none"
-              style={{
-                right: 0,
-                width: "32px",
-                background: "linear-gradient(90deg, transparent, rgba(13,5,0,0.88))",
-              }} />
+                  return (
+                    <button
+                      key={weapon.id}
+                      onClick={() => setPreviewId(weapon.id)}
+                      className="relative rounded overflow-hidden flex flex-col active:scale-95"
+                      style={{
+                        border: isActive
+                          ? `2px solid ${cfg.border}`
+                          : "1.5px solid rgba(255,140,40,0.2)",
+                        background: isActive ? "rgba(40,15,0,0.92)" : "rgba(20,8,0,0.7)",
+                        boxShadow: isActive ? `0 0 22px ${cfg.glow}` : "none",
+                        transition: "all 0.15s ease",
+                      }}>
+
+                      <CyberpunkCorners color={isActive ? cfg.border : "rgba(255,140,40,0.28)"} />
+
+                      {/* Image area — takes most of the card */}
+                      <div
+                        className="flex-1 relative overflow-hidden flex items-center justify-center"
+                        style={{
+                          background: isActive
+                            ? `radial-gradient(ellipse at 50% 60%, ${cfg.glow} 0%, rgba(0,0,0,0.5) 70%)`
+                            : "rgba(0,0,0,0.45)",
+                          minHeight: 0,
+                        }}>
+
+                        {weapon.image ? (
+                          <img
+                            src={weapon.image}
+                            alt={weapon.name}
+                            className="w-full h-full object-cover absolute inset-0"
+                            style={{
+                              filter: weapon.unlocked
+                                ? isActive ? `drop-shadow(0 0 8px ${cfg.glow}) brightness(1.1)` : "none"
+                                : "grayscale(1) brightness(0.22)",
+                            }}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        ) : (
+                          <div className="flex items-center justify-center w-full h-full">
+                            <svg viewBox="0 0 48 24" className="w-4/5" fill="none">
+                              <rect x="2" y="9" width="26" height="6" rx="2"
+                                stroke={isActive ? cfg.text : "rgba(255,140,40,0.3)"}
+                                strokeWidth="1.5"
+                                fill={isActive ? cfg.glow : "rgba(255,100,20,0.08)"} />
+                              <rect x="28" y="10" width="16" height="2.5" rx="1"
+                                stroke={isActive ? cfg.text : "rgba(255,140,40,0.3)"}
+                                strokeWidth="1.2"
+                                fill={isActive ? cfg.glow : "rgba(255,100,20,0.08)"} />
+                              <rect x="10" y="15" width="8" height="6" rx="1"
+                                stroke={isActive ? cfg.text : "rgba(255,140,40,0.3)"}
+                                strokeWidth="1.2"
+                                fill={isActive ? cfg.glow : "rgba(255,100,20,0.08)"} />
+                            </svg>
+                          </div>
+                        )}
+
+                        {isEquipped && (
+                          <div className="absolute top-1 right-1 w-3 h-3 rounded-full flex items-center justify-center z-10"
+                            style={{ background: "#ff6420", boxShadow: "0 0 5px rgba(255,100,30,0.9)" }}>
+                            <span style={{ fontSize: "6px", color: "#fff", fontWeight: 900, lineHeight: 1 }}>✓</span>
+                          </div>
+                        )}
+
+                        {isActive && (
+                          <div className="absolute inset-x-0 bottom-0 h-[2px]"
+                            style={{ background: `linear-gradient(90deg, transparent, ${cfg.border}, transparent)` }} />
+                        )}
+                      </div>
+
+                      {/* ── Name + type footer ── */}
+                      <div
+                        className="shrink-0 flex flex-col items-center justify-center"
+                        style={{
+                          padding: "4px 4px 5px",
+                          background: isActive
+                            ? `linear-gradient(0deg, rgba(30,10,0,0.95), rgba(20,8,0,0.8))`
+                            : "rgba(12,5,0,0.85)",
+                          borderTop: `1px solid ${isActive ? cfg.border : "rgba(255,140,40,0.1)"}`,
+                          gap: "1px",
+                        }}>
+                        <span
+                          className="font-mono font-black uppercase leading-none text-center"
+                          style={{
+                            fontSize: "8px",
+                            letterSpacing: "0.08em",
+                            color: isActive ? "#ffffff" : "rgba(255,255,255,0.75)",
+                            textShadow: isActive ? `0 0 8px ${cfg.glow}` : "none",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            maxWidth: "100%",
+                          }}>
+                          {weapon.name}
+                        </span>
+                        <span
+                          className="font-mono uppercase leading-none"
+                          style={{
+                            fontSize: "6px",
+                            letterSpacing: "0.12em",
+                            color: isActive ? cfg.text : "rgba(255,140,40,0.5)",
+                          }}>
+                          {wType}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Scroll dots — only if more than VISIBLE_COLS weapons */}
+              {canScroll && (
+                <div className="absolute bottom-1 left-0 right-0 flex justify-center items-center gap-1.5"
+                  style={{ paddingRight: "8px" }}>
+                  {Array.from({ length: numPages }).map((_, dot) => (
+                    <div
+                      key={dot}
+                      style={{
+                        width: dot === activeDot ? "14px" : "5px",
+                        height: "4px",
+                        borderRadius: "2px",
+                        background: dot === activeDot ? "rgba(255,140,40,0.95)" : "rgba(255,140,40,0.28)",
+                        transition: "all 0.25s ease",
+                      }} />
+                  ))}
+                </div>
+              )}
+
+              {/* Right-edge fade hint */}
+              {canScroll && activeDot < numPages - 1 && (
+                <div className="absolute top-0 bottom-8 pointer-events-none"
+                  style={{
+                    right: 0,
+                    width: "28px",
+                    background: "linear-gradient(90deg, transparent, rgba(13,5,0,0.9))",
+                  }} />
+              )}
+            </>
           )}
         </div>
 
-        {/* ─── RIGHT: 3D viewer — z-index 10, opaque bg hides the overflow cards ─── */}
+        {/* ─── RIGHT: 3D viewer (z-index 10 — covers any overflow cards) ─── */}
         <div
           className="absolute right-0 top-0 bottom-0 flex flex-col"
           style={{
@@ -425,7 +432,7 @@ export default function WeaponSelect() {
             <PlatformRing />
           </div>
 
-          {/* Weapon name + type + equip button */}
+          {/* Weapon name + rarity + equip button */}
           <div className="shrink-0 flex flex-col items-center pb-2" style={{ gap: "4px" }}>
             {previewWeapon && (
               <>
