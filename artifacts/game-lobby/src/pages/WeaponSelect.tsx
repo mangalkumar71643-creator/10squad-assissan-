@@ -22,12 +22,7 @@ const RARITY_CONFIG = {
   legendary: { border: "rgba(255,40,40,0.85)",  glow: "rgba(255,40,40,0.42)",  text: "#ff2828", label: "LEGENDARY" },
 } as const;
 
-const WEAPON_3D_MAP: Record<string, string> = {
-  "Plasma Rifle": "purple-mirage-rifle",
-  "Shadow Blade": "",
-  "Shock Pistol": "",
-  "Nano SMG":     "",
-};
+const WEAPON_3D_MAP: Record<string, string> = {};
 
 const CARDS_PER_PAGE = 8;
 
@@ -82,9 +77,7 @@ export default function WeaponSelect() {
   const [previewId, setPreviewId] = useState<number | null>(null);
   const [page, setPage] = useState(0);
 
-  const previewWeapon = previewId
-    ? weapons?.find(w => w.id === previewId)
-    : equippedWeapon;
+  const previewWeapon = undefined;
 
   const weaponId3D = WEAPON_3D_MAP[previewWeapon?.name ?? ""] ?? "";
 
