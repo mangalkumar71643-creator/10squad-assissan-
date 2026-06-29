@@ -422,26 +422,6 @@ export default function WeaponSelect() {
 
           {/* Weapon name + type + equip button */}
           <div className="shrink-0 flex flex-col items-center pb-2" style={{ gap: "4px" }}>
-            {previewWeapon && (
-              <>
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className="font-mono font-black text-[9px] tracking-[0.2em] uppercase px-1.5 py-0.5 rounded"
-                    style={{
-                      color: previewCfg.text,
-                      border: `1px solid ${previewCfg.border}`,
-                      background: "rgba(0,0,0,0.5)",
-                    }}>
-                    {previewCfg.label}
-                  </span>
-                  <span
-                    className="font-mono font-bold text-[9px] tracking-[0.15em] uppercase"
-                    style={{ color: "rgba(255,255,255,0.4)" }}>
-                    {previewType}
-                  </span>
-                </div>
-              </>
-            )}
             <button
               disabled={!previewWeapon || equipMutation.isPending}
               onClick={() => previewWeapon?.id && equipMutation.mutate(previewWeapon.id)}
