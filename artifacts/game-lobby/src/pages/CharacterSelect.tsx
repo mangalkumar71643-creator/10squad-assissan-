@@ -244,7 +244,7 @@ export default function CharacterSelect() {
           }}>
 
           {/* 3D canvas */}
-          <div className="flex-1 relative overflow-hidden">
+          <div className="flex-1 relative">
             {characterId3D ? (
               <CharacterCanvas key={characterId3D} characterId={characterId3D} />
             ) : (
