@@ -139,16 +139,6 @@ export default function WeaponSelect() {
       <div className="absolute inset-0 pointer-events-none"
         style={{ background: "radial-gradient(ellipse at 100% 100%, rgba(200,60,0,0.08) 0%, transparent 55%)" }} />
 
-      {/* ── BACK BUTTON ── */}
-      <div className="absolute top-3 left-3 z-30">
-        <button
-          onClick={() => setLocation("/lobby", { replace: true })}
-          className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
-          style={{ border: "1.5px solid rgba(255,140,40,0.5)", background: "rgba(0,0,0,0.5)" }}>
-          <ChevronLeft className="w-5 h-5" style={{ color: "#ff9428" }} />
-        </button>
-      </div>
-
       {/* ── X BUTTON (top right) ── */}
       <div className="absolute top-3 right-3 z-30">
         <button
