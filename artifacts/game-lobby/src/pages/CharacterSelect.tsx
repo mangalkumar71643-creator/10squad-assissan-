@@ -34,7 +34,7 @@ function CyberpunkCorners({ color }: { color: string }) {
 
 function PlatformRing() {
   return (
-    <div className="absolute bottom-0 left-0 right-0 pointer-events-none" style={{ bottom: "6%" }}>
+    <div className="absolute bottom-0 left-0 right-0 pointer-events-none" style={{ bottom: "calc(6% - 15px)" }}>
       <svg viewBox="0 0 240 70" className="w-full" style={{ overflow: "visible" }}>
         <defs>
           <radialGradient id="pgFill" cx="50%" cy="50%" r="50%">
