@@ -78,7 +78,7 @@ export default function WeaponSelect() {
     },
   });
 
-  const equippedWeapon = weapons?.find(w => w.selected) ?? weapons?.[0];
+  const equippedWeapon = undefined;
   const [previewId, setPreviewId] = useState<number | null>(null);
   const [page, setPage] = useState(0);
 
@@ -457,7 +457,7 @@ export default function WeaponSelect() {
           <span
             className="font-mono font-bold text-[10px] tracking-[0.1em] uppercase truncate max-w-[110px]"
             style={{ color: "#ff9428" }}>
-            {weapons?.find(w => w.selected)?.name ?? "—"}
+            —
           </span>
         </div>
       </div>
