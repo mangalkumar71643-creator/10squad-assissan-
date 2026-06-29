@@ -73,11 +73,13 @@ export default function WeaponSelect() {
     },
   });
 
-  const equippedWeapon = undefined;
+  const equippedWeapon = weapons?.find(w => w.selected) ?? weapons?.[0];
   const [previewId, setPreviewId] = useState<number | null>(null);
   const [page, setPage] = useState(0);
 
-  const previewWeapon = undefined;
+  const previewWeapon = previewId
+    ? weapons?.find(w => w.id === previewId)
+    : equippedWeapon;
 
   const weaponId3D = WEAPON_3D_MAP[previewWeapon?.name ?? ""] ?? "";
 
@@ -93,7 +95,7 @@ export default function WeaponSelect() {
     },
   });
 
-  const allWeapons: Weapon[] = [];
+  const allWeapons: Weapon[] = weapons ?? [];
   const totalSlots = Math.max(CARDS_PER_PAGE, allWeapons.length);
   const totalPages = Math.ceil(totalSlots / CARDS_PER_PAGE);
   const pageSlots = Array.from({ length: CARDS_PER_PAGE }, (_, i) => allWeapons[page * CARDS_PER_PAGE + i] ?? null);
@@ -320,32 +322,54 @@ export default function WeaponSelect() {
             <PlatformRing />
           </div>
 
-          {/* Weapon name + type */}
-          {previewWeapon && (
-            <div className="shrink-0 flex flex-col items-center pb-2" style={{ gap: "2px" }}>
-              <div className="flex items-center gap-1.5">
-                <span
-                  className="font-mono font-black text-[9px] tracking-[0.2em] uppercase px-1.5 py-0.5 rounded"
-                  style={{
-                    color: previewCfg.text,
-                    border: `1px solid ${previewCfg.border}`,
-                    background: "rgba(0,0,0,0.5)",
-                  }}>
-                  {previewCfg.label}
-                </span>
-                <span
-                  className="font-mono font-bold text-[9px] tracking-[0.15em] uppercase"
-                  style={{ color: "rgba(255,255,255,0.4)" }}>
-                  {previewType}
-                </span>
-              </div>
-              <p
-                className="font-mono font-bold text-[12px] tracking-[0.15em] uppercase"
-                style={{ color: "#ffffff", textShadow: `0 0 10px ${previewCfg.glow}` }}>
-                {previewWeapon.name}
-              </p>
-            </div>
-          )}
+          {/* Weapon name + type + equip button */}
+          <div className="shrink-0 flex flex-col items-center pb-2" style={{ gap: "4px" }}>
+            {previewWeapon && (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="font-mono font-black text-[9px] tracking-[0.2em] uppercase px-1.5 py-0.5 rounded"
+                    style={{
+                      color: previewCfg.text,
+                      border: `1px solid ${previewCfg.border}`,
+                      background: "rgba(0,0,0,0.5)",
+                    }}>
+                    {previewCfg.label}
+                  </span>
+                  <span
+                    className="font-mono font-bold text-[9px] tracking-[0.15em] uppercase"
+                    style={{ color: "rgba(255,255,255,0.4)" }}>
+                    {previewType}
+                  </span>
+                </div>
+                <p
+                  className="font-mono font-bold text-[12px] tracking-[0.15em] uppercase"
+                  style={{ color: "#ffffff", textShadow: `0 0 10px ${previewCfg.glow}` }}>
+                  {previewWeapon.name}
+                </p>
+              </>
+            )}
+            <button
+              disabled={!previewWeapon || equipMutation.isPending}
+              onClick={() => previewWeapon?.id && equipMutation.mutate(previewWeapon.id)}
+              className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{
+                fontSize: "11px",
+                width: "90px",
+                height: "28px",
+                borderRadius: "4px",
+                border: previewWeapon?.selected
+                  ? "1.5px solid rgba(255,140,40,0.5)"
+                  : "1.5px solid rgba(255,140,40,0.75)",
+                background: previewWeapon?.selected
+                  ? "rgba(255,140,40,0.08)"
+                  : "rgba(255,140,40,0.14)",
+                color: "#ffffff",
+                boxShadow: "0 0 14px rgba(255,140,40,0.18), inset 0 0 12px rgba(255,140,40,0.05)",
+              }}>
+              {equipMutation.isPending ? "..." : previewWeapon?.selected ? "EQUIPPED" : "CONFIRM"}
+            </button>
+          </div>
         </div>
       </div>
 
