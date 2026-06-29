@@ -440,11 +440,6 @@ export default function WeaponSelect() {
                     {previewType}
                   </span>
                 </div>
-                <p
-                  className="font-mono font-bold text-[12px] tracking-[0.15em] uppercase"
-                  style={{ color: "#ffffff", textShadow: `0 0 10px ${previewCfg.glow}` }}>
-                  {previewWeapon.name}
-                </p>
               </>
             )}
             <button
