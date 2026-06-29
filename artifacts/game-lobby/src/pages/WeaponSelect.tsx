@@ -100,7 +100,7 @@ export default function WeaponSelect() {
     },
   });
 
-  const allWeapons = weapons ?? [];
+  const allWeapons: Weapon[] = [];
   const totalSlots = Math.max(CARDS_PER_PAGE, allWeapons.length);
   const totalPages = Math.ceil(totalSlots / CARDS_PER_PAGE);
   const pageSlots = Array.from({ length: CARDS_PER_PAGE }, (_, i) => allWeapons[page * CARDS_PER_PAGE + i] ?? null);
