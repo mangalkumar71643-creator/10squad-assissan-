@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Lock, Shuffle } from "lucide-react";
+import { ChevronLeft, Lock, Shuffle, X } from "lucide-react";
 import WeaponCanvas from "@/components/WeaponCanvas";
 
 type Weapon = {
@@ -146,6 +146,16 @@ export default function WeaponSelect() {
           className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
           style={{ border: "1.5px solid rgba(255,140,40,0.5)", background: "rgba(0,0,0,0.5)" }}>
           <ChevronLeft className="w-5 h-5" style={{ color: "#ff9428" }} />
+        </button>
+      </div>
+
+      {/* ── X BUTTON (top right) ── */}
+      <div className="absolute top-3 right-3 z-30">
+        <button
+          onClick={() => setLocation("/lobby", { replace: true })}
+          className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
+          style={{ border: "1.5px solid rgba(255,140,40,0.5)", background: "rgba(0,0,0,0.5)" }}>
+          <X className="w-5 h-5" style={{ color: "#ff9428" }} />
         </button>
       </div>
 
