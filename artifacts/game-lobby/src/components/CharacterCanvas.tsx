@@ -20,7 +20,7 @@ function checkWebGL(): boolean {
 
 function PhantomFallback() {
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden"
+    <div className="w-full h-full flex flex-col items-center justify-center relative"
       style={{ background: "linear-gradient(180deg, #0a0510 0%, #1a0a00 100%)" }}>
       <div className="absolute inset-0 pointer-events-none" style={{
         background: "radial-gradient(ellipse at 50% 80%, rgba(249,115,22,0.25) 0%, transparent 65%)",
