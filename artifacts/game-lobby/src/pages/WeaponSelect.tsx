@@ -139,31 +139,18 @@ export default function WeaponSelect() {
       <div className="absolute inset-0 pointer-events-none"
         style={{ background: "radial-gradient(ellipse at 100% 100%, rgba(200,60,0,0.08) 0%, transparent 55%)" }} />
 
-      {/* ── HEADER ── */}
-      <div className="relative z-30 flex items-center justify-center px-4"
-        style={{
-          height: "50px",
-          borderBottom: "1px solid rgba(255,140,40,0.18)",
-          background: "rgba(15,5,0,0.9)",
-          backdropFilter: "blur(10px)",
-        }}>
-
+      {/* ── BACK BUTTON ── */}
+      <div className="absolute top-3 left-3 z-30">
         <button
           onClick={() => setLocation("/lobby", { replace: true })}
-          className="absolute left-3 flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
+          className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
           style={{ border: "1.5px solid rgba(255,140,40,0.5)", background: "rgba(0,0,0,0.5)" }}>
           <ChevronLeft className="w-5 h-5" style={{ color: "#ff9428" }} />
         </button>
-
-        <h1
-          className="font-mono font-black text-[13px] tracking-[0.35em] uppercase"
-          style={{ color: "#ffffff", textShadow: "0 0 18px rgba(255,140,40,0.65)" }}>
-          WEAPON SELECTION
-        </h1>
       </div>
 
       {/* ── BODY ── */}
-      <div className="flex" style={{ height: "calc(100vh - 50px - 60px)" }}>
+      <div className="flex" style={{ height: "100vh" }}>
 
         {/* LEFT: Card grid */}
         <div className="flex flex-col" style={{ flex: "3 3 0%", padding: "10px 8px 6px 10px", gap: "8px" }}>
