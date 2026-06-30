@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -7,6 +8,7 @@ import Lobby from "@/pages/Lobby";
 import Matchmaking from "@/pages/Matchmaking";
 import CharacterSelect from "@/pages/CharacterSelect";
 import WeaponSelect from "@/pages/WeaponSelect";
+import LoadingScreen from "@/components/LoadingScreen";
 
 const queryClient = new QueryClient();
 
@@ -24,11 +26,14 @@ function Router() {
 }
 
 function App() {
+  const [loaded, setLoaded] = useState(false);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        {!loaded && <LoadingScreen onDone={() => setLoaded(true)} />}
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <div className="dark">
+          <div className="dark" style={{ opacity: loaded ? 1 : 0, transition: "opacity 0.5s ease" }}>
             <Router />
           </div>
         </WouterRouter>
