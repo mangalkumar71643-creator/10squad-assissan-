@@ -16,15 +16,201 @@
     <!-- iOS PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="GameLobby" />
+    <meta name="apple-mobile-web-app-title" content="10 Squad Assassin" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: #000; overflow: hidden; }
+
+      #html-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transition: opacity 0.5s ease;
+      }
+      #html-loader.fade-out { opacity: 0; pointer-events: none; }
+
+      #html-loader .bg {
+        position: absolute;
+        inset: 0;
+        background: url('/loading-bg.jpg') center/cover no-repeat;
+        filter: brightness(0.82);
+      }
+      #html-loader .overlay {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg,
+          rgba(0,0,0,0.55) 0%,
+          rgba(0,0,0,0.1) 35%,
+          rgba(0,0,0,0.0) 55%,
+          rgba(0,0,0,0.55) 80%,
+          rgba(0,0,0,0.88) 100%);
+      }
+      #html-loader .top {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 40px;
+      }
+      #html-loader .title-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 4px;
+        line-height: 1;
+      }
+      #html-loader .t1 {
+        font-family: 'Arial Black', Impact, sans-serif;
+        font-weight: 900;
+        font-size: clamp(38px, 10vw, 56px);
+        color: #f5f5f5;
+        text-shadow: 0 0 18px rgba(255,160,40,0.6), 2px 2px 0 rgba(0,0,0,0.8);
+        letter-spacing: 0.04em;
+      }
+      #html-loader .t2 {
+        font-family: 'Arial Black', Impact, sans-serif;
+        font-weight: 900;
+        font-size: clamp(28px, 8vw, 44px);
+        background: linear-gradient(90deg, #ff8c00, #ffcc00, #ff8c00);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        filter: drop-shadow(0 0 8px rgba(255,160,0,0.5));
+        letter-spacing: 0.08em;
+        line-height: 1.05;
+      }
+      #html-loader .sub {
+        font-family: monospace;
+        font-size: clamp(9px, 2.5vw, 13px);
+        color: rgba(220,220,220,0.85);
+        letter-spacing: 0.4em;
+        text-transform: uppercase;
+        margin-top: 4px;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+      }
+      #html-loader .bottom {
+        position: relative;
+        z-index: 2;
+        margin-top: auto;
+        padding: 0 20px 32px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      #html-loader .status-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      #html-loader .pct {
+        font-family: 'Arial Black', monospace;
+        font-weight: 900;
+        font-size: clamp(13px, 4vw, 17px);
+        color: #fff;
+        text-shadow: 0 0 10px rgba(255,160,40,0.5);
+      }
+      #html-loader .status-txt {
+        font-family: monospace;
+        font-size: clamp(9px, 2.8vw, 12px);
+        color: rgba(200,220,255,0.85);
+        letter-spacing: 0.04em;
+      }
+      #html-loader .bar-track {
+        height: 6px;
+        border-radius: 99px;
+        background: rgba(255,255,255,0.12);
+        position: relative;
+        overflow: hidden;
+      }
+      #html-loader .bar-fill {
+        height: 100%;
+        width: 0%;
+        border-radius: 99px;
+        background: linear-gradient(90deg, #ff6a00, #ffb300, #00e5ff);
+        box-shadow: 0 0 10px rgba(255,180,0,0.7), 0 0 4px rgba(0,229,255,0.5);
+        transition: width 0.06s linear;
+      }
+      #html-loader .hint {
+        font-family: monospace;
+        font-size: 9px;
+        color: rgba(255,255,255,0.22);
+        text-align: center;
+        letter-spacing: 0.1em;
+      }
+    </style>
   </head>
   <body>
+    <!-- ── Instant HTML loading screen (shows before React loads) ── -->
+    <div id="html-loader">
+      <div class="bg"></div>
+      <div class="overlay"></div>
+
+      <div class="top">
+        <div class="title-row">
+          <span class="t1">10 SQUAD</span>
+        </div>
+        <div class="t2">ASSASSIN</div>
+        <div class="sub">Tactical Special Ops</div>
+      </div>
+
+      <div class="bottom">
+        <div class="status-row">
+          <span class="pct" id="html-pct">0%</span>
+          <span class="status-txt" id="html-status">Initializing game engine...</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill" id="html-bar"></div>
+        </div>
+        <div class="hint">◈ &nbsp; TACTICAL SPECIAL OPS &nbsp; ◈</div>
+      </div>
+    </div>
+
+    <script>
+      (function() {
+        var steps = [
+          "Initializing game engine...",
+          "Loading world assets...",
+          "Spawning squad members...",
+          "Calibrating weapons...",
+          "Connecting to server...",
+          "Synchronizing squad data...",
+        ];
+        var pct = 0;
+        var bar = document.getElementById('html-bar');
+        var pctEl = document.getElementById('html-pct');
+        var statusEl = document.getElementById('html-status');
+        var loader = document.getElementById('html-loader');
+
+        var t = setInterval(function() {
+          pct = Math.min(75, pct + 1);
+          if (bar) bar.style.width = pct + '%';
+          if (pctEl) pctEl.textContent = pct + '%';
+          var idx = Math.min(steps.length - 1, Math.floor((pct / 75) * steps.length));
+          if (statusEl) statusEl.textContent = steps[idx];
+          if (pct >= 75) clearInterval(t);
+        }, 30);
+
+        window.__hideHtmlLoader = function() {
+          if (loader) {
+            loader.classList.add('fade-out');
+            setTimeout(function() {
+              if (loader && loader.parentNode) loader.parentNode.removeChild(loader);
+            }, 600);
+          }
+        };
+      })();
+    </script>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
