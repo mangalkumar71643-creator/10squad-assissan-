@@ -395,27 +395,9 @@ export default function WeaponSelect() {
               <WeaponCanvas key={weaponId3D} weaponId={weaponId3D} />
             ) : (
               <div
-                className="w-full h-full flex items-center justify-center"
-                style={{ background: "radial-gradient(ellipse at 50% 55%, rgba(255,100,20,0.06) 0%, transparent 70%)" }}>
-                {previewWeapon && (
-                  <svg viewBox="0 0 120 60" className="w-4/5 opacity-25" fill="none">
-                    <rect x="4" y="22" width="58" height="16" rx="4"
-                      stroke={previewCfg.text} strokeWidth="2"
-                      fill={previewCfg.glow} />
-                    <rect x="62" y="26" width="40" height="6" rx="2"
-                      stroke={previewCfg.text} strokeWidth="1.5"
-                      fill={previewCfg.glow} />
-                    <rect x="20" y="38" width="18" height="14" rx="2"
-                      stroke={previewCfg.text} strokeWidth="1.5"
-                      fill={previewCfg.glow} />
-                    <circle cx="14" cy="30" r="5"
-                      stroke={previewCfg.text} strokeWidth="1.2"
-                      fill="none" opacity="0.6" />
-                    <line x1="14" y1="25" x2="14" y2="35" stroke={previewCfg.text} strokeWidth="0.8" opacity="0.6" />
-                    <line x1="9" y1="30" x2="19" y2="30" stroke={previewCfg.text} strokeWidth="0.8" opacity="0.6" />
-                  </svg>
-                )}
-              </div>
+                className="w-full h-full"
+                style={{ background: "radial-gradient(ellipse at 50% 55%, rgba(255,100,20,0.06) 0%, transparent 70%)" }}
+              />
             )}
             <PlatformRing />
           </div>
