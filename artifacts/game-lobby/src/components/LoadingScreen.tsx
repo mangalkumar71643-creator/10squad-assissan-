@@ -70,6 +70,20 @@ export default function LoadingScreen({ onDone }: { onDone: () => void }) {
 
       {/* TOP: Game title */}
       <div className="relative z-10 flex flex-col items-center pt-10 px-4">
+
+        {/* Red dragon logo */}
+        <img
+          src="/logo.png"
+          alt="10 Squad Assassin"
+          style={{
+            width: "clamp(100px, 22vw, 160px)",
+            height: "clamp(100px, 22vw, 160px)",
+            objectFit: "contain",
+            filter: "drop-shadow(0 0 18px rgba(255,40,0,0.75)) drop-shadow(0 0 6px rgba(255,80,0,0.5))",
+            marginBottom: "8px",
+          }}
+        />
+
         <div className="flex items-end leading-none" style={{ gap: "4px" }}>
           <span className="font-black"
             style={{

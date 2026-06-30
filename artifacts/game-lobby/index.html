@@ -63,6 +63,13 @@
         align-items: center;
         padding-top: 40px;
       }
+      #html-loader .logo {
+        width: clamp(100px, 22vw, 160px);
+        height: clamp(100px, 22vw, 160px);
+        object-fit: contain;
+        filter: drop-shadow(0 0 18px rgba(255,40,0,0.75)) drop-shadow(0 0 6px rgba(255,80,0,0.5));
+        margin-bottom: 8px;
+      }
       #html-loader .title-row {
         display: flex;
         align-items: flex-end;
@@ -156,6 +163,7 @@
       <div class="overlay"></div>
 
       <div class="top">
+        <img src="/logo.png" alt="10 Squad Assassin" class="logo" />
         <div class="title-row">
           <span class="t1">10 SQUAD</span>
         </div>
