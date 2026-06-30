@@ -1,13 +1,13 @@
 {
-  "name": "PRE-GAME LOBBY",
-  "short_name": "GameLobby",
-  "description": "Cyberpunk Pre-Game Lobby",
+  "name": "10 Squad Assassin",
+  "short_name": "10 Squad",
+  "description": "10 Squad Assassin - Tactical Special Ops",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",
   "display_override": ["fullscreen", "standalone", "minimal-ui"],
   "background_color": "#000000",
-  "theme_color": "#00ffff",
+  "theme_color": "#000000",
   "orientation": "landscape",
   "icons": [
     {

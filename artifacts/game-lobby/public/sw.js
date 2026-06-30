@@ -1,4 +1,4 @@
-const CACHE_NAME = "game-lobby-v1";
+const CACHE_NAME = "10squad-assassin-v2";
 const ASSETS = [
   "/lobby",
   "/assets/cyberpunk-bg.png",
