@@ -333,13 +333,6 @@ export default function WeaponSelect() {
                       </div>
                     )}
 
-                    <div className="absolute bottom-1 left-1 px-1 rounded z-10"
-                      style={{ background: "rgba(0,0,0,0.72)" }}>
-                      <span className="font-mono font-black" style={{ fontSize: "6px", color: cfg.text }}>
-                        {wType}
-                      </span>
-                    </div>
-
                     {isActive && (
                       <div className="absolute inset-x-0 bottom-0 h-[2px]"
                         style={{ background: `linear-gradient(90deg, transparent, ${cfg.border}, transparent)` }} />
