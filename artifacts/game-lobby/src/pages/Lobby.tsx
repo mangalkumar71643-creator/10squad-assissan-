@@ -335,6 +335,60 @@ export default function Lobby() {
         </button>
       </div>
 
+      {/* ── LOADOUT BUTTON — left side, below WEAPON ── */}
+      <div
+        className="absolute z-50"
+        style={{ left: 0, top: "218px" }}
+      >
+        <button
+          onClick={() => setLocation("/loadout")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            background: "rgba(20,15,0,0.88)",
+            border: "1.5px solid rgba(255,200,0,0.7)",
+            borderLeft: "none",
+            borderRadius: "0 10px 10px 0",
+            padding: "0 8px 0 8px",
+            height: "35px",
+            width: "100px",
+            overflow: "hidden",
+            cursor: "pointer",
+            boxShadow: "0 0 18px rgba(255,200,0,0.30), inset 0 0 12px rgba(255,200,0,0.06)",
+            transition: "all 0.2s",
+          }}
+          onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 0 28px rgba(255,200,0,0.65), inset 0 0 16px rgba(255,200,0,0.14)")}
+          onMouseLeave={e => (e.currentTarget.style.boxShadow = "0 0 18px rgba(255,200,0,0.30), inset 0 0 12px rgba(255,200,0,0.06)")}
+        >
+          {/* Loadout / bag icon */}
+          <svg width="12" height="12" viewBox="0 0 32 32" fill="none">
+            <rect x="4" y="12" width="24" height="15" rx="2" stroke="rgba(255,210,50,0.9)" strokeWidth="1.8" fill="rgba(255,200,0,0.12)"/>
+            <path d="M10 12 L10 9 Q10 6 16 6 Q22 6 22 9 L22 12" stroke="rgba(255,210,50,0.9)" strokeWidth="1.5" fill="none"/>
+            <rect x="13" y="17" width="6" height="4" rx="1" stroke="rgba(255,210,50,0.7)" strokeWidth="1.2" fill="rgba(255,200,0,0.15)"/>
+          </svg>
+          {/* Text */}
+          <span
+            style={{
+              fontFamily: "monospace",
+              fontWeight: 800,
+              fontSize: "10px",
+              letterSpacing: "0.08em",
+              color: "rgba(255,220,80,0.95)",
+              textShadow: "0 0 12px rgba(255,200,0,0.9)",
+              textTransform: "uppercase",
+              whiteSpace: "nowrap",
+            }}
+          >
+            LOADOUT
+          </span>
+          {/* Arrow */}
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none" style={{ marginLeft: "4px" }}>
+            <path d="M1 1 L7 7 L1 13" stroke="rgba(255,210,50,0.8)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      </div>
+
       {/* ══ INBOX PANEL ══ */}
       {inboxOpen && (
         <>
