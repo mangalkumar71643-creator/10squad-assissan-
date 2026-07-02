@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useGetPlayerCharacters, useGetCurrentPlayer } from "@workspace/api-client-react";
-import { ChevronLeft, Lock, Shuffle, X } from "lucide-react";
+import { ChevronLeft, Shuffle, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import CharacterCanvas from "@/components/CharacterCanvas";
 
@@ -149,7 +149,6 @@ export default function CharacterSelect() {
                       height: "100%",
                     }}>
                     <CyberpunkCorners color="rgba(0,200,255,0.25)" />
-                    <Lock className="w-4 h-4" style={{ color: "rgba(255,255,255,0.08)" }} />
                   </div>
                 );
               }
@@ -210,13 +209,6 @@ export default function CharacterSelect() {
                       </div>
                     )}
 
-                    {!char.unlocked && (
-                      <div
-                        className="absolute inset-0 flex items-center justify-center"
-                        style={{ background: "rgba(0,0,0,0.72)" }}>
-                        <Lock className="w-3.5 h-3.5" style={{ color: "rgba(255,255,255,0.22)" }} />
-                      </div>
-                    )}
 
                     {isActive && (
                       <div
