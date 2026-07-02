@@ -13,11 +13,7 @@ const RARITY_CONFIG = {
 } as const;
 
 const CHAR_3D_MAP: Record<string, string> = {
-  "Cyber Ghost":   "ninja-x-1",
-  "Neon Striker":  "nova",
-  "Shadow Runner": "phantom",
-  "Volt Reaper":   "",
-  "Neon Runner":   "neon-runner",
+  "Neon Runner": "neon-runner",
 };
 
 const CARDS_PER_PAGE = 3;
