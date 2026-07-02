@@ -1,6 +1,6 @@
 {
   "buildCommand": "pnpm --filter @workspace/game-lobby run build",
   "outputDirectory": "artifacts/game-lobby/dist",
-  "installCommand": "pnpm install --frozen-lockfile",
+  "installCommand": "npm install -g pnpm@10.26.1 && pnpm install --frozen-lockfile",
   "framework": null
 }
