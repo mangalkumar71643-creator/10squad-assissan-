@@ -1,4 +1,0 @@
-{
-  "buildCommand": "pnpm --filter @workspace/game-lobby run build",
-  "outputDirectory": "artifacts/game-lobby/dist"
-}
