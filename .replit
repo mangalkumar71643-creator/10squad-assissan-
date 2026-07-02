@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash"]
+modules = ["nodejs-20", "web", "bash", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -45,7 +45,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=8080 NODE_ENV=development node --enable-source-maps artifacts/api-server/dist/index.mjs"
+args = "PORT=8080 NODE_ENV=development pnpm --filter @workspace/api-server run build && PORT=8080 NODE_ENV=development node --enable-source-maps artifacts/api-server/dist/index.mjs"
 waitForPort = 8080
 
 [agent]
