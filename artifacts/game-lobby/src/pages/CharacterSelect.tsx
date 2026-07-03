@@ -59,7 +59,7 @@ export default function CharacterSelect() {
   const queryClient = useQueryClient();
 
   const equippedChar = characters?.find(c => c.selected) ?? characters?.[0];
-  const [previewId, setPreviewId] = useState<number | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
 
   const previewChar = previewId
@@ -69,7 +69,7 @@ export default function CharacterSelect() {
   const characterId3D = CHAR_3D_MAP[previewChar?.name ?? ""] ?? "";
 
   const equipMutation = useMutation({
-    mutationFn: async (charId: number) => {
+    mutationFn: async (charId: string) => {
       const res = await fetch(`/api/players/me/characters/${charId}/equip`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to equip");
       return res.json();

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useGetCurrentPlayer, useGetLobby } from "@workspace/api-client-react";
+import { useGetCurrentPlayer, useGetLobby, getGetCurrentPlayerQueryKey, getGetLobbyQueryKey } from "@workspace/api-client-react";
 import InstallPrompt from "@/components/InstallPrompt";
 import {
   ChevronDown, Diamond, Coins,
@@ -18,8 +18,8 @@ export default function Lobby() {
   const [language, setLanguage] = useState<"Hindi"|"English">("Hindi");
   const [notifications, setNotifications] = useState<"On"|"Off">("On");
   const [expandedSetting, setExpandedSetting] = useState<string|null>(null);
-  const { data: player, isLoading } = useGetCurrentPlayer({ query: { retry: 1 } });
-  const { data: lobby } = useGetLobby({ query: { retry: 1 } });
+  const { data: player, isLoading } = useGetCurrentPlayer({ query: { retry: 1, queryKey: getGetCurrentPlayerQueryKey() } });
+  const { data: lobby } = useGetLobby({ query: { retry: 1, queryKey: getGetLobbyQueryKey() } });
 
   if (isLoading && !player) {
     return (

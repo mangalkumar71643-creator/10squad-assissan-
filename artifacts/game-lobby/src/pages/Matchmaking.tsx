@@ -43,12 +43,12 @@ export default function Matchmaking() {
     });
   };
 
-  // If status is "found", we could auto-redirect
+  // Match found -> deploy into the game
   useEffect(() => {
     if (status?.status === "found" || status?.status === "ready") {
       const timer = setTimeout(() => {
-        setLocation("/lobby");
-      }, 3000);
+        setLocation("/game");
+      }, 2500);
       return () => clearTimeout(timer);
     }
     return;
