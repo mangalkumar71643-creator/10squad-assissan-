@@ -18,8 +18,8 @@ export default function Lobby() {
   const [language, setLanguage] = useState<"Hindi"|"English">("Hindi");
   const [notifications, setNotifications] = useState<"On"|"Off">("On");
   const [expandedSetting, setExpandedSetting] = useState<string|null>(null);
-  const { data: player, isLoading } = useGetCurrentPlayer({ query: { retry: 1 } });
-  const { data: lobby } = useGetLobby({ query: { retry: 1 } });
+  const { data: player, isLoading } = useGetCurrentPlayer({ query: { queryKey: ["player"], retry: 1 } });
+  const { data: lobby } = useGetLobby({ query: { queryKey: ["lobby"], retry: 1 } });
 
   if (isLoading && !player) {
     return (

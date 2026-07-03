@@ -38,7 +38,7 @@ export default function RifleInHands() {
       mesh.frustumCulled = false;
 
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      mats.forEach((mat) => {
+      mats.forEach((mat: THREE.Material) => {
         if (!(mat instanceof THREE.MeshStandardMaterial)) return;
         mat.needsUpdate = true;
 

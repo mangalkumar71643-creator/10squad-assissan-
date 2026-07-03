@@ -29,7 +29,7 @@ export default function NeonRunnerCharacter() {
     const bbox2 = new THREE.Box3().setFromObject(charScene);
     charScene.position.y = -bbox2.min.y;
 
-    charScene.traverse((obj) => {
+    charScene.traverse((obj: THREE.Object3D) => {
       if (!(obj as THREE.Mesh).isMesh) return;
       const mesh = obj as THREE.Mesh;
       mesh.castShadow = true;
@@ -37,7 +37,7 @@ export default function NeonRunnerCharacter() {
       mesh.frustumCulled = false;
 
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      mats.forEach((mat) => {
+      mats.forEach((mat: THREE.Material) => {
         if (!(mat instanceof THREE.MeshStandardMaterial)) return;
         mat.needsUpdate = true;
         const col = mat.color;
