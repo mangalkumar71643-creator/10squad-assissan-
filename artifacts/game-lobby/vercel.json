@@ -1,4 +1,7 @@
 {
   "buildCommand": "cd ../../ && pnpm install --frozen-lockfile && pnpm --filter @workspace/game-lobby run build",
-  "outputDirectory": "dist"
+  "outputDirectory": "artifacts/game-lobby/dist",
+  "env": {
+    "PORT": "5000"
+  }
 }
