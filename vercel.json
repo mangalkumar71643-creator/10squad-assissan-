@@ -1,0 +1,5 @@
+{
+  "buildCommand": "pnpm install --frozen-lockfile && pnpm run typecheck && pnpm --filter @workspace/game-lobby run build",
+  "outputDirectory": "artifacts/game-lobby/dist",
+  "installCommand": "pnpm install --frozen-lockfile"
+}
