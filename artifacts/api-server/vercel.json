@@ -1,0 +1,6 @@
+{
+  "framework": null,
+  "installCommand": "echo 'no install needed — function is pre-bundled locally'",
+  "buildCommand": "echo 'no build needed — function is pre-bundled locally'",
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
+}
