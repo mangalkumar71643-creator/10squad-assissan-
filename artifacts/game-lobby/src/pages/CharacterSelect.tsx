@@ -113,8 +113,9 @@ export default function CharacterSelect() {
       {/* ── HEADER ── */}
       <div className="absolute top-3 right-3 z-30">
         <button
+          type="button"
           onClick={() => setLocation("/lobby", { replace: true })}
-          className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
+          className="flex items-center justify-center w-11 h-11 rounded active:scale-90 transition-transform touch-manipulation"
           style={{ border: "1.5px solid rgba(0,200,255,0.45)", background: "rgba(0,0,0,0.5)" }}>
           <X className="w-5 h-5" style={{ color: "#00c8ff" }} />
         </button>
@@ -232,8 +233,11 @@ export default function CharacterSelect() {
             borderLeft: "1px solid rgba(0,200,255,0.14)",
           }}>
 
-          {/* 3D canvas */}
-          <div className="flex-1 relative">
+          {/* 3D canvas — top padding keeps the WebGL canvas out from under the
+              absolutely-positioned close button, since a canvas can swallow
+              touch taps even when a DOM element with higher z-index visually
+              covers it */}
+          <div className="flex-1 relative" style={{ paddingTop: "56px" }}>
             {characterId3D ? (
               <CharacterCanvas key={characterId3D} characterId={characterId3D} />
             ) : (

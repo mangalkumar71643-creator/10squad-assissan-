@@ -200,8 +200,9 @@ export default function WeaponSelect() {
       {/* ── X BUTTON ── */}
       <div className="absolute top-3 right-3 z-30">
         <button
+          type="button"
           onClick={() => setLocation("/lobby", { replace: true })}
-          className="flex items-center justify-center w-8 h-8 rounded active:scale-90 transition-transform"
+          className="flex items-center justify-center w-11 h-11 rounded active:scale-90 transition-transform touch-manipulation"
           style={{ border: "1.5px solid rgba(255,140,40,0.5)", background: "rgba(0,0,0,0.5)" }}>
           <X className="w-5 h-5" style={{ color: "#ff9428" }} />
         </button>
@@ -382,8 +383,11 @@ export default function WeaponSelect() {
             zIndex: 10,
           }}>
 
-          {/* 3D canvas */}
-          <div className="flex-1 relative overflow-hidden">
+          {/* 3D canvas — top padding keeps the WebGL canvas out from under the
+              absolutely-positioned close button, since a canvas can swallow
+              touch taps even when a DOM element with higher z-index visually
+              covers it */}
+          <div className="flex-1 relative overflow-hidden" style={{ paddingTop: "56px" }}>
             {weaponId3D ? (
               <WeaponCanvas key={weaponId3D} weaponId={weaponId3D} />
             ) : (
