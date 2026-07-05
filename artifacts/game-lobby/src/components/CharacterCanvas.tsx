@@ -96,13 +96,13 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
   // margin from the top and the pad's front arc stays clear of the bottom
   // bar on every device aspect ratio.
   const POLAR = 1.466;
-  const CAM_DIST = 5.0;
+  const CAM_DIST = 3.95;
   const cameraPos: [number, number, number] = [
     0,
-    0.68 + CAM_DIST * Math.cos(POLAR),
+    0.855 + CAM_DIST * Math.cos(POLAR),
     CAM_DIST * Math.sin(POLAR),
   ];
-  const orbitTarget: [number, number, number] = [0, 0.68, 0];
+  const orbitTarget: [number, number, number] = [0, 0.855, 0];
 
   return (
     <Canvas
