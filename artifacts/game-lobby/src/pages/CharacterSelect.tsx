@@ -213,8 +213,12 @@ export default function CharacterSelect() {
           {/* 3D canvas — top padding keeps the WebGL canvas out from under the
               absolutely-positioned close button, since a canvas can swallow
               touch taps even when a DOM element with higher z-index visually
-              covers it */}
-          <div className="flex-1 relative" style={{ paddingTop: "56px" }}>
+              covers it. The container extends 50px past the pane's bottom so
+              the pad's glow flows behind the transparent bottom bar instead of
+              cutting off in a visible horizontal band. */}
+          <div
+            className="absolute inset-x-0 top-0"
+            style={{ paddingTop: "56px", bottom: "-50px" }}>
             {characterId3D ? (
               <CharacterCanvas key={characterId3D} characterId={characterId3D} />
             ) : (

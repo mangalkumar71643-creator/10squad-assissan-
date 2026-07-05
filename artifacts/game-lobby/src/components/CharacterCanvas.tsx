@@ -57,7 +57,7 @@ function HoloPad() {
   return (
     <group ref={groupRef}>
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.02, 0]}>
-        <planeGeometry args={[2.5, 2.5]} />
+        <planeGeometry args={[1.8, 1.8]} />
         <meshBasicMaterial map={texture} transparent depthWrite={false} />
       </mesh>
     </group>
@@ -89,8 +89,19 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
     return null;
   }
 
-  const cameraPos: [number, number, number] = [0, 0.92, 2.8];
-  const orbitTarget: [number, number, number] = [0, 0.92, 0];
+  // Camera sits slightly above eye level looking down (Free Fire lobby
+  // style) so the whole holo pad ellipse stays inside the frame instead of
+  // its near edge getting clipped by the canvas bottom. The lower orbit
+  // target lifts the whole composition up in the frame so the pad doesn't
+  // sink behind the screen's bottom edge.
+  const POLAR = 1.32;
+  const CAM_DIST = 3.35;
+  const cameraPos: [number, number, number] = [
+    0,
+    0.83 + CAM_DIST * Math.cos(POLAR),
+    CAM_DIST * Math.sin(POLAR),
+  ];
+  const orbitTarget: [number, number, number] = [0, 0.83, 0];
 
   return (
     <Canvas
@@ -119,8 +130,8 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
       <OrbitControls
         enableZoom={false}
         enablePan={false}
-        minPolarAngle={Math.PI / 2}
-        maxPolarAngle={Math.PI / 2}
+        minPolarAngle={1.32}
+        maxPolarAngle={1.32}
         enableDamping
         dampingFactor={0.07}
         rotateSpeed={0.75}
