@@ -87,8 +87,68 @@ export default function CharacterSelect() {
       <div className="absolute inset-0 pointer-events-none"
         style={{ background: "radial-gradient(ellipse at 100% 100%, rgba(0,80,200,0.10) 0%, transparent 55%)" }} />
 
-      {/* ── HEADER ── */}
-      <div className="absolute top-3 right-3 z-30">
+      {/* ── HEADER: currency + equip + close ── */}
+      <div className="absolute top-3 right-3 z-30 flex items-center" style={{ gap: "14px" }}>
+        {/* Diamond */}
+        <div className="flex items-center" style={{ gap: "4px" }}>
+          <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
+          <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>{player?.diamonds ?? 0}</span>
+        </div>
+
+        {/* EQUIPPED / CONFIRM / BUY */}
+        {previewChar?.unlocked === false ? (
+          <button
+            className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95"
+            style={{
+              fontSize: "11px",
+              width: "80px",
+              height: "28px",
+              padding: "0px 8px",
+              borderRadius: "4px",
+              border: "1.5px solid rgba(160,100,255,0.8)",
+              background: "rgba(100,50,220,0.22)",
+              color: "#c080ff",
+              boxShadow: "0 0 14px rgba(140,80,255,0.28), inset 0 0 12px rgba(120,60,220,0.1)",
+            }}>
+            BUY
+          </button>
+        ) : (
+          <button
+            disabled={equipMutation.isPending}
+            onClick={() => previewChar?.id && equipMutation.mutate(previewChar.id)}
+            className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              fontSize: "11px",
+              width: "80px",
+              height: "28px",
+              padding: "0px 8px",
+              borderRadius: "4px",
+              border: previewChar?.selected
+                ? "1.5px solid rgba(0,200,255,0.5)"
+                : "1.5px solid rgba(0,200,255,0.7)",
+              background: previewChar?.selected
+                ? "rgba(0,200,255,0.08)"
+                : "rgba(0,200,255,0.12)",
+              color: "#ffffff",
+              boxShadow: "0 0 14px rgba(0,200,255,0.18), inset 0 0 12px rgba(0,200,255,0.05)",
+            }}>
+            {equipMutation.isPending
+              ? "..."
+              : previewChar?.selected
+              ? "EQUIPPED"
+              : "CONFIRM"}
+          </button>
+        )}
+
+        {/* Gold */}
+        <div className="flex items-center" style={{ gap: "4px" }}>
+          <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
+          <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
+            {player?.gold ?? 0}
+          </span>
+        </div>
+
+        {/* Close */}
         <button
           type="button"
           onClick={() => setLocation("/lobby", { replace: true })}
@@ -213,12 +273,10 @@ export default function CharacterSelect() {
           {/* 3D canvas — top padding keeps the WebGL canvas out from under the
               absolutely-positioned close button, since a canvas can swallow
               touch taps even when a DOM element with higher z-index visually
-              covers it. The container extends 50px past the pane's bottom so
-              the pad's glow flows behind the transparent bottom bar instead of
-              cutting off in a visible horizontal band. */}
+              covers it. */}
           <div
             className="absolute inset-x-0 top-0"
-            style={{ paddingTop: "56px", bottom: "-50px" }}>
+            style={{ paddingTop: "56px", bottom: 0 }}>
             {characterId3D ? (
               <CharacterCanvas key={characterId3D} characterId={characterId3D} />
             ) : (
@@ -234,81 +292,6 @@ export default function CharacterSelect() {
         </div>
       </div>
 
-      {/* ── BOTTOM BAR ── */}
-      <div
-        className="flex items-end justify-end px-4 shrink-0 z-20"
-        style={{
-          height: "50px",
-          gap: "10px",
-          paddingBottom: "2px",
-        }}>
-
-        {/* Currency row with button in the middle */}
-        <div className="flex items-center" style={{ gap: "8px" }}>
-          {/* Diamond + count */}
-          <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-80px" }}>
-            <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
-            <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>{player?.diamonds ?? 0}</span>
-          </div>
-
-          {/* EQUIPPED / CONFIRM / BUY — between the two icons */}
-          {previewChar?.unlocked === false ? (
-            <button
-              className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95"
-              style={{
-                fontSize: "11px",
-                width: "80px",
-                height: "28px",
-                padding: "0px 8px",
-                borderRadius: "4px",
-                border: "1.5px solid rgba(160,100,255,0.8)",
-                background: "rgba(100,50,220,0.22)",
-                color: "#c080ff",
-                boxShadow: "0 0 14px rgba(140,80,255,0.28), inset 0 0 12px rgba(120,60,220,0.1)",
-                position: "relative",
-                left: "-25px",
-              }}>
-              BUY
-            </button>
-          ) : (
-            <button
-              disabled={equipMutation.isPending}
-              onClick={() => previewChar?.id && equipMutation.mutate(previewChar.id)}
-              className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{
-                fontSize: "11px",
-                width: "80px",
-                height: "28px",
-                padding: "0px 8px",
-                borderRadius: "4px",
-                border: previewChar?.selected
-                  ? "1.5px solid rgba(0,200,255,0.5)"
-                  : "1.5px solid rgba(0,200,255,0.7)",
-                background: previewChar?.selected
-                  ? "rgba(0,200,255,0.08)"
-                  : "rgba(0,200,255,0.12)",
-                color: "#ffffff",
-                boxShadow: "0 0 14px rgba(0,200,255,0.18), inset 0 0 12px rgba(0,200,255,0.05)",
-                position: "relative",
-                left: "-25px",
-              }}>
-              {equipMutation.isPending
-                ? "..."
-                : previewChar?.selected
-                ? "EQUIPPED"
-                : "CONFIRM"}
-            </button>
-          )}
-
-          {/* Gold */}
-          <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-20px" }}>
-            <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
-            <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
-              {player?.gold ?? 0}
-            </span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
