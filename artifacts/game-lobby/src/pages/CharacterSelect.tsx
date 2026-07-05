@@ -29,29 +29,6 @@ function CyberpunkCorners({ color }: { color: string }) {
   );
 }
 
-function PlatformRing() {
-  return (
-    <div className="absolute bottom-0 left-0 right-0 pointer-events-none" style={{ bottom: "calc(6% - 30px)" }}>
-      <svg viewBox="0 0 240 70" className="w-full" style={{ overflow: "visible" }}>
-        <defs>
-          <radialGradient id="pgFill" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(0,160,255,0.35)" />
-            <stop offset="100%" stopColor="rgba(0,0,0,0)" />
-          </radialGradient>
-        </defs>
-        <ellipse cx="120" cy="50" rx="105" ry="18" fill="url(#pgFill)" opacity="0.7" />
-        <ellipse cx="120" cy="50" rx="105" ry="18"
-          fill="none" stroke="rgba(0,200,255,0.55)" strokeWidth="1.5"
-          style={{ filter: "drop-shadow(0 0 5px rgba(0,200,255,0.9))" }} />
-        <ellipse cx="120" cy="50" rx="72" ry="12"
-          fill="none" stroke="rgba(0,140,255,0.35)" strokeWidth="0.75" strokeDasharray="10 5" />
-        <ellipse cx="120" cy="50" rx="42" ry="7"
-          fill="none" stroke="rgba(0,100,255,0.25)" strokeWidth="0.5" />
-      </svg>
-    </div>
-  );
-}
-
 export default function CharacterSelect() {
   const [, setLocation] = useLocation();
   const { data: characters, isLoading } = useGetPlayerCharacters();
@@ -248,7 +225,6 @@ export default function CharacterSelect() {
                     "radial-gradient(ellipse at 50% 65%, rgba(0,120,255,0.07) 0%, transparent 70%)",
                 }} />
             )}
-            <PlatformRing />
           </div>
 
         </div>
