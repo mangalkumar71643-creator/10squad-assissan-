@@ -202,9 +202,15 @@ export default function WeaponSelect() {
         <button
           type="button"
           onClick={() => setLocation("/lobby", { replace: true })}
-          className="flex items-center justify-center w-11 h-11 rounded active:scale-90 transition-transform touch-manipulation"
-          style={{ border: "1.5px solid rgba(255,140,40,0.5)", background: "rgba(0,0,0,0.5)" }}>
-          <X className="w-5 h-5" style={{ color: "#ff9428" }} />
+          className="flex items-center justify-center active:scale-90 transition-transform touch-manipulation"
+          style={{
+            width: "44px",
+            height: "44px",
+            borderRadius: "12px",
+            border: "2px solid rgba(255,140,40,0.6)",
+            background: "rgba(24,10,0,0.6)",
+          }}>
+          <X style={{ width: "22px", height: "22px", color: "#ff9428" }} />
         </button>
       </div>
 
