@@ -204,13 +204,13 @@ export default function WeaponSelect() {
           onClick={() => setLocation("/lobby", { replace: true })}
           className="flex items-center justify-center active:scale-90 transition-transform touch-manipulation"
           style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "12px",
-            border: "2px solid rgba(255,140,40,0.6)",
+            width: "22px",
+            height: "22px",
+            borderRadius: "6px",
+            border: "1.5px solid rgba(255,140,40,0.6)",
             background: "rgba(24,10,0,0.6)",
           }}>
-          <X style={{ width: "22px", height: "22px", color: "#ff9428" }} />
+          <X style={{ width: "12px", height: "12px", color: "#ff9428" }} />
         </button>
       </div>
 
