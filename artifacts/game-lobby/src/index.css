@@ -200,16 +200,6 @@
   100% { transform: scaleY(1.000) scaleX(1.000) translateY(0px); }
 }
 
-@keyframes loading-bar-sweep {
-  0%   { transform: translateX(-120%); }
-  100% { transform: translateX(420%); }
-}
-
-@keyframes loading-lightning {
-  0%, 100% { opacity: 0; }
-  50%      { opacity: 1; }
-}
-
 /* Helper classes */
 .animate-idle-breathe {
   animation: idle-breathe 3.4s ease-in-out infinite;
