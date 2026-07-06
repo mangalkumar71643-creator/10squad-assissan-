@@ -49,3 +49,6 @@ Thumbs.db
 .local/
 .vercel
 .env*
+
+# Temporary APK download-hosting files (not part of the repo)
+artifacts/game-lobby/public/*.apk
