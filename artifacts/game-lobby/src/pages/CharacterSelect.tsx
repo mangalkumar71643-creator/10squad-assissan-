@@ -4,6 +4,7 @@ import { useGetPlayerCharacters, useGetCurrentPlayer } from "@workspace/api-clie
 import { ChevronLeft, Shuffle, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import CharacterCanvas from "@/components/CharacterCanvas";
+import { formatCurrency } from "@/lib/utils";
 
 const RARITY_CONFIG = {
   common:    { border: "rgba(0,200,255,0.45)", glow: "rgba(0,200,255,0.25)", text: "#60c8ff", label: "COMMON" },
@@ -145,10 +146,10 @@ export default function CharacterSelect() {
         )}
 
         {/* Gold */}
-        <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-25px" }}>
+        <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-40px" }}>
           <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
           <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
-            {player?.gold ?? 0}
+            {formatCurrency(player?.gold ?? 0)}
           </span>
         </div>
 

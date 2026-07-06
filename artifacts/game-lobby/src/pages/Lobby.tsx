@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useGetCurrentPlayer, useGetLobby } from "@workspace/api-client-react";
 import InstallPrompt from "@/components/InstallPrompt";
+import { formatCurrency } from "@/lib/utils";
 import {
   ChevronDown, Diamond, Coins,
   Settings, Mail,
@@ -66,7 +67,7 @@ export default function Lobby() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1">
             <span style={{ fontSize: "16px" }}>🪙</span>
-            <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#f0c040", textShadow: "0 0 6px rgba(240,192,64,0.8)" }}>{player?.gold ?? 0}</span>
+            <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#f0c040", textShadow: "0 0 6px rgba(240,192,64,0.8)" }}>{formatCurrency(player?.gold ?? 0)}</span>
           </div>
         </div>
 

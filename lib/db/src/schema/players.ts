@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, varchar, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, bigint, varchar, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -7,7 +7,7 @@ export const playersTable = pgTable("players", {
   username: text("username").notNull(),
   avatar: text("avatar").default("/assets/avatars/default.png"),
   level: integer("level").default(1),
-  gold: integer("gold").default(0),
+  gold: bigint("gold", { mode: "number" }).default(0),
   diamonds: integer("diamonds").default(0),
   tokens: integer("tokens").default(0),
   rank: text("rank").default("Bronze"),
