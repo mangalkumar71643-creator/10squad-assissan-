@@ -90,7 +90,7 @@ export default function CharacterSelect() {
       {/* ── HEADER: currency + equip + close ── */}
       <div className="absolute top-3 right-3 z-30 flex items-center" style={{ gap: "14px" }}>
         {/* Diamond */}
-        <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-50px" }}>
+        <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-75px" }}>
           <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
           <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>{player?.diamonds ?? 0}</span>
         </div>
@@ -110,7 +110,7 @@ export default function CharacterSelect() {
               color: "#c080ff",
               boxShadow: "0 0 14px rgba(140,80,255,0.28), inset 0 0 12px rgba(120,60,220,0.1)",
               position: "relative",
-              left: "-25px",
+              left: "-50px",
             }}>
             BUY
           </button>
@@ -134,7 +134,7 @@ export default function CharacterSelect() {
               color: "#ffffff",
               boxShadow: "0 0 14px rgba(0,200,255,0.18), inset 0 0 12px rgba(0,200,255,0.05)",
               position: "relative",
-              left: "-25px",
+              left: "-50px",
             }}>
             {equipMutation.isPending
               ? "..."
@@ -145,7 +145,7 @@ export default function CharacterSelect() {
         )}
 
         {/* Gold */}
-        <div className="flex items-center" style={{ gap: "4px" }}>
+        <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-25px" }}>
           <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
           <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
             {player?.gold ?? 0}
