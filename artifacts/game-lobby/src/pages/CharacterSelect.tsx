@@ -90,7 +90,7 @@ export default function CharacterSelect() {
       {/* ── HEADER: currency + equip + close ── */}
       <div className="absolute top-3 right-3 z-30 flex items-center" style={{ gap: "14px" }}>
         {/* Diamond */}
-        <div className="flex items-center" style={{ gap: "4px" }}>
+        <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-30px" }}>
           <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
           <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>{player?.diamonds ?? 0}</span>
         </div>
