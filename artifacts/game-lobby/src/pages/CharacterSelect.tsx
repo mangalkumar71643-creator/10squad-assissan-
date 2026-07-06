@@ -98,7 +98,7 @@ export default function CharacterSelect() {
         {/* Diamond */}
         <div
           className="flex items-center"
-          style={{ position: "absolute", right: "226px", top: 0, height: "28px", gap: "4px" }}
+          style={{ position: "absolute", right: "215px", top: 0, height: "28px", gap: "4px" }}
         >
           <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
           <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>{player?.diamonds ?? 0}</span>
