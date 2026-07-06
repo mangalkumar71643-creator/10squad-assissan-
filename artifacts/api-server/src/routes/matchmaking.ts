@@ -4,8 +4,6 @@ import { db, matchmakingSessionsTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
-// Single-player prototype: no auth yet, always use player id 1.
-const PLAYER_ID = 1;
 const PROGRESS_INTERVAL_SECONDS = 5;
 
 function computeState(session: {
@@ -50,17 +48,17 @@ router.post("/matchmaking", async (req, res) => {
   const startedAt = new Date();
 
   const existing = await db.query.matchmakingSessionsTable.findFirst({
-    where: eq(matchmakingSessionsTable.playerId, PLAYER_ID),
+    where: eq(matchmakingSessionsTable.playerId, req.playerId!),
   });
 
   if (existing) {
     await db
       .update(matchmakingSessionsTable)
       .set({ status: "searching", startedAt, totalPlayers })
-      .where(eq(matchmakingSessionsTable.playerId, PLAYER_ID));
+      .where(eq(matchmakingSessionsTable.playerId, req.playerId!));
   } else {
     await db.insert(matchmakingSessionsTable).values({
-      playerId: PLAYER_ID,
+      playerId: req.playerId!,
       status: "searching",
       startedAt,
       totalPlayers,
@@ -73,7 +71,7 @@ router.post("/matchmaking", async (req, res) => {
 // Get matchmaking status
 router.get("/matchmaking/status", async (req, res) => {
   const session = await db.query.matchmakingSessionsTable.findFirst({
-    where: eq(matchmakingSessionsTable.playerId, PLAYER_ID),
+    where: eq(matchmakingSessionsTable.playerId, req.playerId!),
   });
 
   if (!session) {
@@ -89,7 +87,7 @@ router.post("/matchmaking/cancel", async (req, res) => {
   await db
     .update(matchmakingSessionsTable)
     .set({ status: "idle", startedAt: null })
-    .where(eq(matchmakingSessionsTable.playerId, PLAYER_ID));
+    .where(eq(matchmakingSessionsTable.playerId, req.playerId!));
 
   res.json({
     status: "idle",

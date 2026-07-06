@@ -13,6 +13,10 @@ export const playersTable = pgTable("players", {
   rank: text("rank").default("Bronze"),
   title: text("title").default("PROJECT"),
   character: text("character").default("default"),
+  email: text("email").unique(),
+  passwordHash: text("password_hash"),
+  facebookId: text("facebook_id").unique(),
+  isGuest: boolean("is_guest").default(false),
 });
 
 export const charactersTable = pgTable("characters", {

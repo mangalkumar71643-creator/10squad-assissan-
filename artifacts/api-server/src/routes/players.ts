@@ -1,18 +1,24 @@
 import { Router, type IRouter } from "express";
-import { db } from "@workspace/db";
+import { db, type Player } from "@workspace/db";
 import { playersTable, charactersTable, weaponsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 const router: IRouter = Router();
 
-// Get current player (mock - returns player 1)
+// Never send the password hash back to the client.
+function sanitizePlayer(player: Player): Omit<Player, "passwordHash"> {
+  const { passwordHash: _passwordHash, ...rest } = player;
+  return rest;
+}
+
+// Get current (authenticated) player
 router.get("/players/me", async (req, res) => {
   try {
-    const player = await db.select().from(playersTable).where(eq(playersTable.id, 1)).limit(1);
+    const player = await db.select().from(playersTable).where(eq(playersTable.id, req.playerId!)).limit(1);
     if (player.length === 0) {
       res.status(404).json({ error: "Player not found" });
       return;
     }
-    res.json(player[0]);
+    res.json(sanitizePlayer(player[0]));
   } catch (err) {
     req.log.error({ err }, "Error getting current player");
     res.status(500).json({ error: "Internal server error" });
@@ -22,7 +28,7 @@ router.get("/players/me", async (req, res) => {
 // Get player characters
 router.get("/players/me/characters", async (req, res) => {
   try {
-    const characters = await db.select().from(charactersTable).where(eq(charactersTable.playerId, 1));
+    const characters = await db.select().from(charactersTable).where(eq(charactersTable.playerId, req.playerId!));
     res.json(characters);
   } catch (err) {
     req.log.error({ err }, "Error getting player characters");
@@ -43,7 +49,7 @@ router.get("/players/:id", async (req, res) => {
       res.status(404).json({ error: "Player not found" });
       return;
     }
-    res.json(player[0]);
+    res.json(sanitizePlayer(player[0]));
   } catch (err) {
     req.log.error({ err }, "Error getting player by ID");
     res.status(500).json({ error: "Internal server error" });
@@ -53,7 +59,7 @@ router.get("/players/:id", async (req, res) => {
 // Get player weapons
 router.get("/players/me/weapons", async (req, res) => {
   try {
-    const weapons = await db.select().from(weaponsTable).where(eq(weaponsTable.playerId, 1));
+    const weapons = await db.select().from(weaponsTable).where(eq(weaponsTable.playerId, req.playerId!));
     res.json(weapons);
   } catch (err) {
     req.log.error({ err }, "Error getting player weapons");
@@ -70,11 +76,11 @@ router.post("/players/me/weapons/:id/equip", async (req, res) => {
       return;
     }
     const weapon = await db.select().from(weaponsTable).where(eq(weaponsTable.id, weaponId)).limit(1);
-    if (weapon.length === 0 || !weapon[0].unlocked) {
+    if (weapon.length === 0 || !weapon[0].unlocked || weapon[0].playerId !== req.playerId) {
       res.status(404).json({ error: "Weapon not found or locked" });
       return;
     }
-    await db.update(weaponsTable).set({ selected: false }).where(eq(weaponsTable.playerId, 1));
+    await db.update(weaponsTable).set({ selected: false }).where(eq(weaponsTable.playerId, req.playerId!));
     await db.update(weaponsTable).set({ selected: true }).where(eq(weaponsTable.id, weaponId));
     res.json({ success: true, weapon: weapon[0].name });
   } catch (err) {
@@ -92,13 +98,13 @@ router.post("/players/me/characters/:id/equip", async (req, res) => {
       return;
     }
     const char = await db.select().from(charactersTable).where(eq(charactersTable.id, charId)).limit(1);
-    if (char.length === 0 || !char[0].unlocked) {
+    if (char.length === 0 || !char[0].unlocked || char[0].playerId !== req.playerId) {
       res.status(404).json({ error: "Character not found or locked" });
       return;
     }
-    await db.update(charactersTable).set({ selected: false }).where(eq(charactersTable.playerId, 1));
+    await db.update(charactersTable).set({ selected: false }).where(eq(charactersTable.playerId, req.playerId!));
     await db.update(charactersTable).set({ selected: true }).where(eq(charactersTable.id, charId));
-    await db.update(playersTable).set({ character: char[0].name }).where(eq(playersTable.id, 1));
+    await db.update(playersTable).set({ character: char[0].name }).where(eq(playersTable.id, req.playerId!));
     res.json({ success: true, character: char[0].name });
   } catch (err) {
     req.log.error({ err }, "Error equipping character");
