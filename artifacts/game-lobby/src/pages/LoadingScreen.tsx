@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { getCurrentPlayer, getLobby } from "@workspace/api-client-react";
+import { queryClient } from "@/App";
 
 // 20 real frames sampled from the ~10s reference video (already landscape,
 // 1280x720) — we crossfade through them in order rather than trying to
@@ -24,6 +26,16 @@ export default function LoadingScreen() {
 
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
+
+    // Kick off the lobby's own data fetches now, in parallel with the
+    // splash animation, so the lobby has its data already cached and
+    // never shows its own "INITIALIZING..." spinner after this screen.
+    const dataPrefetch = Promise.all([
+      queryClient.prefetchQuery({ queryKey: ["player"], queryFn: () => getCurrentPlayer() }),
+      queryClient.prefetchQuery({ queryKey: ["lobby"], queryFn: () => getLobby() }),
+    ]).catch(() => {
+      // If the API is slow/unreachable, the lobby will just fetch it itself.
+    });
 
     Promise.all(
       FRAMES.map(
@@ -51,7 +63,16 @@ export default function LoadingScreen() {
       });
 
       timers.push(setTimeout(() => setFlash(true), 9900));
-      timers.push(setTimeout(() => setLocation("/lobby", { replace: true }), 10400));
+
+      const visualSequenceDone = new Promise<void>((resolve) => {
+        timers.push(setTimeout(resolve, 10400));
+      });
+      // Navigate once BOTH the animation has finished AND the lobby's data
+      // is ready — whichever takes longer — so the lobby never has to show
+      // its own loading spinner right after this screen.
+      Promise.all([visualSequenceDone, dataPrefetch]).then(() => {
+        if (!cancelled) setLocation("/lobby", { replace: true });
+      });
     });
 
     return () => {

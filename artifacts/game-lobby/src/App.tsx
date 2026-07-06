@@ -9,7 +9,7 @@ import Matchmaking from "@/pages/Matchmaking";
 import CharacterSelect from "@/pages/CharacterSelect";
 import WeaponSelect from "@/pages/WeaponSelect";
 
-const queryClient = new QueryClient();
+export const queryClient = new QueryClient();
 
 function Router() {
   return (
