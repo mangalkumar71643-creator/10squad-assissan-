@@ -67,7 +67,7 @@ export default function Lobby() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1">
             <span style={{ fontSize: "16px" }}>🪙</span>
-            <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#f0c040", textShadow: "0 0 6px rgba(240,192,64,0.8)" }}>{formatCurrency(player?.gold ?? 0)}</span>
+            <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "11px", color: "#f0c040", textShadow: "0 0 6px rgba(240,192,64,0.8)", display: "inline-block", minWidth: "44px" }}>{formatCurrency(player?.gold ?? 0)}</span>
           </div>
         </div>
 

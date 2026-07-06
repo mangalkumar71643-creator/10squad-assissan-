@@ -88,10 +88,18 @@ export default function CharacterSelect() {
       <div className="absolute inset-0 pointer-events-none"
         style={{ background: "radial-gradient(ellipse at 100% 100%, rgba(0,80,200,0.10) 0%, transparent 55%)" }} />
 
-      {/* ── HEADER: currency + equip + close ── */}
-      <div className="absolute top-3 right-3 z-30 flex items-center" style={{ gap: "14px" }}>
+      {/* ── HEADER: currency + equip + close ──
+          Each item is independently anchored to a fixed distance from the
+          right edge, so none of them can ever shift when the gold number's
+          digit count changes. Only the gold number itself has no fixed
+          width — it grows from a pinned left edge (right next to its icon)
+          into the reserved gap toward the close button. */}
+      <div className="absolute top-3 right-0 left-0 z-30" style={{ height: "28px" }}>
         {/* Diamond */}
-        <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-75px" }}>
+        <div
+          className="flex items-center"
+          style={{ position: "absolute", right: "226px", top: 0, height: "28px", gap: "4px" }}
+        >
           <span style={{ fontSize: "14px", lineHeight: 1, display: "inline-block", transform: "rotate(30deg)" }}>💎</span>
           <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>{player?.diamonds ?? 0}</span>
         </div>
@@ -101,6 +109,9 @@ export default function CharacterSelect() {
           <button
             className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95"
             style={{
+              position: "absolute",
+              right: "132px",
+              top: 0,
               fontSize: "11px",
               width: "80px",
               height: "28px",
@@ -110,8 +121,6 @@ export default function CharacterSelect() {
               background: "rgba(100,50,220,0.22)",
               color: "#c080ff",
               boxShadow: "0 0 14px rgba(140,80,255,0.28), inset 0 0 12px rgba(120,60,220,0.1)",
-              position: "relative",
-              left: "-50px",
             }}>
             BUY
           </button>
@@ -121,6 +130,9 @@ export default function CharacterSelect() {
             onClick={() => previewChar?.id && equipMutation.mutate(previewChar.id)}
             className="font-mono font-black tracking-[0.22em] uppercase transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
+              position: "absolute",
+              right: "132px",
+              top: 0,
               fontSize: "11px",
               width: "80px",
               height: "28px",
@@ -134,8 +146,6 @@ export default function CharacterSelect() {
                 : "rgba(0,200,255,0.12)",
               color: "#ffffff",
               boxShadow: "0 0 14px rgba(0,200,255,0.18), inset 0 0 12px rgba(0,200,255,0.05)",
-              position: "relative",
-              left: "-50px",
             }}>
             {equipMutation.isPending
               ? "..."
@@ -145,13 +155,25 @@ export default function CharacterSelect() {
           </button>
         )}
 
-        {/* Gold */}
-        <div className="flex items-center" style={{ gap: "4px", position: "relative", left: "-40px" }}>
-          <span style={{ fontSize: "15px", lineHeight: 1 }}>🪙</span>
-          <span className="font-mono font-bold text-[11px]" style={{ color: "rgba(255,255,255,0.65)" }}>
-            {formatCurrency(player?.gold ?? 0)}
-          </span>
-        </div>
+        {/* Gold icon — fixed position, never moves */}
+        <span style={{ position: "absolute", right: "99px", top: 0, height: "28px", display: "flex", alignItems: "center", fontSize: "15px", lineHeight: 1 }}>🪙</span>
+
+        {/* Gold number — pinned to the icon's right edge, grows toward the close button */}
+        <span
+          className="font-mono font-bold text-[11px]"
+          style={{
+            position: "absolute",
+            left: "calc(100% - 95px)",
+            top: 0,
+            height: "28px",
+            display: "flex",
+            alignItems: "center",
+            whiteSpace: "nowrap",
+            color: "rgba(255,255,255,0.65)",
+          }}
+        >
+          {formatCurrency(player?.gold ?? 0)}
+        </span>
 
         {/* Close */}
         <button
@@ -159,6 +181,9 @@ export default function CharacterSelect() {
           onClick={() => setLocation("/lobby", { replace: true })}
           className="flex items-center justify-center active:scale-90 transition-transform touch-manipulation"
           style={{
+            position: "absolute",
+            right: "12px",
+            top: "3px",
             width: "22px",
             height: "22px",
             borderRadius: "6px",
