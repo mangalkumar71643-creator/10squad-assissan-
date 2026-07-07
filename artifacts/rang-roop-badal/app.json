@@ -32,6 +32,12 @@
           "userInterfaceStyle": "dark"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f22e9e32-c1ff-429d-96d8-e82e667508fe"
+      }
+    },
+    "owner": "mangalkumar6494"
   }
 }
