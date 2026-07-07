@@ -8,8 +8,6 @@ const CHAR_URL = "/characters/neon-striker-idle.glb";
 
 useGLTF.preload(CHAR_URL);
 
-const TARGET_HEIGHT = 1.85;
-
 export default function NeonRunnerCharacter() {
   const { scene: origScene, animations } = useGLTF(CHAR_URL);
   const charScene = useMemo(() => skeletonClone(origScene), [origScene]);
@@ -19,16 +17,10 @@ export default function NeonRunnerCharacter() {
   useEffect(() => {
     if (!charScene) return;
 
-    const bbox = new THREE.Box3().setFromObject(charScene);
-    const size = new THREE.Vector3();
-    bbox.getSize(size);
-    const nativeHeight = size.y;
-    const scale = nativeHeight > 0 ? TARGET_HEIGHT / nativeHeight : 1;
-    charScene.scale.setScalar(scale);
-
-    const bbox2 = new THREE.Box3().setFromObject(charScene);
-    charScene.position.y = -bbox2.min.y;
-
+    // This model's bind-pose geometry bounds don't reflect its true skinned
+    // size (the skeleton already brings it to real-world scale), so — unlike
+    // a typical static mesh — auto-fitting via Box3 wildly over-scales it
+    // and pushes it out of frame. It's already correctly sized at 1:1.
     charScene.traverse((obj: THREE.Object3D) => {
       if (!(obj as THREE.Mesh).isMesh) return;
       const mesh = obj as THREE.Mesh;

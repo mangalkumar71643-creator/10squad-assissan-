@@ -20,7 +20,6 @@ function sanitizePlayer(player: Player): Omit<Player, "passwordHash"> {
 async function seedStarterLoadout(playerId: number) {
   await db.insert(charactersTable).values([
     { playerId, name: "Neon Runner", image: "/assets/neon-runner-card.png", rarity: "epic", unlocked: true, selected: true },
-    { playerId, name: "Phantom", image: "/assets/char-phantom.jpg", rarity: "rare", unlocked: true, selected: false },
   ]);
   await db.insert(weaponsTable).values([
     { playerId, name: "Purple Mirage Rifle", image: "/assets/character-model.png", type: "rifle", rarity: "epic", unlocked: true, selected: true },

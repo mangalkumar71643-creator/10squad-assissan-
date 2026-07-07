@@ -35,6 +35,14 @@ export default function LoadingScreen() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const startedRef = useRef(false);
   const cancelledRef = useRef(false);
+  const loopIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopLoop = () => {
+    if (loopIntervalRef.current) {
+      clearInterval(loopIntervalRef.current);
+      loopIntervalRef.current = null;
+    }
+  };
 
   const prefetchLobbyData = () =>
     Promise.all([
@@ -45,6 +53,8 @@ export default function LoadingScreen() {
     });
 
   const enterGame = async () => {
+    stopLoop();
+    if (audioRef.current) audioRef.current.pause();
     await prefetchLobbyData();
     if (cancelledRef.current) return;
     setFlash(true);
@@ -80,6 +90,7 @@ export default function LoadingScreen() {
 
       const audio = new Audio("/audio/loading.mp3");
       audio.volume = 0.9;
+      audio.loop = true; // keep playing while the footage loops behind the login buttons
       audioRef.current = audio;
       audio.play().catch(() => {
         // Autoplay blocked (browser policy) — the visual sequence still runs.
@@ -102,9 +113,14 @@ export default function LoadingScreen() {
           if (!cancelledRef.current) setLocation("/lobby", { replace: true });
         });
       } else {
-        // First-time / logged-out — hold on the last frame and show login.
+        // First-time / logged-out — keep the footage looping continuously
+        // behind the login buttons instead of freezing on the last frame.
         visualSequenceDone.then(() => {
-          if (!cancelledRef.current) setShowLogin(true);
+          if (cancelledRef.current) return;
+          setShowLogin(true);
+          loopIntervalRef.current = setInterval(() => {
+            setCurrentIndex((i) => (i + 1) % FRAME_COUNT);
+          }, 500);
         });
       }
     });
@@ -112,6 +128,7 @@ export default function LoadingScreen() {
     return () => {
       cancelledRef.current = true;
       timers.forEach(clearTimeout);
+      stopLoop();
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.src = "";
