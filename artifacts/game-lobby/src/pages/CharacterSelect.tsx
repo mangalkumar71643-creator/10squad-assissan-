@@ -15,6 +15,7 @@ const RARITY_CONFIG = {
 
 const CHAR_3D_MAP: Record<string, string> = {
   "Neon Runner": "neon-runner",
+  "Havoc": "havoc",
 };
 
 const CARDS_PER_PAGE = 3;

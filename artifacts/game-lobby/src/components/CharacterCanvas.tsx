@@ -3,6 +3,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { ContactShadows, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import NeonRunnerCharacter from "./NeonRunnerCharacter";
+import HavocCharacter from "./HavocCharacter";
 
 // Holographic platform pad rendered inside the 3D scene, so the character's
 // feet stay planted on it at every screen size — a DOM overlay ring can't
@@ -141,6 +142,7 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
 
       <Suspense fallback={null}>
         {characterId === "neon-runner" && <NeonRunnerCharacter />}
+        {characterId === "havoc" && <HavocCharacter />}
         <HoloPad />
         <ContactShadows
           position={[0, 0.01, 0]}
