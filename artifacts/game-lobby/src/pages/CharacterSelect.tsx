@@ -5,6 +5,7 @@ import { ChevronLeft, Shuffle, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import CharacterCanvas from "@/components/CharacterCanvas";
 import { formatCurrency } from "@/lib/utils";
+import { CHAR_3D_MAP } from "@/lib/characterModels";
 
 const RARITY_CONFIG = {
   common:    { border: "rgba(0,200,255,0.45)", glow: "rgba(0,200,255,0.25)", text: "#60c8ff", label: "COMMON" },
@@ -12,11 +13,6 @@ const RARITY_CONFIG = {
   epic:      { border: "rgba(160,80,255,0.8)", glow: "rgba(160,80,255,0.4)", text: "#a050ff", label: "EPIC" },
   legendary: { border: "rgba(255,180,0,0.9)", glow: "rgba(255,180,0,0.5)",  text: "#ffb400", label: "LEGENDARY" },
 } as const;
-
-const CHAR_3D_MAP: Record<string, string> = {
-  "Neon Runner": "neon-runner",
-  "Havoc": "havoc",
-};
 
 const CARDS_PER_PAGE = 3;
 

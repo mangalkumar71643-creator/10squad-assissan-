@@ -80,9 +80,10 @@ function checkWebGL(): boolean {
 
 interface CharacterCanvasProps {
   characterId: string;
+  showPad?: boolean;
 }
 
-export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
+export default function CharacterCanvas({ characterId, showPad = true }: CharacterCanvasProps) {
   const [webglAvailable] = useState<boolean>(() => checkWebGL());
   const [canvasError, setCanvasError] = useState(false);
 
@@ -143,7 +144,7 @@ export default function CharacterCanvas({ characterId }: CharacterCanvasProps) {
       <Suspense fallback={null}>
         {characterId === "neon-runner" && <NeonRunnerCharacter />}
         {characterId === "havoc" && <HavocCharacter />}
-        <HoloPad />
+        {showPad && <HoloPad />}
         <ContactShadows
           position={[0, 0.01, 0]}
           opacity={0.65}

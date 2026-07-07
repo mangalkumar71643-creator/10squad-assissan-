@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useGetCurrentPlayer, useGetLobby } from "@workspace/api-client-react";
 import InstallPrompt from "@/components/InstallPrompt";
+import CharacterCanvas from "@/components/CharacterCanvas";
 import { formatCurrency } from "@/lib/utils";
+import { CHAR_3D_MAP } from "@/lib/characterModels";
 import {
   ChevronDown, Diamond, Coins,
   Settings, Mail,
@@ -21,6 +23,7 @@ export default function Lobby() {
   const [expandedSetting, setExpandedSetting] = useState<string|null>(null);
   const { data: player, isLoading } = useGetCurrentPlayer({ query: { queryKey: ["player"], retry: 1 } });
   const { data: lobby } = useGetLobby({ query: { queryKey: ["lobby"], retry: 1 } });
+  const characterId3D = CHAR_3D_MAP[player?.character ?? ""] ?? "";
 
   if (isLoading && !player) {
     return (
@@ -126,6 +129,13 @@ export default function Lobby() {
                   strokeDasharray="8 4" />
               </svg>
             </div>
+
+            {/* Equipped character — standing on the glowing platform above */}
+            {characterId3D && (
+              <div className="absolute inset-0 z-20">
+                <CharacterCanvas key={characterId3D} characterId={characterId3D} showPad={false} />
+              </div>
+            )}
 
             {/* Scan line effect */}
             <div className="absolute inset-x-0 z-30 pointer-events-none overflow-hidden" style={{ top: 0, bottom: 0 }}>
