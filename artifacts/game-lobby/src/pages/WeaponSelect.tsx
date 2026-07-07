@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { Lock, X } from "lucide-react";
 import WeaponCanvas from "@/components/WeaponCanvas";
+import { customFetch } from "@workspace/api-client-react";
 
 type Weapon = {
   id: number;
@@ -68,11 +69,7 @@ export default function WeaponSelect() {
 
   const { data: weapons, isLoading } = useQuery<Weapon[]>({
     queryKey: ["/api/players/me/weapons"],
-    queryFn: async () => {
-      const res = await fetch("/api/players/me/weapons");
-      if (!res.ok) throw new Error("Failed to fetch weapons");
-      return res.json();
-    },
+    queryFn: async () => customFetch<Weapon[]>("/api/players/me/weapons"),
   });
 
   const equippedWeapon = weapons?.find(w => w.selected) ?? weapons?.[0];
@@ -86,9 +83,7 @@ export default function WeaponSelect() {
 
   const equipMutation = useMutation({
     mutationFn: async (weaponId: number) => {
-      const res = await fetch(`/api/players/me/weapons/${weaponId}/equip`, { method: "POST" });
-      if (!res.ok) throw new Error("Failed to equip");
-      return res.json();
+      return customFetch(`/api/players/me/weapons/${weaponId}/equip`, { method: "POST" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/players/me/weapons"] });

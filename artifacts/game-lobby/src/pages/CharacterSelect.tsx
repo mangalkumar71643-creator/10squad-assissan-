@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useGetPlayerCharacters, useGetCurrentPlayer } from "@workspace/api-client-react";
+import { useGetPlayerCharacters, useGetCurrentPlayer, customFetch } from "@workspace/api-client-react";
 import { ChevronLeft, Shuffle, X } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import CharacterCanvas from "@/components/CharacterCanvas";
@@ -49,9 +49,7 @@ export default function CharacterSelect() {
 
   const equipMutation = useMutation({
     mutationFn: async (charId: string) => {
-      const res = await fetch(`/api/players/me/characters/${charId}/equip`, { method: "POST" });
-      if (!res.ok) throw new Error("Failed to equip");
-      return res.json();
+      return customFetch(`/api/players/me/characters/${charId}/equip`, { method: "POST" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/players/me/characters"] });
