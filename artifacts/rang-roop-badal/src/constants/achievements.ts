@@ -1,0 +1,68 @@
+import { AchievementDef } from "@/types";
+
+export const ACHIEVEMENTS: AchievementDef[] = [
+  {
+    id: "first_match",
+    title: "First Match",
+    description: "Make your very first correct match.",
+    target: 1,
+    reward: { coins: 20 },
+    statKey: "totalMatches",
+  },
+  {
+    id: "ten_perfect",
+    title: "Precision Alien",
+    description: "Land 10 perfect matches.",
+    target: 10,
+    reward: { coins: 60, stars: 5 },
+    statKey: "perfectMatches",
+  },
+  {
+    id: "combo_x5",
+    title: "Combo Master",
+    description: "Reach a x5 combo.",
+    target: 5,
+    reward: { coins: 80 },
+    statKey: "highestCombo",
+  },
+  {
+    id: "score_1000",
+    title: "Rising Star",
+    description: "Score 1,000 points in a single run.",
+    target: 1000,
+    reward: { coins: 100 },
+    statKey: "totalScoreEarned",
+  },
+  {
+    id: "score_10000",
+    title: "Galactic Legend",
+    description: "Score 10,000 lifetime points.",
+    target: 10000,
+    reward: { coins: 300, stars: 20 },
+    statKey: "totalScoreEarned",
+  },
+  {
+    id: "survive_danger",
+    title: "Danger Dodger",
+    description: "Survive Danger Time.",
+    target: 1,
+    reward: { stars: 10 },
+    statKey: "dangerTimeSurvivedCount",
+  },
+  {
+    id: "collect_100_stars",
+    title: "Star Collector",
+    description: "Collect 100 stars total.",
+    target: 100,
+    reward: { coins: 150 },
+    statKey: "starsCollectedTotal",
+  },
+  {
+    id: "complete_10_challenges",
+    title: "Challenger",
+    description: "Complete 10 challenges.",
+    target: 10,
+    reward: { coins: 200, stars: 15 },
+    statKey: "challengesCompleted",
+  },
+];

@@ -1,0 +1,88 @@
+import { ShopItemDef } from "@/types";
+
+export const SHOP_ITEMS: ShopItemDef[] = [
+  // Trails
+  {
+    id: "trail_spark",
+    name: "Spark Trail",
+    category: "trails",
+    price: 150,
+    currency: "coins",
+    color: "#FFD35E",
+    description: "Golden sparks follow every move.",
+  },
+  {
+    id: "trail_comet",
+    name: "Comet Trail",
+    category: "trails",
+    price: 300,
+    currency: "coins",
+    color: "#3EE9F0",
+    description: "A cool cyan streak behind your hero.",
+  },
+  {
+    id: "trail_nebula",
+    name: "Nebula Trail",
+    category: "trails",
+    price: 60,
+    currency: "stars",
+    color: "#9B59F6",
+    description: "Swirling galaxy dust trail.",
+  },
+  // Effects
+  {
+    id: "fx_burst",
+    name: "Star Burst FX",
+    category: "effects",
+    price: 200,
+    currency: "coins",
+    color: "#FF6FB5",
+    description: "Bigger particle burst on perfect matches.",
+  },
+  {
+    id: "fx_ring",
+    name: "Ring Pulse FX",
+    category: "effects",
+    price: 350,
+    currency: "coins",
+    color: "#2ED47A",
+    description: "A glowing ring pulses on every combo.",
+  },
+  {
+    id: "fx_prism",
+    name: "Prism Flash FX",
+    category: "effects",
+    price: 75,
+    currency: "stars",
+    color: "#FFD35E",
+    description: "Rainbow flash on Danger Time entry.",
+  },
+  // Themes
+  {
+    id: "theme_dusk",
+    name: "Dusk Theme",
+    category: "themes",
+    price: 250,
+    currency: "coins",
+    color: "#FF9F43",
+    description: "Warm sunset gradient backdrop.",
+  },
+  {
+    id: "theme_abyss",
+    name: "Abyss Theme",
+    category: "themes",
+    price: 250,
+    currency: "coins",
+    color: "#3E7BFA",
+    description: "Deep blue cosmic backdrop.",
+  },
+  {
+    id: "theme_aurora",
+    name: "Aurora Theme",
+    category: "themes",
+    price: 100,
+    currency: "stars",
+    color: "#2ED47A",
+    description: "Shimmering aurora backdrop.",
+  },
+];
