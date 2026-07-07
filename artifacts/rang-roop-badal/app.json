@@ -6,26 +6,36 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
+    "icon": "./assets/icon.png",
     "splash": {
       "backgroundColor": "#160B2E"
     },
     "android": {
       "package": "com.rangroopbadal.game",
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#160B2E"
-      },
-      "edgeToEdgeEnabled": true
+      }
     },
     "ios": {
       "bundleIdentifier": "com.rangroopbadal.game",
       "supportsTablet": false
     },
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-font",
-      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#160B2E"
+        }
+      ],
       [
         "expo-system-ui",
         {
