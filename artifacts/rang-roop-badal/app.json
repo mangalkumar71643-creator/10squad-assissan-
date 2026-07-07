@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Rang Roop Badal",
+    "slug": "rang-roop-badal",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#160B2E"
+    },
+    "android": {
+      "package": "com.rangroopbadal.game",
+      "adaptiveIcon": {
+        "backgroundColor": "#160B2E"
+      },
+      "edgeToEdgeEnabled": true
+    },
+    "ios": {
+      "bundleIdentifier": "com.rangroopbadal.game",
+      "supportsTablet": false
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-splash-screen",
+      [
+        "expo-system-ui",
+        {
+          "userInterfaceStyle": "dark"
+        }
+      ]
+    ]
+  }
+}
