@@ -36,12 +36,18 @@ export default function Lobby() {
     <div className="h-screen w-screen bg-transparent flex flex-col overflow-hidden text-white font-sans">
       <InstallPrompt />
 
-      {/* ── BACKGROUND ── */}
-      <div className="fixed inset-0 z-0">
-        <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: 'url("/assets/cyberpunk-bg.png")', opacity: 0.45 }} />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#0a0d14]/80 via-transparent to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#0a0d14]/70 via-transparent to-[#0a0d14]/70" />
-      </div>
+      {/* ── BACKGROUND VIDEO ── */}
+      <video
+        className="fixed inset-0 z-0 w-full h-full object-cover"
+        autoPlay
+        loop
+        muted
+        playsInline
+      >
+        <source src="/video-lobby.mp4" type="video/mp4" />
+      </video>
+      {/* Video overlay — slight darkening for UI readability */}
+      <div className="fixed inset-0 z-0 pointer-events-none" style={{ background: "rgba(0,0,0,0.25)" }} />
 
 
       {/* ── DIAMOND (standalone, 200px left of gold area) ── */}
