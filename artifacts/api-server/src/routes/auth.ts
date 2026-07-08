@@ -23,7 +23,7 @@ async function seedStarterLoadout(playerId: number) {
     { playerId, name: "Havoc", image: "/assets/havoc-card.png", rarity: "legendary", unlocked: true, selected: false },
   ]);
   await db.insert(weaponsTable).values([
-    { playerId, name: "Purple Mirage Rifle", image: "", type: "rifle", rarity: "epic", unlocked: true, selected: true },
+    { playerId, name: "Purple Mirage Rifle", image: "/assets/purple-mirage-rifle-card.png", type: "rifle", rarity: "epic", unlocked: true, selected: true },
   ]);
   await db.update(playersTable).set({ character: "Neon Runner" }).where(eq(playersTable.id, playerId));
 }
