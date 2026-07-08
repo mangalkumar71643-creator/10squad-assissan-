@@ -322,10 +322,8 @@ export default function WeaponSelect() {
                     )}
 
                     {!weapon.unlocked && (
-                      <div className="absolute inset-0 flex items-center justify-center"
-                        style={{ background: "rgba(0,0,0,0.75)" }}>
-                        <Lock className="w-3.5 h-3.5" style={{ color: "rgba(255,255,255,0.2)" }} />
-                      </div>
+                      <div className="absolute inset-0"
+                        style={{ background: "rgba(0,0,0,0.75)" }} />
                     )}
 
                     {isEquipped && (
