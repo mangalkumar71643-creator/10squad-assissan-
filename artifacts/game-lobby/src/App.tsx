@@ -1,17 +1,17 @@
 import { useEffect, useState } from "react";
 
-// The native Capacitor SplashScreen already shows this same logo (on the
-// same black background) for the full 3 seconds before the WebView is
-// revealed. This component just continues that exact same frame seamlessly
-// — no fade-in, no second hold — then fades out once, briefly after.
-const BUFFER_MS = 300;
+// The native splash screen is only shown briefly (just to cover the gap
+// before the WebView paints — its icon rendering is unreliable across
+// Android versions/OEMs). This component is the actual source of truth for
+// the "3 second logo" experience: shows immediately, holds, fades out once.
+const HOLD_MS = 3000;
 const FADE_MS = 400;
 
 export default function App() {
   const [fadingOut, setFadingOut] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setFadingOut(true), BUFFER_MS);
+    const timer = setTimeout(() => setFadingOut(true), HOLD_MS);
     return () => clearTimeout(timer);
   }, []);
 
