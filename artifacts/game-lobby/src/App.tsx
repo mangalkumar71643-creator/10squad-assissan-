@@ -1,19 +1,18 @@
 import { useEffect, useState } from "react";
 
-const HOLD_MS = 3000;
+// The native Capacitor SplashScreen already shows this same logo (on the
+// same black background) for the full 3 seconds before the WebView is
+// revealed. This component just continues that exact same frame seamlessly
+// — no fade-in, no second hold — then fades out once, briefly after.
+const BUFFER_MS = 300;
 const FADE_MS = 400;
 
 export default function App() {
-  const [visible, setVisible] = useState(false);
   const [fadingOut, setFadingOut] = useState(false);
 
   useEffect(() => {
-    const fadeInId = requestAnimationFrame(() => setVisible(true));
-    const fadeOutTimer = setTimeout(() => setFadingOut(true), HOLD_MS);
-    return () => {
-      cancelAnimationFrame(fadeInId);
-      clearTimeout(fadeOutTimer);
-    };
+    const timer = setTimeout(() => setFadingOut(true), BUFFER_MS);
+    return () => clearTimeout(timer);
   }, []);
 
   return (
@@ -35,7 +34,7 @@ export default function App() {
           maxWidth: "55%",
           maxHeight: "55%",
           objectFit: "contain",
-          opacity: fadingOut ? 0 : visible ? 1 : 0,
+          opacity: fadingOut ? 0 : 1,
           transition: `opacity ${FADE_MS}ms ease`,
         }}
       />
