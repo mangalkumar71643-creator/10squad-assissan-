@@ -29,6 +29,22 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+app.get("/", (_req, res) => {
+  res.json({ ok: true, service: "10 Squad Assassin API", status: "running" });
+});
+
+// Browsers auto-request this; avoid noisy 404s in logs.
+app.get("/favicon.png", (_req, res) => {
+  res.status(204).end();
+});
+app.get("/favicon.ico", (_req, res) => {
+  res.status(204).end();
+});
+
 app.use("/api", router);
+
+app.use((req, res) => {
+  res.status(404).json({ ok: false, error: "Route not found", path: req.originalUrl });
+});
 
 export default app;
