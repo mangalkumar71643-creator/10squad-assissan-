@@ -1,4 +1,0 @@
-artifacts/mockup-sandbox/**
-.git
-node_modules
-.env.local
