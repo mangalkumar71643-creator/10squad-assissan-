@@ -27,11 +27,36 @@ function bottomLeftToTopRightClip(progress: number): string {
   return `polygon(0% 100%, 100% 100%, 100% ${100 - edge}%, ${edge}% 0%, 0% 0%)`;
 }
 
-// Recolors the same blue/cyan artwork into a molten orange/red look —
-// applied as a filter on the exact same image, so geometry never changes.
-const LAVA_FILTER = "hue-rotate(-160deg) saturate(2.4) brightness(0.92) contrast(1.2)";
-const HOT_EDGE_FILTER = "hue-rotate(-160deg) saturate(1.6) brightness(2.6) contrast(1.3)";
-const EDGE_WIDTH = 0.05;
+// The two endpoints (in 0-100% box coords) of the diagonal boundary
+// segment currently visible inside the box, for a given progress — used to
+// place sparks along the live transformation edge.
+function boundaryEndpoints(progress: number): [[number, number], [number, number]] {
+  const threshold = Math.max(0.001, Math.min(0.999, progress)) * 200;
+  if (threshold <= 100) {
+    return [
+      [threshold, 100],
+      [0, 100 - threshold],
+    ];
+  }
+  const edge = threshold - 100;
+  return [
+    [100, 100 - edge],
+    [edge, 0],
+  ];
+}
+
+// Material bands from coolest (still steel) to hottest (full lava), each
+// clipped a little further back than the last so they overlap into a soft
+// multi-step gradient instead of one hard line. Every layer is the exact
+// same source image — only filter + clip differ, so geometry never moves.
+const MATERIAL_BANDS = [
+  { offset: 0.22, filter: "hue-rotate(-60deg) saturate(1.7) brightness(1.15) contrast(1.05)", blur: 1.5 },
+  { offset: 0.13, filter: "hue-rotate(-110deg) saturate(2.1) brightness(1.15) contrast(1.1)", blur: 1 },
+  { offset: 0.06, filter: "hue-rotate(-160deg) saturate(2.4) brightness(1.0) contrast(1.15)", blur: 0.5 },
+  { offset: 0, filter: "hue-rotate(-160deg) saturate(2.4) brightness(0.9) contrast(1.25)", blur: 0 },
+];
+
+const SPARK_FRACTIONS = [0.15, 0.35, 0.5, 0.65, 0.85];
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("dragon");
@@ -71,9 +96,10 @@ export default function App() {
   const dragonVisible = phase === "dragon";
   const tenVisible = phase === "ten" || phase === "ten-out";
   const progress = phase === "ten-out" ? 1 : tenProgress;
-  const lavaClip = bottomLeftToTopRightClip(progress);
-  const hotEdgeClip = bottomLeftToTopRightClip(progress);
-  const eraserClip = bottomLeftToTopRightClip(progress - EDGE_WIDTH);
+  const showSparks = phase === "ten" && progress > 0.02 && progress < 0.98;
+  const [[sx1, sy1], [sx2, sy2]] = boundaryEndpoints(progress);
+  const glowOrangeClip = bottomLeftToTopRightClip(progress + 0.015);
+  const glowCyanClip = bottomLeftToTopRightClip(progress - 0.015);
 
   return (
     <div
@@ -88,6 +114,15 @@ export default function App() {
         position: "relative",
       }}
     >
+      <style>{`
+        @keyframes spark-flicker {
+          0%, 100% { opacity: 0; transform: scale(0.4) translateY(0); }
+          15% { opacity: 1; transform: scale(1) translateY(-2px); }
+          40% { opacity: 0.7; transform: scale(0.8) translateY(-10px); }
+          70% { opacity: 0; transform: scale(0.3) translateY(-22px); }
+        }
+      `}</style>
+
       <img
         src="/logo.png"
         alt="10 Squad Assassin"
@@ -119,6 +154,33 @@ export default function App() {
           alt="10"
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }}
         />
+
+        {/* Graduated heat bands: steel -> glowing orange steel -> lava,
+            each slightly blurred so the boundary reads as a soft material
+            gradient instead of a hard cut. */}
+        {MATERIAL_BANDS.map((band, i) => {
+          const clip = bottomLeftToTopRightClip(progress - band.offset);
+          return (
+            <img
+              key={i}
+              src="/logo-10.png"
+              alt=""
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+                filter: `${band.filter}${band.blur ? ` blur(${band.blur}px)` : ""}`,
+                clipPath: clip,
+                WebkitClipPath: clip,
+              }}
+            />
+          );
+        })}
+
+        {/* Bright glowing seam at the live boundary, mixing orange and cyan
+            light via two overlapping soft-blurred bands with screen blend. */}
         <img
           src="/logo-10.png"
           alt=""
@@ -128,9 +190,11 @@ export default function App() {
             width: "100%",
             height: "100%",
             objectFit: "contain",
-            filter: HOT_EDGE_FILTER,
-            clipPath: hotEdgeClip,
-            WebkitClipPath: hotEdgeClip,
+            filter: "hue-rotate(-160deg) saturate(1.6) brightness(1.7) contrast(1.15) blur(2px)",
+            clipPath: glowOrangeClip,
+            WebkitClipPath: glowOrangeClip,
+            mixBlendMode: "screen",
+            opacity: tenVisible && phase === "ten" ? 0.85 : 0,
           }}
         />
         <img
@@ -142,11 +206,38 @@ export default function App() {
             width: "100%",
             height: "100%",
             objectFit: "contain",
-            filter: LAVA_FILTER,
-            clipPath: eraserClip,
-            WebkitClipPath: eraserClip,
+            filter: "saturate(1.6) brightness(1.5) contrast(1.1) blur(2px)",
+            clipPath: glowCyanClip,
+            WebkitClipPath: glowCyanClip,
+            mixBlendMode: "screen",
+            opacity: tenVisible && phase === "ten" ? 0.55 : 0,
           }}
         />
+
+        {/* Sparks drifting up off the live boundary */}
+        {showSparks &&
+          SPARK_FRACTIONS.map((f, i) => {
+            const x = sx1 + (sx2 - sx1) * f;
+            const y = sy1 + (sy2 - sy1) * f;
+            return (
+              <div
+                key={i}
+                style={{
+                  position: "absolute",
+                  left: `${x}%`,
+                  top: `${y}%`,
+                  width: "6px",
+                  height: "6px",
+                  marginLeft: "-3px",
+                  marginTop: "-3px",
+                  borderRadius: "50%",
+                  background: "radial-gradient(circle, #fff6d8 0%, #ffb347 45%, transparent 75%)",
+                  animation: `spark-flicker ${0.6 + (i % 3) * 0.2}s ease-out ${i * 0.13}s infinite`,
+                  pointerEvents: "none",
+                }}
+              />
+            );
+          })}
       </div>
     </div>
   );
