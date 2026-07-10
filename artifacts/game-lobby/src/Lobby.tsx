@@ -3,11 +3,15 @@
 // missions) mirror the approved concept art: a symmetrical sci-fi/fantasy
 // chamber with an empty ceremonial platform and clear side margins, onto
 // which this component lays out the actual interactive HUD.
+//
+// Left/right HUD columns are top-anchored flex stacks (not independently
+// guessed vh offsets) so nothing collides on short, wide landscape phone
+// viewports where vh-based positioning used to push panels into each other.
 import { useState } from "react";
 
 type NavKey = "character" | "map" | "missions" | "nexus";
 
-const NAV: { key: NavKey; label: string; sub?: string; accent: string; accentDim: string; icon: JSX.Element }[] = [
+const NAV: { key: NavKey; label: string; accent: string; accentDim: string; icon: JSX.Element }[] = [
   {
     key: "character",
     label: "CHARACTER",
@@ -15,8 +19,8 @@ const NAV: { key: NavKey; label: string; sub?: string; accent: string; accentDim
     accentDim: "#5a3f99",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M12 2l7 3v6c0 5-3 8.5-7 11-4-2.5-7-6-7-11V5l7-3z" />
-        <path d="M9 11l2 2 4-4" />
+        <path d="M12 3.2c-2.9 0-5.2 1.9-5.2 5v2.6c0 1 .3 1.9.9 2.7L7 17.5h2.4l.5-1.3h4.2l.5 1.3H17l-1.7-4c.6-.8.9-1.7.9-2.7V8.2c0-3.1-2.3-5-5.2-5z" />
+        <path d="M8.6 9.6c0 1.6 1.5 2.7 3.4 2.7s3.4-1.1 3.4-2.7" />
       </svg>
     ),
   },
@@ -28,7 +32,7 @@ const NAV: { key: NavKey; label: string; sub?: string; accent: string; accentDim
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
         <path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z" />
-        <circle cx="12" cy="9.5" r="2.4" />
+        <path d="M8.3 10.4l1.9-2.3 1.6 1.8 1.1-1.4 1.9 2.3" strokeLinejoin="round" />
       </svg>
     ),
   },
@@ -38,9 +42,9 @@ const NAV: { key: NavKey; label: string; sub?: string; accent: string; accentDim
     accent: "#4db3ff",
     accentDim: "#1f5f8f",
     icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M12 3l8 14H4L12 3z" />
-        <path d="M12 9l4.5 8h-9L12 9z" />
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <path d="M12 3.5l8.2 14.2H3.8L12 3.5z" />
+        <path d="M12 10.3l3.6 6.2H8.4l3.6-6.2z" fill="currentColor" fillOpacity="0.28" />
       </svg>
     ),
   },
@@ -53,7 +57,7 @@ const NAV: { key: NavKey; label: string; sub?: string; accent: string; accentDim
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
         <path d="M12 3a9 9 0 1 0 9 9" />
         <path d="M12 3a5 5 0 1 1-5 5" />
-        <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
       </svg>
     ),
   },
@@ -66,6 +70,8 @@ const SIDE_NAV = [
   { label: "Achievements", icon: "✦" },
   { label: "Codex Archive", icon: "▥" },
 ];
+
+const TICKS = Array.from({ length: 20 }, (_, i) => i);
 
 export default function Lobby({ visible }: { visible: boolean }) {
   const [active, setActive] = useState<NavKey>("character");
@@ -92,12 +98,29 @@ export default function Lobby({ visible }: { visible: boolean }) {
           from { transform: translateX(-50%) rotate(360deg); }
           to { transform: translateX(-50%) rotate(0deg); }
         }
+        @keyframes lobby-avatar-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
         @keyframes lobby-pulse {
           0%, 100% { opacity: 0.55; }
           50% { opacity: 1; }
         }
-        .lobby-gem { transition: transform 0.18s ease, filter 0.18s ease; cursor: pointer; }
+        @keyframes lobby-beam {
+          0%, 100% { opacity: 0.4; transform: scaleY(0.9); }
+          50% { opacity: 0.9; transform: scaleY(1.05); }
+        }
+        .lobby-gem { transition: transform 0.18s ease, filter 0.18s ease; cursor: pointer; position: relative; }
         .lobby-gem:hover { transform: translateY(-6px); }
+        .lobby-gem + .lobby-gem::before {
+          content: "";
+          position: absolute;
+          left: -1px;
+          top: 14%;
+          bottom: 14%;
+          width: 1px;
+          background: linear-gradient(180deg, transparent, rgba(180,150,255,0.5), transparent);
+        }
         .lobby-side-item { transition: color 0.15s ease, transform 0.15s ease; cursor: pointer; }
         .lobby-side-item:hover { color: #eae6ff; transform: translateX(3px); }
         .lobby-icon-btn { transition: border-color 0.15s ease, color 0.15s ease; cursor: pointer; }
@@ -105,8 +128,10 @@ export default function Lobby({ visible }: { visible: boolean }) {
         .lobby-deploy { transition: filter 0.15s ease, transform 0.1s ease; cursor: pointer; }
         .lobby-deploy:hover { filter: brightness(1.15); }
         .lobby-deploy:active { transform: translateY(1px); }
+        .lobby-plus { transition: border-color 0.15s ease, color 0.15s ease; cursor: pointer; }
+        .lobby-plus:hover { border-color: #ffab3d; color: #ffab3d; }
         @media (prefers-reduced-motion: reduce) {
-          .lobby-ring-a, .lobby-ring-b, .lobby-pip { animation: none !important; }
+          .lobby-ring-a, .lobby-ring-b, .lobby-pip, .lobby-avatar-ring, .lobby-beam { animation: none !important; }
         }
       `}</style>
 
@@ -124,284 +149,400 @@ export default function Lobby({ visible }: { visible: boolean }) {
         }}
       />
 
-      {/* ---------- Top-left: profile ---------- */}
+      {/* ---------- Left column: profile + system core (top-anchored, natural height) ---------- */}
       <div
         style={{
           position: "absolute",
-          left: "clamp(12px,2.2vw,28px)",
-          top: "clamp(10px,2vh,22px)",
+          left: "clamp(10px,1.8vw,24px)",
+          top: "clamp(8px,1.6vh,18px)",
+          width: "clamp(136px,14.4vw,190px)",
           display: "flex",
-          alignItems: "center",
-          gap: "clamp(8px,1.1vw,14px)",
+          flexDirection: "column",
+          gap: "clamp(6px,1.2vh,12px)",
+          maxHeight: "calc(100% - clamp(50px,9vh,72px))",
         }}
       >
+        <div style={{ display: "flex", alignItems: "center", gap: "clamp(7px,1vw,12px)" }}>
+          <div style={{ position: "relative", width: "clamp(34px,4.6vw,50px)", height: "clamp(34px,4.6vw,50px)", flexShrink: 0 }}>
+            <svg
+              className="lobby-avatar-ring"
+              viewBox="0 0 100 100"
+              style={{ position: "absolute", inset: 0, animation: "lobby-avatar-spin 30s linear infinite" }}
+            >
+              <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(180,140,255,0.35)" strokeWidth="1" />
+              {TICKS.map((i) => {
+                const a = (i / TICKS.length) * Math.PI * 2;
+                const x1 = 50 + Math.cos(a) * 47,
+                  y1 = 50 + Math.sin(a) * 47;
+                const x2 = 50 + Math.cos(a) * 43,
+                  y2 = 50 + Math.sin(a) * 43;
+                return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#b48cff" strokeWidth="1.2" opacity="0.6" />;
+              })}
+            </svg>
+            <div
+              style={{
+                position: "absolute",
+                inset: "12%",
+                borderRadius: "50%",
+                background: "radial-gradient(circle at 35% 30%, #241a3d, #0a0714)",
+                border: "1px solid rgba(180,140,255,0.5)",
+                boxShadow: "0 0 10px rgba(140,90,255,0.45), inset 0 0 8px rgba(140,90,255,0.3)",
+              }}
+            />
+            <div style={{ position: "absolute", inset: "30%", display: "flex", alignItems: "center", justifyContent: "center", color: "#b48cff" }}>
+              <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: "100%", height: "100%" }}>
+                <path d="M12 2l9 5v6c0 5.5-3.8 9.5-9 11-5.2-1.5-9-5.5-9-11V7l9-5z" opacity="0.18" />
+                <path d="M12 4.5l6.3 3.5v4.1c0 4-2.7 6.9-6.3 8-3.6-1.1-6.3-4-6.3-8V8l6.3-3.5z" fill="none" stroke="currentColor" strokeWidth="1.4" />
+              </svg>
+            </div>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                fontSize: "clamp(10.5px,1.4vw,14px)",
+                letterSpacing: "0.05em",
+                color: "#f2eeff",
+                whiteSpace: "nowrap",
+              }}
+            >
+              10SQUAD ASSISSAN
+            </div>
+            <div style={{ fontSize: "clamp(8px,0.95vw,10px)", color: "#9089ab", letterSpacing: "0.03em", whiteSpace: "nowrap" }}>
+              ID: 10SA-00001 · LV. 45
+            </div>
+            <div
+              style={{
+                marginTop: "4px",
+                width: "clamp(70px,8vw,110px)",
+                height: "3px",
+                borderRadius: "2px",
+                background: "rgba(255,255,255,0.1)",
+                overflow: "hidden",
+              }}
+            >
+              <div style={{ width: "58%", height: "100%", background: "linear-gradient(90deg,#5a3f99,#b48cff)" }} />
+            </div>
+          </div>
+        </div>
+
         <div
           style={{
-            position: "relative",
-            width: "clamp(38px,5.2vw,58px)",
-            height: "clamp(38px,5.2vw,58px)",
+            background: "rgba(9,7,18,0.62)",
+            border: "1px solid rgba(140,100,255,0.22)",
+            borderRadius: "8px",
+            padding: "clamp(8px,1.2vh,14px) clamp(9px,1.1vw,13px)",
+            backdropFilter: "blur(3px)",
+            overflow: "hidden",
           }}
         >
           <div
             style={{
-              position: "absolute",
-              inset: 0,
-              borderRadius: "50%",
-              border: "1.5px solid rgba(180,140,255,0.55)",
-              boxShadow: "0 0 12px rgba(140,90,255,0.45), inset 0 0 10px rgba(140,90,255,0.3)",
-              background: "radial-gradient(circle at 35% 30%, #241a3d, #0a0714)",
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              inset: "22%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#b48cff",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: "clamp(8.5px,0.95vw,10.5px)",
+              letterSpacing: "0.16em",
+              color: "#ffab3d",
+              marginBottom: "clamp(6px,1vh,10px)",
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" style={{ width: "100%", height: "100%" }}>
-              <path d="M12 2l8 4v6c0 5.2-3.4 9-8 10-4.6-1-8-4.8-8-10V6l8-4z" />
-            </svg>
+            ◈ SYSTEM CORE
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: "6px" }}>
+            <div
+              style={{
+                position: "relative",
+                width: "clamp(48px,5.6vw,68px)",
+                height: "clamp(48px,5.6vw,68px)",
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <svg viewBox="0 0 100 100" style={{ position: "absolute", inset: 0 }}>
+                <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3" />
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="44"
+                  fill="none"
+                  stroke="#ffab3d"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  transform="rotate(-90 50 50)"
+                  style={{ filter: "drop-shadow(0 0 4px rgba(255,171,61,0.7))" }}
+                />
+              </svg>
+              <span style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: "clamp(11px,1.4vw,15px)" }}>100%</span>
+            </div>
+          </div>
+
+          <div style={{ textAlign: "center", fontSize: "clamp(7.5px,0.85vw,9px)", color: "#9089ab", letterSpacing: "0.08em" }}>
+            SQUAD POWER
+          </div>
+          <div
+            style={{
+              textAlign: "center",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: "clamp(12.5px,1.5vw,16px)",
+              marginBottom: "6px",
+            }}
+          >
+            8,750
+          </div>
+          <div
+            style={{
+              width: "100%",
+              height: "3px",
+              borderRadius: "2px",
+              background: "rgba(255,255,255,0.1)",
+              overflow: "hidden",
+              marginBottom: "clamp(7px,1.1vh,12px)",
+            }}
+          >
+            <div style={{ width: "72%", height: "100%", background: "linear-gradient(90deg,#9a5f14,#ffab3d)" }} />
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "clamp(4px,0.8vh,8px)" }}>
+            {SIDE_NAV.map((item) => (
+              <div
+                key={item.label}
+                className="lobby-side-item"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  fontSize: "clamp(8.5px,0.98vw,10.5px)",
+                  color: "#a99bd1",
+                  letterSpacing: "0.02em",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span style={{ color: "#7c5fc4", fontSize: "10px", width: "11px", textAlign: "center", flexShrink: 0 }}>{item.icon}</span>
+                {item.label}
+              </div>
+            ))}
           </div>
         </div>
+      </div>
+
+      {/* ---------- Bottom-left: squad broadcast (independent, fixed footprint) ---------- */}
+      <div
+        style={{
+          position: "absolute",
+          left: "clamp(10px,1.8vw,24px)",
+          bottom: "clamp(8px,1.6vh,18px)",
+          display: "flex",
+          alignItems: "center",
+          gap: "9px",
+          background: "rgba(9,7,18,0.68)",
+          border: "1px solid rgba(140,100,255,0.2)",
+          borderRadius: "8px",
+          padding: "clamp(6px,0.9vh,9px) clamp(9px,1.2vw,14px)",
+        }}
+      >
+        <svg viewBox="0 0 24 24" style={{ width: "16px", height: "16px", flexShrink: 0, color: "#7c5fc4" }} fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M3 12h2l2-6 3 12 2-9 2 6 2-4h5" />
+        </svg>
         <div>
           <div
             style={{
               fontFamily: "'Rajdhani', sans-serif",
               fontWeight: 700,
-              fontSize: "clamp(11px,1.5vw,15px)",
+              fontSize: "clamp(9px,1vw,11px)",
               letterSpacing: "0.05em",
-              color: "#f2eeff",
+              color: "#e9e4f5",
+              whiteSpace: "nowrap",
             }}
           >
-            10SQUAD ASSISSAN
+            SQUAD BROADCAST
           </div>
-          <div style={{ fontSize: "clamp(8.5px,1vw,10.5px)", color: "#9089ab", letterSpacing: "0.03em" }}>
-            ID: 10SA-00001 &nbsp;·&nbsp; LV. 45
-          </div>
-          <div
-            style={{
-              marginTop: "4px",
-              width: "clamp(90px,10vw,130px)",
-              height: "3px",
-              borderRadius: "2px",
-              background: "rgba(255,255,255,0.1)",
-              overflow: "hidden",
-            }}
-          >
-            <div style={{ width: "58%", height: "100%", background: "linear-gradient(90deg,#5a3f99,#b48cff)" }} />
-          </div>
+          <div style={{ fontSize: "clamp(8px,0.9vw,9.5px)", color: "#9089ab", whiteSpace: "nowrap" }}>Stay sharp, Assissan.</div>
         </div>
       </div>
 
-      {/* ---------- Left: system core panel ---------- */}
+      {/* ---------- Right column: clock/currency/icons + live intel (top-anchored, natural height) ---------- */}
       <div
         style={{
           position: "absolute",
-          left: "clamp(10px,1.8vw,24px)",
-          top: "clamp(78px,15vh,150px)",
-          width: "clamp(140px,15vw,196px)",
-          background: "rgba(9,7,18,0.6)",
-          border: "1px solid rgba(140,100,255,0.22)",
-          borderRadius: "8px",
-          padding: "clamp(10px,1.4vh,16px) clamp(10px,1.2vw,14px)",
-          backdropFilter: "blur(3px)",
+          right: "clamp(10px,1.8vw,24px)",
+          top: "clamp(8px,1.6vh,18px)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: "clamp(10px,1.8vh,18px)",
         }}
       >
-        <div
-          style={{
-            fontFamily: "'Rajdhani', sans-serif",
-            fontWeight: 700,
-            fontSize: "clamp(9px,1vw,11px)",
-            letterSpacing: "0.16em",
-            color: "#ffab3d",
-            marginBottom: "clamp(8px,1.4vh,14px)",
-          }}
-        >
-          ◈ SYSTEM CORE
-        </div>
-
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: "8px" }}>
+        <div style={{ textAlign: "right" }}>
           <div
             style={{
-              position: "relative",
-              width: "clamp(64px,7vw,84px)",
-              height: "clamp(64px,7vw,84px)",
-              borderRadius: "50%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 600,
+              fontSize: "clamp(10px,1.2vw,13px)",
+              color: "#c9bfe8",
+              letterSpacing: "0.06em",
+              marginBottom: "clamp(5px,1vh,10px)",
             }}
           >
-            <svg viewBox="0 0 100 100" style={{ position: "absolute", inset: 0 }}>
-              <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3" />
-              <circle
-                cx="50"
-                cy="50"
-                r="44"
-                fill="none"
-                stroke="#ffab3d"
-                strokeWidth="3"
-                strokeDasharray={2 * Math.PI * 44}
-                strokeDashoffset="0"
-                strokeLinecap="round"
-                transform="rotate(-90 50 50)"
-                style={{ filter: "drop-shadow(0 0 4px rgba(255,171,61,0.7))" }}
-              />
-            </svg>
-            <span style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: "clamp(13px,1.6vw,17px)" }}>
-              100%
-            </span>
+            09:47 PM
           </div>
-        </div>
 
-        <div style={{ textAlign: "center", fontSize: "clamp(8px,0.9vw,9.5px)", color: "#9089ab", letterSpacing: "0.08em" }}>
-          SQUAD POWER
-        </div>
-        <div
-          style={{
-            textAlign: "center",
-            fontFamily: "'Rajdhani', sans-serif",
-            fontWeight: 700,
-            fontSize: "clamp(14px,1.7vw,18px)",
-            marginBottom: "8px",
-          }}
-        >
-          8,750
-        </div>
-        <div
-          style={{
-            width: "100%",
-            height: "3px",
-            borderRadius: "2px",
-            background: "rgba(255,255,255,0.1)",
-            overflow: "hidden",
-            marginBottom: "clamp(10px,1.6vh,16px)",
-          }}
-        >
-          <div style={{ width: "72%", height: "100%", background: "linear-gradient(90deg,#9a5f14,#ffab3d)" }} />
-        </div>
+          <div style={{ display: "flex", gap: "clamp(5px,0.8vw,8px)", marginBottom: "clamp(4px,0.7vh,7px)" }}>
+            {[
+              { icon: "▲", val: "4,280", color: "#b48cff" },
+              { icon: "◈", val: "125,750", color: "#ffab3d" },
+              { icon: "◆", val: "215", color: "#4db3ff" },
+            ].map((c) => (
+              <div key={c.val} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "5px",
+                    width: "clamp(56px,6.4vw,78px)",
+                    height: "clamp(22px,2.6vw,30px)",
+                    clipPath: "polygon(22% 0%,78% 0%,100% 50%,78% 100%,22% 100%,0% 50%)",
+                    background: `linear-gradient(155deg, ${c.color}66, rgba(9,7,18,0.9))`,
+                    border: `1px solid ${c.color}cc`,
+                    boxShadow: `0 0 10px ${c.color}66, inset 0 1px 0 ${c.color}55`,
+                  }}
+                >
+                  <span style={{ fontSize: "10px", color: c.color }}>{c.icon}</span>
+                  <span
+                    style={{
+                      fontFamily: "'Rajdhani', sans-serif",
+                      fontWeight: 700,
+                      fontSize: "clamp(9.5px,1.1vw,11.5px)",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {c.val}
+                  </span>
+                </div>
+                <div
+                  className="lobby-plus"
+                  style={{
+                    width: "14px",
+                    height: "14px",
+                    borderRadius: "50%",
+                    border: "1px solid rgba(255,255,255,0.3)",
+                    color: "#c9bfe8",
+                    fontSize: "9px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    lineHeight: 1,
+                  }}
+                >
+                  +
+                </div>
+              </div>
+            ))}
+          </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "clamp(6px,1vh,10px)" }}>
-          {SIDE_NAV.map((item) => (
-            <div
-              key={item.label}
-              className="lobby-side-item"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                fontSize: "clamp(9.5px,1.05vw,11.5px)",
-                color: "#a99bd1",
-                letterSpacing: "0.02em",
-              }}
-            >
-              <span style={{ color: "#7c5fc4", fontSize: "11px", width: "12px", textAlign: "center" }}>{item.icon}</span>
-              {item.label}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ---------- Top-right: clock, currency, icons ---------- */}
-      <div style={{ position: "absolute", right: "clamp(12px,2.2vw,28px)", top: "clamp(10px,2vh,22px)", textAlign: "right" }}>
-        <div
-          style={{
-            fontFamily: "'Rajdhani', sans-serif",
-            fontWeight: 600,
-            fontSize: "clamp(11px,1.3vw,14px)",
-            color: "#c9bfe8",
-            letterSpacing: "0.06em",
-            marginBottom: "clamp(6px,1.2vh,12px)",
-          }}
-        >
-          09:47 PM
-        </div>
-
-        <div style={{ display: "flex", gap: "clamp(5px,0.8vw,8px)", marginBottom: "clamp(6px,1vh,10px)" }}>
-          {[
-            { icon: "▲", val: "4,280", color: "#b48cff" },
-            { icon: "◈", val: "125,750", color: "#ffab3d" },
-            { icon: "◆", val: "215", color: "#4db3ff" },
-          ].map((c) => (
-            <div
-              key={c.val}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                background: "rgba(9,7,18,0.65)",
-                border: "1px solid rgba(140,100,255,0.22)",
-                borderRadius: "999px",
-                padding: "4px 10px 4px 4px",
-              }}
-            >
-              <span
+          <div style={{ display: "flex", gap: "clamp(5px,0.8vw,8px)", justifyContent: "flex-end" }}>
+            {["shield", "mail", "gear"].map((k) => (
+              <div
+                key={k}
+                className="lobby-icon-btn"
                 style={{
-                  width: "clamp(16px,2vw,20px)",
-                  height: "clamp(16px,2vw,20px)",
-                  borderRadius: "50%",
+                  width: "clamp(24px,2.8vw,32px)",
+                  height: "clamp(24px,2.8vw,32px)",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(140,100,255,0.25)",
+                  background: "rgba(9,7,18,0.55)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: "10px",
-                  color: c.color,
-                  border: `1px solid ${c.color}66`,
+                  color: "#9089ab",
                 }}
               >
-                {c.icon}
-              </span>
-              <span
-                style={{
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  fontSize: "clamp(10.5px,1.2vw,12.5px)",
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {c.val}
-              </span>
-            </div>
-          ))}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: "48%", height: "48%" }}>
+                  {k === "shield" && <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" />}
+                  {k === "mail" && (
+                    <>
+                      <rect x="3" y="5" width="18" height="14" rx="1.5" />
+                      <path d="M3.5 6l8.5 6 8.5-6" />
+                    </>
+                  )}
+                  {k === "gear" && (
+                    <>
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
+                    </>
+                  )}
+                </svg>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <div style={{ display: "flex", gap: "clamp(5px,0.8vw,8px)", justifyContent: "flex-end" }}>
-          {["shield", "mail", "gear"].map((k) => (
+        <div
+          style={{
+            width: "clamp(130px,14vw,182px)",
+            background: "rgba(9,7,18,0.62)",
+            border: "1px solid rgba(140,100,255,0.22)",
+            borderRadius: "8px",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: "clamp(8.5px,0.95vw,10.5px)",
+              letterSpacing: "0.14em",
+              color: "#ffab3d",
+              padding: "clamp(7px,1vh,10px) clamp(9px,1.1vw,13px) clamp(5px,0.7vh,7px)",
+            }}
+          >
+            ◈ LIVE INTEL
+          </div>
+          <div
+            style={{
+              width: "100%",
+              aspectRatio: "16/9",
+              backgroundImage: "url(/lobby-intel-thumb.jpg)",
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          />
+          <div style={{ padding: "clamp(7px,1vh,10px) clamp(9px,1.1vw,13px)" }}>
             <div
-              key={k}
-              className="lobby-icon-btn"
               style={{
-                width: "clamp(28px,3.2vw,36px)",
-                height: "clamp(28px,3.2vw,36px)",
-                borderRadius: "6px",
-                border: "1px solid rgba(140,100,255,0.25)",
-                background: "rgba(9,7,18,0.55)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#9089ab",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                fontSize: "clamp(10px,1.2vw,13px)",
+                color: "#b48cff",
+                letterSpacing: "0.03em",
               }}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: "48%", height: "48%" }}>
-                {k === "shield" && <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" />}
-                {k === "mail" && (
-                  <>
-                    <rect x="3" y="5" width="18" height="14" rx="1.5" />
-                    <path d="M3.5 6l8.5 6 8.5-6" />
-                  </>
-                )}
-                {k === "gear" && (
-                  <>
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
-                  </>
-                )}
-              </svg>
+              DARK FRONTIER
             </div>
-          ))}
+            <div style={{ fontSize: "clamp(7.5px,0.85vw,9px)", color: "#9089ab", letterSpacing: "0.08em", marginTop: "2px" }}>
+              SEASON EVENT
+            </div>
+            <div style={{ display: "flex", gap: "4px", marginTop: "clamp(5px,0.8vh,8px)" }}>
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div
+                  key={i}
+                  className="lobby-pip"
+                  style={{
+                    width: "5px",
+                    height: "5px",
+                    borderRadius: "50%",
+                    background: i === 0 ? "#ffab3d" : "rgba(255,255,255,0.2)",
+                    animation: i === 0 ? "lobby-pulse 2.4s ease-in-out infinite" : "none",
+                  }}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -410,28 +551,29 @@ export default function Lobby({ visible }: { visible: boolean }) {
         style={{
           position: "absolute",
           left: "50%",
-          top: "clamp(8px,4vh,30px)",
+          top: "clamp(4px,3vh,26px)",
           transform: "translateX(-50%)",
           textAlign: "center",
           pointerEvents: "none",
         }}
       >
-        <div style={{ position: "relative", width: "clamp(180px,22vw,300px)", height: "clamp(90px,11vh,150px)" }}>
+        <div style={{ position: "relative", width: "clamp(170px,20vw,290px)", height: "clamp(80px,10vh,140px)" }}>
           <svg
             className="lobby-ring-a"
             viewBox="0 0 200 200"
             style={{
               position: "absolute",
               left: "50%",
-              top: "10%",
-              width: "clamp(140px,16vw,220px)",
+              top: "6%",
+              width: "clamp(150px,18vw,250px)",
               transformOrigin: "center",
               animation: "lobby-ring-spin 22s linear infinite",
-              opacity: 0.65,
+              opacity: 0.7,
             }}
           >
-            <circle cx="100" cy="100" r="92" fill="none" stroke="#ffab3d" strokeWidth="0.6" strokeDasharray="2 6" />
-            <circle cx="100" cy="100" r="70" fill="none" stroke="#ffab3d" strokeWidth="0.8" strokeDasharray="10 4" opacity="0.6" />
+            <circle cx="100" cy="100" r="94" fill="none" stroke="#ffab3d" strokeWidth="0.7" strokeDasharray="1 5" />
+            <circle cx="100" cy="100" r="78" fill="none" stroke="#ffab3d" strokeWidth="0.9" strokeDasharray="12 5" opacity="0.6" />
+            <circle cx="100" cy="100" r="62" fill="none" stroke="#ffd9a0" strokeWidth="0.6" strokeDasharray="3 3" opacity="0.4" />
           </svg>
           <svg
             className="lobby-ring-b"
@@ -439,14 +581,14 @@ export default function Lobby({ visible }: { visible: boolean }) {
             style={{
               position: "absolute",
               left: "50%",
-              top: "16%",
-              width: "clamp(105px,12.5vw,170px)",
+              top: "12%",
+              width: "clamp(112px,13vw,180px)",
               transformOrigin: "center",
               animation: "lobby-ring-spin-rev 16s linear infinite",
-              opacity: 0.8,
+              opacity: 0.85,
             }}
           >
-            <circle cx="100" cy="100" r="88" fill="none" stroke="#ffd9a0" strokeWidth="1.1" />
+            <circle cx="100" cy="100" r="88" fill="none" stroke="#ffe4b8" strokeWidth="1.3" />
           </svg>
 
           <div
@@ -455,12 +597,13 @@ export default function Lobby({ visible }: { visible: boolean }) {
               zIndex: 1,
               fontFamily: "'Rajdhani', sans-serif",
               fontWeight: 700,
-              fontSize: "clamp(30px,5.4vw,58px)",
+              fontSize: "clamp(28px,5vw,54px)",
               lineHeight: 0.85,
               letterSpacing: "0.02em",
-              color: "#f4ede0",
-              textShadow: "0 0 18px rgba(255,171,61,0.85), 0 0 40px rgba(255,140,30,0.5)",
-              paddingTop: "clamp(10px,3vh,22px)",
+              color: "#f6efe2",
+              textShadow:
+                "1px 1px 0 rgba(255,120,20,0.55), -1px -1px 0 rgba(255,190,90,0.3), 0 0 20px rgba(255,171,61,0.9), 0 0 44px rgba(255,140,30,0.55)",
+              paddingTop: "clamp(9px,2.6vh,20px)",
             }}
           >
             10
@@ -471,10 +614,10 @@ export default function Lobby({ visible }: { visible: boolean }) {
               zIndex: 1,
               fontFamily: "'Rajdhani', sans-serif",
               fontWeight: 700,
-              fontSize: "clamp(13px,2vw,22px)",
+              fontSize: "clamp(12px,1.9vw,20px)",
               letterSpacing: "0.14em",
               color: "#e9e4f5",
-              marginTop: "2px",
+              marginTop: "1px",
             }}
           >
             SQUAD
@@ -485,12 +628,39 @@ export default function Lobby({ visible }: { visible: boolean }) {
               zIndex: 1,
               fontFamily: "'Rajdhani', sans-serif",
               fontWeight: 600,
-              fontSize: "clamp(9px,1.3vw,14px)",
+              fontSize: "clamp(8.5px,1.25vw,13px)",
               letterSpacing: "0.32em",
               color: "#ffab3d",
             }}
           >
             ASSASSIN
+          </div>
+
+          <div
+            style={{
+              position: "absolute",
+              left: "50%",
+              bottom: "clamp(-30px,-4vh,-16px)",
+              transform: "translateX(-50%)",
+              width: "14px",
+              height: "14px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+            }}
+          >
+            <svg viewBox="0 0 20 20" style={{ width: "10px", height: "10px", color: "#ffab3d" }}>
+              <path d="M10 2l8 16H2L10 2z" fill="currentColor" opacity="0.85" />
+            </svg>
+            <div
+              className="lobby-beam"
+              style={{
+                width: "1.5px",
+                height: "clamp(18px,3vh,34px)",
+                background: "linear-gradient(180deg, #ffd9a0, rgba(255,171,61,0))",
+                animation: "lobby-beam 2.6s ease-in-out infinite",
+              }}
+            />
           </div>
         </div>
       </div>
@@ -500,10 +670,9 @@ export default function Lobby({ visible }: { visible: boolean }) {
         style={{
           position: "absolute",
           left: "50%",
-          bottom: "clamp(78px,15vh,150px)",
+          bottom: "clamp(70px,14vh,138px)",
           transform: "translateX(-50%)",
           display: "flex",
-          gap: "clamp(10px,1.6vw,20px)",
         }}
       >
         {NAV.map((item) => {
@@ -514,33 +683,30 @@ export default function Lobby({ visible }: { visible: boolean }) {
               className="lobby-gem"
               onClick={() => setActive(item.key)}
               style={{
-                position: "relative",
-                width: "clamp(74px,8.6vw,108px)",
-                height: "clamp(104px,12vh,150px)",
-                clipPath: "polygon(50% 0%, 100% 22%, 100% 78%, 50% 100%, 0% 78%, 0% 22%)",
+                width: "clamp(70px,8vw,102px)",
+                height: "clamp(96px,11vh,138px)",
+                clipPath: "polygon(18% 0%, 82% 0%, 100% 14%, 100% 100%, 0% 100%, 0% 14%)",
                 background: isActive
-                  ? `linear-gradient(160deg, rgba(20,14,34,0.95), rgba(6,4,12,0.95))`
-                  : "linear-gradient(160deg, rgba(14,11,24,0.82), rgba(5,4,10,0.82))",
+                  ? "linear-gradient(160deg, rgba(22,15,36,0.96), rgba(6,4,12,0.96))"
+                  : "linear-gradient(160deg, rgba(14,11,24,0.84), rgba(5,4,10,0.84))",
                 border: `1px solid ${item.accent}`,
                 boxShadow: isActive
-                  ? `0 0 0 1px ${item.accent}55, 0 0 26px ${item.accent}88, 0 10px 24px rgba(0,0,0,0.5)`
-                  : `0 0 10px ${item.accentDim}55, 0 6px 16px rgba(0,0,0,0.4)`,
+                  ? `inset 0 1px 0 ${item.accent}99, 0 0 0 1px ${item.accent}55, 0 0 26px ${item.accent}88, 0 10px 24px rgba(0,0,0,0.5)`
+                  : `inset 0 1px 0 ${item.accent}55, 0 0 10px ${item.accentDim}55, 0 6px 16px rgba(0,0,0,0.4)`,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "clamp(6px,1vh,10px)",
-                padding: "0 6px",
+                gap: "clamp(5px,0.9vh,9px)",
+                padding: "0 5px",
               }}
             >
-              <div style={{ width: "clamp(24px,2.8vw,34px)", height: "clamp(24px,2.8vw,34px)", color: item.accent }}>
-                {item.icon}
-              </div>
+              <div style={{ width: "clamp(22px,2.6vw,32px)", height: "clamp(22px,2.6vw,32px)", color: item.accent }}>{item.icon}</div>
               <div
                 style={{
                   fontFamily: "'Rajdhani', sans-serif",
                   fontWeight: 700,
-                  fontSize: "clamp(9px,1vw,11.5px)",
+                  fontSize: "clamp(8.5px,0.95vw,11px)",
                   letterSpacing: "0.03em",
                   color: isActive ? item.accent : "#c7bfe0",
                   textAlign: "center",
@@ -554,114 +720,13 @@ export default function Lobby({ visible }: { visible: boolean }) {
         })}
       </div>
 
-      {/* ---------- Right: live intel card ---------- */}
-      <div
-        style={{
-          position: "absolute",
-          right: "clamp(10px,1.8vw,24px)",
-          top: "clamp(210px,42vh,420px)",
-          width: "clamp(150px,16vw,210px)",
-          background: "rgba(9,7,18,0.6)",
-          border: "1px solid rgba(140,100,255,0.22)",
-          borderRadius: "8px",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "'Rajdhani', sans-serif",
-            fontWeight: 700,
-            fontSize: "clamp(9px,1vw,11px)",
-            letterSpacing: "0.14em",
-            color: "#ffab3d",
-            padding: "clamp(8px,1.2vh,12px) clamp(10px,1.2vw,14px) clamp(6px,0.8vh,8px)",
-          }}
-        >
-          ◈ LIVE INTEL
-        </div>
-        <div
-          style={{
-            width: "100%",
-            aspectRatio: "16/10",
-            backgroundImage: "url(/char-oni-full.jpg)",
-            backgroundSize: "cover",
-            backgroundPosition: "center 18%",
-          }}
-        />
-        <div style={{ padding: "clamp(8px,1.2vh,12px) clamp(10px,1.2vw,14px)" }}>
-          <div
-            style={{
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              fontSize: "clamp(11px,1.3vw,14px)",
-              color: "#b48cff",
-              letterSpacing: "0.03em",
-            }}
-          >
-            DARK FRONTIER
-          </div>
-          <div style={{ fontSize: "clamp(8px,0.9vw,9.5px)", color: "#9089ab", letterSpacing: "0.08em", marginTop: "2px" }}>
-            SEASON EVENT
-          </div>
-          <div style={{ display: "flex", gap: "4px", marginTop: "clamp(6px,1vh,10px)" }}>
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className="lobby-pip"
-                style={{
-                  width: "5px",
-                  height: "5px",
-                  borderRadius: "50%",
-                  background: i === 0 ? "#ffab3d" : "rgba(255,255,255,0.2)",
-                  animation: i === 0 ? "lobby-pulse 2.4s ease-in-out infinite" : "none",
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ---------- Bottom-left: squad broadcast ---------- */}
-      <div
-        style={{
-          position: "absolute",
-          left: "clamp(10px,1.8vw,24px)",
-          bottom: "clamp(10px,2vh,22px)",
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          background: "rgba(9,7,18,0.6)",
-          border: "1px solid rgba(140,100,255,0.2)",
-          borderRadius: "8px",
-          padding: "clamp(7px,1vh,10px) clamp(10px,1.3vw,16px)",
-        }}
-      >
-        <svg viewBox="0 0 24 24" style={{ width: "18px", height: "18px", color: "#7c5fc4" }} fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M3 12h2l2-6 3 12 2-9 2 6 2-4h5" />
-        </svg>
-        <div>
-          <div
-            style={{
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              fontSize: "clamp(9.5px,1.05vw,11.5px)",
-              letterSpacing: "0.05em",
-              color: "#e9e4f5",
-            }}
-          >
-            SQUAD BROADCAST
-          </div>
-          <div style={{ fontSize: "clamp(8.5px,0.95vw,10px)", color: "#9089ab" }}>Stay sharp, Assissan.</div>
-        </div>
-      </div>
-
       {/* ---------- Bottom-right: deploy ---------- */}
       <button
         className="lobby-deploy"
         style={{
           position: "absolute",
           right: "clamp(10px,1.8vw,24px)",
-          bottom: "clamp(10px,2vh,22px)",
+          bottom: "clamp(8px,1.6vh,18px)",
           border: "none",
           padding: "2px",
           clipPath: "polygon(4% 0%, 96% 0%, 100% 50%, 96% 100%, 4% 100%, 0% 50%)",
@@ -673,7 +738,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
           style={{
             clipPath: "polygon(4% 0%, 96% 0%, 100% 50%, 96% 100%, 4% 100%, 0% 50%)",
             background: "linear-gradient(100deg, rgba(14,8,26,0.94), rgba(10,7,18,0.94))",
-            padding: "clamp(9px,1.4vh,13px) clamp(24px,3.4vw,40px)",
+            padding: "clamp(8px,1.3vh,12px) clamp(20px,3vw,36px)",
             textAlign: "center",
           }}
         >
@@ -681,7 +746,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
             style={{
               fontFamily: "'Rajdhani', sans-serif",
               fontWeight: 700,
-              fontSize: "clamp(14px,1.8vw,19px)",
+              fontSize: "clamp(13px,1.7vw,18px)",
               letterSpacing: "0.1em",
               background: "linear-gradient(100deg, #b48cff, #ffd9a0 50%, #ffab3d)",
               WebkitBackgroundClip: "text",
@@ -691,7 +756,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
           >
             DEPLOY NOW
           </div>
-          <div style={{ fontSize: "clamp(7.5px,0.85vw,9px)", color: "#a99bd1", letterSpacing: "0.06em", marginTop: "1px" }}>
+          <div style={{ fontSize: "clamp(7px,0.8vw,8.5px)", color: "#a99bd1", letterSpacing: "0.06em", marginTop: "1px" }}>
             THE MISSION AWAITS
           </div>
         </div>
