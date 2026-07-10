@@ -39,10 +39,9 @@ export default function App() {
       }}
     >
       <style>{`
-        @keyframes ten-glow-pulse {
-          0%   { filter: drop-shadow(0 0 6px #2dd4ff) drop-shadow(0 0 14px #2dd4ff); }
-          50%  { filter: drop-shadow(0 0 22px #2dd4ff) drop-shadow(0 0 46px #38e0ff) drop-shadow(0 0 70px #38e0ff); }
-          100% { filter: drop-shadow(0 0 6px #2dd4ff) drop-shadow(0 0 14px #2dd4ff); }
+        @keyframes ten-sweep {
+          0%   { background-position: 0% -40%; }
+          100% { background-position: 0% 140%; }
         }
       `}</style>
 
@@ -59,19 +58,44 @@ export default function App() {
         }}
       />
 
-      <img
-        src="/logo-10.png"
-        alt="10"
+      <div
         style={{
           position: "absolute",
-          maxWidth: "45%",
+          width: "45%",
           maxHeight: "45%",
-          objectFit: "contain",
+          aspectRatio: "1060 / 920",
           opacity: tenVisible ? 1 : 0,
           transition: `opacity ${FADE_MS}ms ease`,
-          animation: tenVisible ? "ten-glow-pulse 1.5s ease-in-out infinite" : "none",
         }}
-      />
+      >
+        {/* Base logo, always visible once this phase is active */}
+        <img
+          src="/logo-10.png"
+          alt="10"
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }}
+        />
+        {/* Light band that sweeps top-to-bottom, masked to the logo's own
+            shape so nothing glows outside its silhouette (no border/outline
+            glow) — only the artwork itself brightens as the light passes. */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundImage: "linear-gradient(180deg, transparent 0%, transparent 35%, rgba(255,255,255,0.95) 50%, transparent 65%, transparent 100%)",
+            backgroundSize: "100% 260%",
+            WebkitMaskImage: "url(/logo-10.png)",
+            maskImage: "url(/logo-10.png)",
+            WebkitMaskSize: "contain",
+            maskSize: "contain",
+            WebkitMaskRepeat: "no-repeat",
+            maskRepeat: "no-repeat",
+            WebkitMaskPosition: "center",
+            maskPosition: "center",
+            mixBlendMode: "screen",
+            animation: tenVisible ? "ten-sweep 1.5s ease-in-out 1" : "none",
+          }}
+        />
+      </div>
     </div>
   );
 }
