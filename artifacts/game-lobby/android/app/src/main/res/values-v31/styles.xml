@@ -2,6 +2,13 @@
 <resources>
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#000000</item>
+        <!-- Explicitly empty: without this, Android auto-derives a splash
+             icon from the adaptive launcher icon, cropping/scaling it
+             inconsistently (looks "zoomed" differently each launch) —
+             that isn't our actual splash, it's an unwanted OS fallback.
+             The real logo display is handled by the web layer. -->
+        <item name="windowSplashScreenAnimatedIcon">@drawable/transparent</item>
+        <item name="windowSplashScreenIconBackgroundColor">#000000</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
         <item name="android:windowLayoutInDisplayCutoutMode">always</item>
     </style>
