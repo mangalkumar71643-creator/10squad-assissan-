@@ -10,14 +10,16 @@ import { useEffect, useRef, useState } from "react";
 //   3. The revealed steel gradually heats into molten lava along the same
 //      diagonal direction
 //   4. A soft glow pulse on the finished lava mark
+//   5. Cinematic loading screen with a looping progress bar
 const DRAGON_HOLD_MS = 3000;
 const REVEAL_MS = 1600;
 const HEAT_MS = 3500;
 const PULSE_MS = 500;
 const END_HOLD_MS = 300;
 const FADE_MS = 400;
+const LOADING_CYCLE_MS = 3800;
 
-type Phase = "dragon" | "dragon-out" | "reveal" | "heat" | "pulse" | "out" | "done";
+type Phase = "dragon" | "dragon-out" | "reveal" | "heat" | "pulse" | "out" | "loading";
 
 // Clip-path polygon for the region "x + (100-y) <= threshold" inside a
 // 0-100 box — the area swept out by a diagonal boundary starting at the
@@ -85,13 +87,13 @@ export default function App() {
     const tHeat = tReveal + REVEAL_MS;
     const tPulse = tHeat + HEAT_MS;
     const tOut = tPulse + PULSE_MS + END_HOLD_MS;
-    const tDone = tOut + FADE_MS;
+    const tLoading = tOut + FADE_MS;
     at(tDragonOut, () => setPhase("dragon-out"));
     at(tReveal, () => setPhase("reveal"));
     at(tHeat, () => setPhase("heat"));
     at(tPulse, () => setPhase("pulse"));
     at(tOut, () => setPhase("out"));
-    at(tDone, () => setPhase("done"));
+    at(tLoading, () => setPhase("loading"));
     return () => timers.forEach(clearTimeout);
   }, []);
 
@@ -112,7 +114,8 @@ export default function App() {
   }, [phase]);
 
   const dragonVisible = phase === "dragon";
-  const tenVisible = phase !== "dragon" && phase !== "dragon-out" && phase !== "done";
+  const tenVisible = phase === "reveal" || phase === "heat" || phase === "pulse" || phase === "out";
+  const loadingVisible = phase === "loading";
   const revealDone = phase === "heat" || phase === "pulse" || phase === "out";
   const reveal = revealDone ? 1 : revealProgress;
   const heat = phase === "pulse" || phase === "out" ? 1 : heatProgress;
@@ -148,6 +151,20 @@ export default function App() {
           0% { opacity: 0; transform: scale(0.97); }
           45% { opacity: 0.9; transform: scale(1.035); }
           100% { opacity: 0; transform: scale(1.06); }
+        }
+        @keyframes loading-fill {
+          0% { clip-path: inset(0 100% 0 0); opacity: 1; }
+          85% { clip-path: inset(0 0% 0 0); opacity: 1; }
+          90% { clip-path: inset(0 0% 0 0); opacity: 0; }
+          92% { clip-path: inset(0 100% 0 0); opacity: 0; }
+          100% { clip-path: inset(0 100% 0 0); opacity: 1; }
+        }
+        @keyframes loading-spark {
+          0% { left: 0%; opacity: 1; }
+          85% { left: 100%; opacity: 1; }
+          90% { left: 100%; opacity: 0; }
+          92% { left: 0%; opacity: 0; }
+          100% { left: 0%; opacity: 1; }
         }
       `}</style>
 
@@ -348,6 +365,145 @@ export default function App() {
             opacity: 0,
           }}
         />
+      </div>
+
+      {/* Cinematic loading screen: samurai/moonlit-city background art with
+          the baked-in "LOADING..." label and bar painted over (same source
+          image, patched), replaced by our own animated progress bar so it
+          actually advances instead of showing a static image. */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          opacity: loadingVisible ? 1 : 0,
+          transition: `opacity ${FADE_MS}ms ease`,
+          pointerEvents: "none",
+        }}
+      >
+        <img
+          src="/loading-bg.jpg"
+          alt=""
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            objectPosition: "center",
+          }}
+        />
+
+        <div
+          style={{
+            position: "absolute",
+            left: "8%",
+            bottom: "11%",
+            width: "44%",
+            minWidth: "220px",
+          }}
+        >
+          <div
+            style={{
+              color: "#bfeaff",
+              fontSize: "clamp(11px, 1.6vw, 15px)",
+              letterSpacing: "0.35em",
+              fontWeight: 600,
+              textShadow: "0 0 10px rgba(120,210,255,0.8), 0 0 22px rgba(80,180,255,0.5)",
+              marginBottom: "1.4vh",
+              paddingLeft: "0.35em",
+            }}
+          >
+            LOADING...
+          </div>
+
+          {/* Border ring: blue -> white -> red gradient, chamfered ends */}
+          <div
+            style={{
+              position: "relative",
+              width: "100%",
+              height: "clamp(14px, 3.4vh, 26px)",
+              padding: "2px",
+              background: "linear-gradient(to right, #33baff, #eafcff 50%, #ff5a2a)",
+              clipPath:
+                "polygon(1.5% 0%, 98.5% 0%, 100% 50%, 98.5% 100%, 1.5% 100%, 0% 50%)",
+              boxShadow: "0 0 16px rgba(90,190,255,0.45), 0 0 16px rgba(255,90,40,0.25)",
+            }}
+          >
+            <div
+              style={{
+                position: "relative",
+                width: "100%",
+                height: "100%",
+                overflow: "hidden",
+                background: "rgba(4,10,16,0.8)",
+                clipPath:
+                  "polygon(1.5% 0%, 98.5% 0%, 100% 50%, 98.5% 100%, 1.5% 100%, 0% 50%)",
+              }}
+            >
+              {/* Mounted only once the loading phase actually starts, so the
+                  infinite CSS loop begins at 0% right when it becomes
+                  visible instead of already being mid-cycle from page load. */}
+              {loadingVisible && (
+                <>
+                  {/* Fixed full-width gradient, progressively revealed
+                      left-to-right so the color at a given position never
+                      shifts as it grows. */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      background:
+                        "linear-gradient(to right, #0a63ff 0%, #29d3ff 45%, #ffffff 65%, #ff7a1a 85%, #ff2b00 100%)",
+                      animation: `loading-fill ${LOADING_CYCLE_MS}ms linear infinite`,
+                    }}
+                  />
+
+                  {/* Bright comet-like spark riding the leading edge */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      width: "26px",
+                      height: "26px",
+                      marginLeft: "-13px",
+                      marginTop: "-13px",
+                      borderRadius: "50%",
+                      background:
+                        "radial-gradient(circle, #ffffff 0%, #cdefff 30%, rgba(140,210,255,0.5) 55%, transparent 75%)",
+                      filter: "blur(1px)",
+                      animation: `loading-spark ${LOADING_CYCLE_MS}ms linear infinite`,
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: "-4px",
+                        top: "-10px",
+                        width: "4px",
+                        height: "4px",
+                        borderRadius: "50%",
+                        background: "#ffffff",
+                        animation: "spark-flicker 0.9s ease-out 0.1s infinite",
+                      }}
+                    />
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: "10px",
+                        top: "6px",
+                        width: "3px",
+                        height: "3px",
+                        borderRadius: "50%",
+                        background: "#9fe0ff",
+                        animation: "spark-flicker 0.7s ease-out 0.3s infinite",
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
