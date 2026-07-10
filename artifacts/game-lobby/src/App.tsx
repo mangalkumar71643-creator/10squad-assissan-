@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Lobby from "./Lobby";
 
 // The native splash screen is only shown briefly (just to cover the gap
 // before the WebView paints — its icon rendering is unreliable across
@@ -18,8 +19,9 @@ const PULSE_MS = 500;
 const END_HOLD_MS = 300;
 const FADE_MS = 400;
 const LOADING_CYCLE_MS = 3800;
+const LOADING_HOLD_MS = 4200;
 
-type Phase = "dragon" | "dragon-out" | "reveal" | "heat" | "pulse" | "out" | "loading";
+type Phase = "dragon" | "dragon-out" | "reveal" | "heat" | "pulse" | "out" | "loading" | "lobby";
 
 // Clip-path polygon for the region "x + (100-y) <= threshold" inside a
 // 0-100 box — the area swept out by a diagonal boundary starting at the
@@ -88,12 +90,14 @@ export default function App() {
     const tPulse = tHeat + HEAT_MS;
     const tOut = tPulse + PULSE_MS + END_HOLD_MS;
     const tLoading = tOut + FADE_MS;
+    const tLobby = tLoading + LOADING_HOLD_MS;
     at(tDragonOut, () => setPhase("dragon-out"));
     at(tReveal, () => setPhase("reveal"));
     at(tHeat, () => setPhase("heat"));
     at(tPulse, () => setPhase("pulse"));
     at(tOut, () => setPhase("out"));
     at(tLoading, () => setPhase("loading"));
+    at(tLobby, () => setPhase("lobby"));
     return () => timers.forEach(clearTimeout);
   }, []);
 
@@ -116,6 +120,7 @@ export default function App() {
   const dragonVisible = phase === "dragon";
   const tenVisible = phase === "reveal" || phase === "heat" || phase === "pulse" || phase === "out";
   const loadingVisible = phase === "loading";
+  const lobbyVisible = phase === "lobby";
   const revealDone = phase === "heat" || phase === "pulse" || phase === "out";
   const reveal = revealDone ? 1 : revealProgress;
   const heat = phase === "pulse" || phase === "out" ? 1 : heatProgress;
@@ -505,6 +510,8 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      <Lobby visible={lobbyVisible} />
     </div>
   );
 }
