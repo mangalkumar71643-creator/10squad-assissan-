@@ -7,63 +7,6 @@
 // Left/right HUD columns are top-anchored flex stacks (not independently
 // guessed vh offsets) so nothing collides on short, wide landscape phone
 // viewports where vh-based positioning used to push panels into each other.
-import { useState } from "react";
-
-type NavKey = "character" | "map" | "missions" | "nexus";
-
-const NAV: { key: NavKey; label: string; accent: string; accentDim: string; icon: JSX.Element }[] = [
-  {
-    key: "character",
-    label: "CHARACTER",
-    accent: "#b48cff",
-    accentDim: "#5a3f99",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
-        <path d="M12 2.6C8.4 2.6 6 5.4 6 9v1.4c0 1.6.6 2.9 1.7 3.9L6.4 18h11.2l-1.3-3.7c1.1-1 1.7-2.3 1.7-3.9V9c0-3.6-2.4-6.4-6-6.4z" />
-        <circle cx="12" cy="9.4" r="2.1" />
-        <path d="M8.6 21.4c1-.5 2.2-.8 3.4-.8s2.4.3 3.4.8" />
-      </svg>
-    ),
-  },
-  {
-    key: "map",
-    label: "MAP SELECTION",
-    accent: "#ffab3d",
-    accentDim: "#9a5f14",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z" />
-        <path d="M8.3 10.4l1.9-2.3 1.6 1.8 1.1-1.4 1.9 2.3" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-  {
-    key: "missions",
-    label: "MISSIONS",
-    accent: "#4db3ff",
-    accentDim: "#1f5f8f",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3">
-        <path d="M12 3l8.5 14.7H3.5L12 3z" />
-        <path d="M12 9.2l4.6 8H7.4L12 9.2z" />
-        <path d="M12 3v6.2M6.3 13.4l2.7-1.4M17.7 13.4l-2.7-1.4" opacity="0.7" />
-      </svg>
-    ),
-  },
-  {
-    key: "nexus",
-    label: "NEXUS MODE",
-    accent: "#b48cff",
-    accentDim: "#5a3f99",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M12 3a9 9 0 1 0 9 9" />
-        <path d="M12 3a5 5 0 1 1-5 5" />
-        <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
-      </svg>
-    ),
-  },
-];
 
 const SIDE_NAV: { label: string; icon: JSX.Element }[] = [
   {
@@ -116,8 +59,6 @@ const SIDE_NAV: { label: string; icon: JSX.Element }[] = [
 const TICKS = Array.from({ length: 20 }, (_, i) => i);
 
 export default function Lobby({ visible }: { visible: boolean }) {
-  const [active, setActive] = useState<NavKey>("character");
-
   return (
     <div
       style={{
@@ -152,27 +93,6 @@ export default function Lobby({ visible }: { visible: boolean }) {
           0%, 100% { opacity: 0.4; transform: scaleY(0.9); }
           50% { opacity: 0.9; transform: scaleY(1.05); }
         }
-        .lobby-gem-col { position: relative; }
-        .lobby-gem { transition: transform 0.18s ease, filter 0.18s ease; }
-        .lobby-gem-col:hover .lobby-gem { transform: translateY(-6px); }
-        .lobby-gem-col + .lobby-gem-col::before {
-          content: "";
-          position: absolute;
-          left: -1px;
-          top: 22%;
-          bottom: 8%;
-          width: 1px;
-          background: linear-gradient(180deg, transparent, rgba(180,150,255,0.5), transparent);
-        }
-        .lobby-side-item { transition: color 0.15s ease, transform 0.15s ease; cursor: pointer; }
-        .lobby-side-item:hover { color: #eae6ff; transform: translateX(3px); }
-        .lobby-icon-btn { transition: border-color 0.15s ease, color 0.15s ease; cursor: pointer; }
-        .lobby-icon-btn:hover { border-color: #b48cff; color: #d9c8ff; }
-        .lobby-deploy { transition: filter 0.15s ease, transform 0.1s ease; cursor: pointer; }
-        .lobby-deploy:hover { filter: brightness(1.15); }
-        .lobby-deploy:active { transform: translateY(1px); }
-        .lobby-plus { transition: border-color 0.15s ease, color 0.15s ease; cursor: pointer; }
-        .lobby-plus:hover { border-color: #ffab3d; color: #ffab3d; }
         @media (prefers-reduced-motion: reduce) {
           .lobby-ring-a, .lobby-ring-b, .lobby-pip, .lobby-avatar-ring, .lobby-beam { animation: none !important; }
         }
@@ -354,7 +274,6 @@ export default function Lobby({ visible }: { visible: boolean }) {
             {SIDE_NAV.map((item) => (
               <div
                 key={item.label}
-                className="lobby-side-item"
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -440,86 +359,32 @@ export default function Lobby({ visible }: { visible: boolean }) {
               { icon: "◈", val: "125,750", color: "#ffab3d" },
               { icon: "◆", val: "215", color: "#4db3ff" },
             ].map((c) => (
-              <div key={c.val} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "5px",
-                    width: "clamp(56px,6.4vw,78px)",
-                    height: "clamp(22px,2.6vw,30px)",
-                    clipPath: "polygon(22% 0%,78% 0%,100% 50%,78% 100%,22% 100%,0% 50%)",
-                    background: `linear-gradient(155deg, ${c.color}66, rgba(9,7,18,0.9))`,
-                    border: `1px solid ${c.color}cc`,
-                    boxShadow: `0 0 10px ${c.color}66, inset 0 1px 0 ${c.color}55`,
-                  }}
-                >
-                  <span style={{ fontSize: "10px", color: c.color }}>{c.icon}</span>
-                  <span
-                    style={{
-                      fontFamily: "'Rajdhani', sans-serif",
-                      fontWeight: 700,
-                      fontSize: "clamp(9.5px,1.1vw,11.5px)",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {c.val}
-                  </span>
-                </div>
-                <div
-                  className="lobby-plus"
-                  style={{
-                    width: "14px",
-                    height: "14px",
-                    borderRadius: "50%",
-                    border: "1px solid rgba(255,255,255,0.3)",
-                    color: "#c9bfe8",
-                    fontSize: "9px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    lineHeight: 1,
-                  }}
-                >
-                  +
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ display: "flex", gap: "clamp(5px,0.8vw,8px)", justifyContent: "flex-end" }}>
-            {["shield", "mail", "gear"].map((k) => (
               <div
-                key={k}
-                className="lobby-icon-btn"
+                key={c.val}
                 style={{
-                  width: "clamp(24px,2.8vw,32px)",
-                  height: "clamp(24px,2.8vw,32px)",
-                  borderRadius: "6px",
-                  border: "1px solid rgba(140,100,255,0.25)",
-                  background: "rgba(9,7,18,0.55)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  color: "#9089ab",
+                  gap: "5px",
+                  width: "clamp(56px,6.4vw,78px)",
+                  height: "clamp(22px,2.6vw,30px)",
+                  clipPath: "polygon(22% 0%,78% 0%,100% 50%,78% 100%,22% 100%,0% 50%)",
+                  background: `linear-gradient(155deg, ${c.color}66, rgba(9,7,18,0.9))`,
+                  border: `1px solid ${c.color}cc`,
+                  boxShadow: `0 0 10px ${c.color}66, inset 0 1px 0 ${c.color}55`,
                 }}
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: "48%", height: "48%" }}>
-                  {k === "shield" && <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" />}
-                  {k === "mail" && (
-                    <>
-                      <rect x="3" y="5" width="18" height="14" rx="1.5" />
-                      <path d="M3.5 6l8.5 6 8.5-6" />
-                    </>
-                  )}
-                  {k === "gear" && (
-                    <>
-                      <circle cx="12" cy="12" r="3" />
-                      <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
-                    </>
-                  )}
-                </svg>
+                <span style={{ fontSize: "10px", color: c.color }}>{c.icon}</span>
+                <span
+                  style={{
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: "clamp(9.5px,1.1vw,11.5px)",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {c.val}
+                </span>
               </div>
             ))}
           </div>
@@ -708,127 +573,6 @@ export default function Lobby({ visible }: { visible: boolean }) {
         </div>
       </div>
 
-      {/* ---------- Center-bottom: gem nav buttons ---------- */}
-      <div
-        style={{
-          position: "absolute",
-          left: "50%",
-          bottom: "clamp(70px,14vh,138px)",
-          transform: "translateX(-50%)",
-          display: "flex",
-        }}
-      >
-        {NAV.map((item) => {
-          const isActive = active === item.key;
-          return (
-            <div
-              key={item.key}
-              className="lobby-gem-col"
-              onClick={() => setActive(item.key)}
-              style={{ display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}
-            >
-              <div
-                style={{
-                  width: "clamp(64px,7.4vw,96px)",
-                  height: "3px",
-                  borderRadius: "2px",
-                  marginBottom: "clamp(5px,0.8vh,9px)",
-                  background: item.accent,
-                  boxShadow: `0 0 8px ${item.accent}, 0 0 16px ${item.accent}88`,
-                  opacity: isActive ? 1 : 0.55,
-                }}
-              />
-              <div
-                className="lobby-gem"
-                style={{
-                  width: "clamp(72px,8.2vw,104px)",
-                  height: "clamp(92px,10.6vh,132px)",
-                  clipPath: "polygon(16% 0%, 84% 0%, 100% 12%, 100% 100%, 0% 100%, 0% 12%)",
-                  background: isActive
-                    ? `linear-gradient(160deg, ${item.accent}22, rgba(6,4,12,0.97) 55%)`
-                    : "linear-gradient(160deg, rgba(12,9,20,0.9), rgba(4,3,9,0.9))",
-                  border: `1px solid ${item.accent}`,
-                  boxShadow: isActive
-                    ? `inset 0 1px 0 ${item.accent}99, 0 0 0 1px ${item.accent}55, 0 0 26px ${item.accent}88, 0 10px 24px rgba(0,0,0,0.5)`
-                    : `inset 0 1px 0 ${item.accent}44, 0 0 8px ${item.accentDim}44, 0 6px 16px rgba(0,0,0,0.4)`,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "clamp(6px,1vh,11px)",
-                  padding: "0 5px",
-                }}
-              >
-                <div
-                  style={{
-                    width: "clamp(24px,2.8vw,34px)",
-                    height: "clamp(24px,2.8vw,34px)",
-                    color: item.accent,
-                    filter: isActive ? `drop-shadow(0 0 5px ${item.accent})` : "none",
-                  }}
-                >
-                  {item.icon}
-                </div>
-                <div
-                  style={{
-                    fontFamily: "'Rajdhani', sans-serif",
-                    fontWeight: 700,
-                    fontSize: "clamp(8.5px,0.95vw,11px)",
-                    letterSpacing: "0.03em",
-                    color: isActive ? item.accent : "#c7bfe0",
-                    textAlign: "center",
-                    lineHeight: 1.15,
-                  }}
-                >
-                  {item.label}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ---------- Bottom-right: deploy ---------- */}
-      <button
-        className="lobby-deploy"
-        style={{
-          position: "absolute",
-          right: "clamp(10px,1.8vw,24px)",
-          bottom: "clamp(8px,1.6vh,18px)",
-          border: "none",
-          padding: "2px",
-          clipPath: "polygon(4% 0%, 96% 0%, 100% 50%, 96% 100%, 4% 100%, 0% 50%)",
-          background: "linear-gradient(100deg, #b48cff, #ffd9a0 45%, #ffab3d)",
-          boxShadow: "0 0 20px rgba(180,140,255,0.35), 0 0 22px rgba(255,171,61,0.3)",
-        }}
-      >
-        <div
-          style={{
-            clipPath: "polygon(4% 0%, 96% 0%, 100% 50%, 96% 100%, 4% 100%, 0% 50%)",
-            background: "linear-gradient(100deg, rgba(14,8,26,0.94), rgba(10,7,18,0.94))",
-            padding: "clamp(8px,1.3vh,12px) clamp(20px,3vw,36px)",
-            textAlign: "center",
-          }}
-        >
-          <div
-            style={{
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              fontSize: "clamp(13px,1.7vw,18px)",
-              letterSpacing: "0.1em",
-              background: "linear-gradient(100deg, #b48cff, #ffd9a0 50%, #ffab3d)",
-              WebkitBackgroundClip: "text",
-              backgroundClip: "text",
-              color: "transparent",
-            }}
-          >
-            DEPLOY NOW
-          </div>
-          <div style={{ fontSize: "clamp(7px,0.8vw,8.5px)", color: "#a99bd1", letterSpacing: "0.06em", marginTop: "1px" }}>
-            THE MISSION AWAITS
-          </div>
-        </div>
-      </button>
     </div>
   );
 }
