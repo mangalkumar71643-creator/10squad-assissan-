@@ -15,7 +15,7 @@
 import { useRef, useState } from "react";
 
 const CHAR_BTN_CLIP =
-  "polygon(1.4% 28.9%, 26.1% 6.1%, 47.7% 11.3%, 66.1% 0%, 96.9% 21%, 100% 100%, 0% 100%)";
+  "polygon(6.5% 32.9%, 30.4% 14.3%, 65.9% 5.3%, 92.6% 23.4%, 94.8% 60.4%, 92.4% 92.6%, 7% 93.7%)";
 
 export default function Lobby({ visible }: { visible: boolean }) {
   const [characterOpen, setCharacterOpen] = useState(false);
@@ -84,10 +84,10 @@ export default function Lobby({ visible }: { visible: boolean }) {
           onClick={handleTap}
           style={{
             position: "absolute",
-            left: "31.2%",
-            top: "51.9%",
-            width: "7.13%",
-            height: "22.3%",
+            left: "31.35%",
+            top: "52.11%",
+            width: "6.83%",
+            height: "21.75%",
           }}
         >
           <img
