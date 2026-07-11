@@ -60,11 +60,12 @@ export default function Lobby({ visible }: { visible: boolean }) {
           onClick={() => setCharacterOpen(true)}
           style={{
             position: "absolute",
-            left: "28%",
+            left: "31.2%",
             top: "51.9%",
-            width: "11.6%",
-            height: "23.4%",
-            borderRadius: "6px",
+            width: "7.13%",
+            height: "22.3%",
+            clipPath:
+              "polygon(1.4% 28.9%, 26.1% 6.1%, 47.7% 11.3%, 66.1% 0%, 96.9% 21%, 100% 100%, 0% 100%)",
           }}
         />
 
