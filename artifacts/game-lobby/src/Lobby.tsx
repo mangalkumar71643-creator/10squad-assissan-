@@ -1,6 +1,6 @@
-// Main hub screen shown after the splash/loading sequence. Currently just
-// the background chamber art with a soft dark vignette so it reads well
-// once foreground content is designed and added back in.
+// Main hub screen shown after the splash/loading sequence: the approved
+// background chamber art, untouched, with only the provided Character
+// Selection button placed on the platform. No other UI has been added.
 export default function Lobby({ visible }: { visible: boolean }) {
   return (
     <div
@@ -24,6 +24,34 @@ export default function Lobby({ visible }: { visible: boolean }) {
           inset: 0,
           background:
             "linear-gradient(180deg, rgba(4,3,10,0.35) 0%, rgba(4,3,10,0.05) 22%, rgba(4,3,10,0.1) 60%, rgba(4,3,10,0.75) 100%)",
+        }}
+      />
+
+      {/* Contact shadow, anchored at the same point the button rests on the platform */}
+      <div
+        style={{
+          position: "absolute",
+          left: "32%",
+          top: "73%",
+          transform: "translate(-50%, -14%)",
+          width: "clamp(70px,9vw,128px)",
+          height: "clamp(14px,1.8vw,26px)",
+          borderRadius: "50%",
+          background: "radial-gradient(ellipse, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 72%)",
+          filter: "blur(2px)",
+        }}
+      />
+
+      <img
+        src="/btn-character.png"
+        alt="Character"
+        style={{
+          position: "absolute",
+          left: "32%",
+          top: "73%",
+          transform: "translate(-50%, -100%)",
+          width: "clamp(96px,12vw,168px)",
+          height: "auto",
         }}
       />
     </div>
