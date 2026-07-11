@@ -60,10 +60,10 @@ export default function Lobby({ visible }: { visible: boolean }) {
           onClick={() => setCharacterOpen(true)}
           style={{
             position: "absolute",
-            left: "26.5%",
-            top: "40%",
-            width: "14.5%",
-            height: "36%",
+            left: "28%",
+            top: "51.9%",
+            width: "11.6%",
+            height: "23.4%",
             borderRadius: "6px",
           }}
         />
