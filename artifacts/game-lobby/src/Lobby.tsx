@@ -8,13 +8,28 @@
 // Current iteration: the full approved concept-art mockup used directly
 // as a single flat image, locked to a 16:9 frame and letterboxed so it
 // never stretches or crops on devices with a different aspect ratio.
-// An invisible tap target sits over the "CHARACTER" gem in the artwork
-// (the button itself is just pixels in the image, not a real element)
-// and opens a Character panel overlay.
-import { useState } from "react";
+// The "CHARACTER" gem is cropped out of that same artwork as its own
+// pixel-identical image (so it sits seamlessly over the background at
+// rest) which lets it actually press down and pop back up on tap,
+// instead of just being a dead hotspot — then opens a Character panel.
+import { useRef, useState } from "react";
+
+const CHAR_BTN_CLIP =
+  "polygon(1.4% 28.9%, 26.1% 6.1%, 47.7% 11.3%, 66.1% 0%, 96.9% 21%, 100% 100%, 0% 100%)";
 
 export default function Lobby({ visible }: { visible: boolean }) {
   const [characterOpen, setCharacterOpen] = useState(false);
+  const [popping, setPopping] = useState(false);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const handleTap = () => {
+    timers.current.forEach(clearTimeout);
+    setPopping(true);
+    timers.current = [
+      setTimeout(() => setCharacterOpen(true), 160),
+      setTimeout(() => setPopping(false), 340),
+    ];
+  };
 
   return (
     <div
@@ -32,9 +47,16 @@ export default function Lobby({ visible }: { visible: boolean }) {
       }}
     >
       <style>{`
-        .char-hotspot { transition: background 0.15s ease, box-shadow 0.15s ease; cursor: pointer; }
-        .char-hotspot:hover { background: rgba(180,140,255,0.1); box-shadow: inset 0 0 0 1px rgba(180,140,255,0.5); }
-        .char-hotspot:active { background: rgba(180,140,255,0.18); }
+        @keyframes char-btn-pop {
+          0% { transform: scale(1) translateY(0); filter: brightness(1) drop-shadow(0 0 0 rgba(180,140,255,0)); }
+          32% { transform: scale(0.92) translateY(3px); filter: brightness(0.82) drop-shadow(0 0 0 rgba(180,140,255,0)); }
+          68% { transform: scale(1.08) translateY(-6px); filter: brightness(1.3) drop-shadow(0 6px 14px rgba(180,140,255,0.7)); }
+          100% { transform: scale(1) translateY(0); filter: brightness(1) drop-shadow(0 0 0 rgba(180,140,255,0)); }
+        }
+        .char-btn-wrap { cursor: pointer; }
+        .char-btn-wrap img { display: block; transition: transform 0.1s ease, filter 0.1s ease; transform-origin: 50% 100%; }
+        .char-btn-wrap:active img { transform: scale(0.92) translateY(3px); filter: brightness(0.82); }
+        .char-btn-wrap.is-popping img { animation: char-btn-pop 340ms ease-out; }
       `}</style>
 
       <div
@@ -54,20 +76,26 @@ export default function Lobby({ visible }: { visible: boolean }) {
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
         />
 
-        {/* Invisible tap target over the CHARACTER gem in the artwork */}
+        {/* The CHARACTER gem, cropped from the same artwork so it's
+            pixel-seamless at rest, made tappable with real press/pop
+            feedback since it's now a real (if invisibly-seamed) element. */}
         <div
-          className="char-hotspot"
-          onClick={() => setCharacterOpen(true)}
+          className={`char-btn-wrap${popping ? " is-popping" : ""}`}
+          onClick={handleTap}
           style={{
             position: "absolute",
             left: "31.2%",
             top: "51.9%",
             width: "7.13%",
             height: "22.3%",
-            clipPath:
-              "polygon(1.4% 28.9%, 26.1% 6.1%, 47.7% 11.3%, 66.1% 0%, 96.9% 21%, 100% 100%, 0% 100%)",
           }}
-        />
+        >
+          <img
+            src="/btn-character-crop.jpg"
+            alt="Character"
+            style={{ width: "100%", height: "100%", clipPath: CHAR_BTN_CLIP }}
+          />
+        </div>
 
         {/* Character panel, opened by tapping the CHARACTER gem above */}
         <div
