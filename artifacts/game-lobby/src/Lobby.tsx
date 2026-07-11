@@ -18,9 +18,10 @@ const NAV: { key: NavKey; label: string; accent: string; accentDim: string; icon
     accent: "#b48cff",
     accentDim: "#5a3f99",
     icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M12 3.2c-2.9 0-5.2 1.9-5.2 5v2.6c0 1 .3 1.9.9 2.7L7 17.5h2.4l.5-1.3h4.2l.5 1.3H17l-1.7-4c.6-.8.9-1.7.9-2.7V8.2c0-3.1-2.3-5-5.2-5z" />
-        <path d="M8.6 9.6c0 1.6 1.5 2.7 3.4 2.7s3.4-1.1 3.4-2.7" />
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <path d="M12 2.6C8.4 2.6 6 5.4 6 9v1.4c0 1.6.6 2.9 1.7 3.9L6.4 18h11.2l-1.3-3.7c1.1-1 1.7-2.3 1.7-3.9V9c0-3.6-2.4-6.4-6-6.4z" />
+        <circle cx="12" cy="9.4" r="2.1" />
+        <path d="M8.6 21.4c1-.5 2.2-.8 3.4-.8s2.4.3 3.4.8" />
       </svg>
     ),
   },
@@ -42,9 +43,10 @@ const NAV: { key: NavKey; label: string; accent: string; accentDim: string; icon
     accent: "#4db3ff",
     accentDim: "#1f5f8f",
     icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
-        <path d="M12 3.5l8.2 14.2H3.8L12 3.5z" />
-        <path d="M12 10.3l3.6 6.2H8.4l3.6-6.2z" fill="currentColor" fillOpacity="0.28" />
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3">
+        <path d="M12 3l8.5 14.7H3.5L12 3z" />
+        <path d="M12 9.2l4.6 8H7.4L12 9.2z" />
+        <path d="M12 3v6.2M6.3 13.4l2.7-1.4M17.7 13.4l-2.7-1.4" opacity="0.7" />
       </svg>
     ),
   },
@@ -63,12 +65,52 @@ const NAV: { key: NavKey; label: string; accent: string; accentDim: string; icon
   },
 ];
 
-const SIDE_NAV = [
-  { label: "Core Vault", icon: "◆" },
-  { label: "Tactical Lab", icon: "⚗" },
-  { label: "Squad Log", icon: "▤" },
-  { label: "Achievements", icon: "✦" },
-  { label: "Codex Archive", icon: "▥" },
+const SIDE_NAV: { label: string; icon: JSX.Element }[] = [
+  {
+    label: "Core Vault",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <path d="M12 2.5l8.5 4.9v9.2L12 21.5l-8.5-4.9V7.4L12 2.5z" />
+        <path d="M12 8l3.2 1.9v3.8L12 15.6l-3.2-1.9V9.9L12 8z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Tactical Lab",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <path d="M9.5 3h5M10.5 3v5.5L6.8 15c-.7 1.3.2 2.9 1.7 2.9h7c1.5 0 2.4-1.6 1.7-2.9L13.5 8.5V3" />
+        <path d="M8.7 13.5h6.6" />
+      </svg>
+    ),
+  },
+  {
+    label: "Squad Log",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <rect x="4.5" y="3" width="15" height="18" rx="1.2" />
+        <path d="M8 8h8M8 12h8M8 16h5" />
+      </svg>
+    ),
+  },
+  {
+    label: "Achievements",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <path d="M12 2.5l2.4 5 5.4.6-4 3.8 1 5.4L12 14.6 7.2 17.3l1-5.4-4-3.8 5.4-.6L12 2.5z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Codex Archive",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <path d="M5 4.5h9.5A3.5 3.5 0 0 1 18 8v11.5H8.5A3.5 3.5 0 0 1 5 16V4.5z" />
+        <path d="M5 4.5v11.5A3.5 3.5 0 0 0 8.5 19.5H18" />
+        <path d="M8 8.5h6.5M8 11.5h6.5" />
+      </svg>
+    ),
+  },
 ];
 
 const TICKS = Array.from({ length: 20 }, (_, i) => i);
@@ -110,14 +152,15 @@ export default function Lobby({ visible }: { visible: boolean }) {
           0%, 100% { opacity: 0.4; transform: scaleY(0.9); }
           50% { opacity: 0.9; transform: scaleY(1.05); }
         }
-        .lobby-gem { transition: transform 0.18s ease, filter 0.18s ease; cursor: pointer; position: relative; }
-        .lobby-gem:hover { transform: translateY(-6px); }
-        .lobby-gem + .lobby-gem::before {
+        .lobby-gem-col { position: relative; }
+        .lobby-gem { transition: transform 0.18s ease, filter 0.18s ease; }
+        .lobby-gem-col:hover .lobby-gem { transform: translateY(-6px); }
+        .lobby-gem-col + .lobby-gem-col::before {
           content: "";
           position: absolute;
           left: -1px;
-          top: 14%;
-          bottom: 14%;
+          top: 22%;
+          bottom: 8%;
           width: 1px;
           background: linear-gradient(180deg, transparent, rgba(180,150,255,0.5), transparent);
         }
@@ -322,7 +365,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
                   whiteSpace: "nowrap",
                 }}
               >
-                <span style={{ color: "#7c5fc4", fontSize: "10px", width: "11px", textAlign: "center", flexShrink: 0 }}>{item.icon}</span>
+                <span style={{ color: "#7c5fc4", width: "12px", height: "12px", flexShrink: 0 }}>{item.icon}</span>
                 {item.label}
               </div>
             ))}
@@ -680,40 +723,65 @@ export default function Lobby({ visible }: { visible: boolean }) {
           return (
             <div
               key={item.key}
-              className="lobby-gem"
+              className="lobby-gem-col"
               onClick={() => setActive(item.key)}
-              style={{
-                width: "clamp(70px,8vw,102px)",
-                height: "clamp(96px,11vh,138px)",
-                clipPath: "polygon(18% 0%, 82% 0%, 100% 14%, 100% 100%, 0% 100%, 0% 14%)",
-                background: isActive
-                  ? "linear-gradient(160deg, rgba(22,15,36,0.96), rgba(6,4,12,0.96))"
-                  : "linear-gradient(160deg, rgba(14,11,24,0.84), rgba(5,4,10,0.84))",
-                border: `1px solid ${item.accent}`,
-                boxShadow: isActive
-                  ? `inset 0 1px 0 ${item.accent}99, 0 0 0 1px ${item.accent}55, 0 0 26px ${item.accent}88, 0 10px 24px rgba(0,0,0,0.5)`
-                  : `inset 0 1px 0 ${item.accent}55, 0 0 10px ${item.accentDim}55, 0 6px 16px rgba(0,0,0,0.4)`,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "clamp(5px,0.9vh,9px)",
-                padding: "0 5px",
-              }}
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}
             >
-              <div style={{ width: "clamp(22px,2.6vw,32px)", height: "clamp(22px,2.6vw,32px)", color: item.accent }}>{item.icon}</div>
               <div
                 style={{
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  fontSize: "clamp(8.5px,0.95vw,11px)",
-                  letterSpacing: "0.03em",
-                  color: isActive ? item.accent : "#c7bfe0",
-                  textAlign: "center",
-                  lineHeight: 1.15,
+                  width: "clamp(64px,7.4vw,96px)",
+                  height: "3px",
+                  borderRadius: "2px",
+                  marginBottom: "clamp(5px,0.8vh,9px)",
+                  background: item.accent,
+                  boxShadow: `0 0 8px ${item.accent}, 0 0 16px ${item.accent}88`,
+                  opacity: isActive ? 1 : 0.55,
+                }}
+              />
+              <div
+                className="lobby-gem"
+                style={{
+                  width: "clamp(72px,8.2vw,104px)",
+                  height: "clamp(92px,10.6vh,132px)",
+                  clipPath: "polygon(16% 0%, 84% 0%, 100% 12%, 100% 100%, 0% 100%, 0% 12%)",
+                  background: isActive
+                    ? `linear-gradient(160deg, ${item.accent}22, rgba(6,4,12,0.97) 55%)`
+                    : "linear-gradient(160deg, rgba(12,9,20,0.9), rgba(4,3,9,0.9))",
+                  border: `1px solid ${item.accent}`,
+                  boxShadow: isActive
+                    ? `inset 0 1px 0 ${item.accent}99, 0 0 0 1px ${item.accent}55, 0 0 26px ${item.accent}88, 0 10px 24px rgba(0,0,0,0.5)`
+                    : `inset 0 1px 0 ${item.accent}44, 0 0 8px ${item.accentDim}44, 0 6px 16px rgba(0,0,0,0.4)`,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "clamp(6px,1vh,11px)",
+                  padding: "0 5px",
                 }}
               >
-                {item.label}
+                <div
+                  style={{
+                    width: "clamp(24px,2.8vw,34px)",
+                    height: "clamp(24px,2.8vw,34px)",
+                    color: item.accent,
+                    filter: isActive ? `drop-shadow(0 0 5px ${item.accent})` : "none",
+                  }}
+                >
+                  {item.icon}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: "clamp(8.5px,0.95vw,11px)",
+                    letterSpacing: "0.03em",
+                    color: isActive ? item.accent : "#c7bfe0",
+                    textAlign: "center",
+                    lineHeight: 1.15,
+                  }}
+                >
+                  {item.label}
+                </div>
               </div>
             </div>
           );
