@@ -116,106 +116,123 @@ export default function Lobby({ visible }: { visible: boolean }) {
               }}
             />
 
-            {/* Monolith body */}
+            {/* Monolith body: pointed pentagon "roof" over a rectangular
+                base, with a thick metallic frame (outer layer) wrapping a
+                dark cracked-stone fill (inner layer). */}
             <div
               style={{
                 position: "relative",
-                width: "clamp(76px,8.6vw,112px)",
-                height: "clamp(118px,13.4vh,174px)",
-                margin: "0 clamp(3px,0.5vw,7px)",
-                clipPath: "polygon(17% 0%, 83% 0%, 100% 11%, 100% 100%, 0% 100%, 0% 11%)",
-                background: `
-                  radial-gradient(120% 90% at 30% 8%, rgba(255,255,255,0.10), transparent 55%),
-                  linear-gradient(200deg, rgba(28,24,40,0.97) 0%, rgba(9,8,16,0.98) 55%, rgba(4,4,8,0.99) 100%)
-                `,
-                border: `1px solid ${b.accent}`,
-                boxShadow: `
-                  inset 0 1px 0 ${b.accent}bb,
-                  inset 0 0 22px ${b.accentDim}44,
-                  0 0 18px ${b.accent}77,
-                  0 0 40px ${b.accentDim}55,
-                  0 14px 22px rgba(0,0,0,0.55)
-                `,
-                overflow: "hidden",
+                width: "clamp(82px,9.2vw,122px)",
+                height: "clamp(140px,16vh,208px)",
+                margin: "0 clamp(2px,0.35vw,5px)",
+                clipPath: "polygon(0% 26%, 33% 0%, 67% 0%, 100% 26%, 100% 100%, 0% 100%)",
+                padding: "clamp(3px,0.5vh,5px)",
+                background: `linear-gradient(155deg, #e9e2ff 0%, ${b.accent} 22%, ${b.accentDim} 50%, #1a1424 78%, #0a0812 100%)`,
+                boxShadow: `0 0 18px ${b.accent}88, 0 0 42px ${b.accentDim}55, 0 16px 24px rgba(0,0,0,0.6)`,
               }}
             >
-              {/* Crack / energy vein texture, unique-ish per column via icon key hash */}
-              <svg
-                viewBox="0 0 100 160"
-                preserveAspectRatio="none"
-                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.55 }}
-              >
-                <path
-                  d="M8 20 L28 34 L20 55 L40 68 L30 95 L48 112 L38 140"
-                  fill="none"
-                  stroke={b.accent}
-                  strokeWidth="0.6"
-                  opacity="0.5"
-                />
-                <path
-                  d="M92 15 L72 30 L82 50 L60 64 L74 90 L54 108 L66 138"
-                  fill="none"
-                  stroke={b.accent}
-                  strokeWidth="0.6"
-                  opacity="0.5"
-                />
-              </svg>
-
-              {/* Sheen sweep for a "realistic reflection" pass */}
               <div
-                className="monolith-sheen"
                 style={{
-                  position: "absolute",
-                  top: "-20%",
-                  left: 0,
-                  width: "26%",
-                  height: "140%",
-                  background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.16), transparent)",
-                  animation: "monolith-sheen 6s ease-in-out infinite",
-                  animationDelay: `${BUTTONS.indexOf(b) * 1.1}s`,
-                  pointerEvents: "none",
-                }}
-              />
-
-              {/* Content */}
-              <div
-                className="monolith-glow"
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "clamp(8px,1.4vh,14px)",
-                  padding: "0 6px",
-                  animation: "monolith-glow 3.6s ease-in-out infinite",
-                  animationDelay: `${BUTTONS.indexOf(b) * 0.4}s`,
+                  position: "relative",
+                  width: "100%",
+                  height: "100%",
+                  clipPath: "polygon(0% 26%, 33% 0%, 67% 0%, 100% 26%, 100% 100%, 0% 100%)",
+                  background: `
+                    radial-gradient(140% 70% at 50% 0%, ${b.accentDim}3d, transparent 60%),
+                    radial-gradient(90% 60% at 20% 90%, rgba(255,255,255,0.05), transparent 60%),
+                    linear-gradient(200deg, rgba(30,25,42,0.98) 0%, rgba(11,10,18,0.99) 55%, rgba(4,4,8,1) 100%)
+                  `,
+                  overflow: "hidden",
                 }}
               >
+                {/* Cracked-stone vein texture */}
+                <svg
+                  viewBox="0 0 100 190"
+                  preserveAspectRatio="none"
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.6 }}
+                >
+                  <path d="M2 10 L18 26 L10 44 L26 58 L14 80 L30 98 L18 122 L34 140 L24 168"
+                    fill="none" stroke={b.accent} strokeWidth="0.55" opacity="0.45" />
+                  <path d="M98 8 L80 24 L90 40 L70 54 L84 76 L64 94 L78 118 L60 136 L72 165"
+                    fill="none" stroke={b.accent} strokeWidth="0.55" opacity="0.45" />
+                  <path d="M50 4 L44 22 L56 36 L46 52" fill="none" stroke="#fff" strokeWidth="0.4" opacity="0.3" />
+                  <path d="M8 100 L22 108 L16 122" fill="none" stroke={b.accent} strokeWidth="0.4" opacity="0.35" />
+                  <path d="M90 105 L78 112 L84 128" fill="none" stroke={b.accent} strokeWidth="0.4" opacity="0.35" />
+                  <path d="M20 150 L36 158 L28 178" fill="none" stroke={b.accent} strokeWidth="0.4" opacity="0.3" />
+                  <path d="M78 155 L64 162 L74 180" fill="none" stroke={b.accent} strokeWidth="0.4" opacity="0.3" />
+                </svg>
+
+                {/* Sheen sweep for a "realistic reflection" pass */}
                 <div
+                  className="monolith-sheen"
                   style={{
-                    width: "clamp(26px,3vw,38px)",
-                    height: "clamp(26px,3vw,38px)",
-                    color: b.accent,
-                    filter: `drop-shadow(0 0 6px ${b.accent}) drop-shadow(0 1px 1px rgba(0,0,0,0.8))`,
+                    position: "absolute",
+                    top: "-20%",
+                    left: 0,
+                    width: "22%",
+                    height: "140%",
+                    background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent)",
+                    animation: "monolith-sheen 6s ease-in-out infinite",
+                    animationDelay: `${BUTTONS.indexOf(b) * 1.1}s`,
+                    pointerEvents: "none",
+                  }}
+                />
+
+                {/* Content */}
+                <div
+                  className="monolith-glow"
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                    gap: "clamp(9px,1.5vh,15px)",
+                    padding: "0 6px clamp(14px,2.4vh,22px)",
+                    animation: "monolith-glow 3.6s ease-in-out infinite",
+                    animationDelay: `${BUTTONS.indexOf(b) * 0.4}s`,
                   }}
                 >
-                  {b.icon}
-                </div>
-                <div
-                  style={{
-                    fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
-                    fontWeight: 700,
-                    fontSize: "clamp(8.5px,1vw,11.5px)",
-                    letterSpacing: "0.04em",
-                    color: "#f1ecff",
-                    textAlign: "center",
-                    lineHeight: 1.2,
-                    textShadow: `0 1px 1px rgba(0,0,0,0.9), 0 -1px 0 rgba(255,255,255,0.15), 0 0 10px ${b.accent}bb`,
-                  }}
-                >
-                  {b.label}
+                  <div
+                    style={{
+                      position: "relative",
+                      width: "clamp(38px,4.4vw,54px)",
+                      height: "clamp(38px,4.4vw,54px)",
+                      marginTop: "clamp(10px,3vh,26px)",
+                      borderRadius: "50%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: `radial-gradient(circle, ${b.accentDim}33 0%, transparent 72%)`,
+                      border: `1px solid ${b.accent}66`,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "58%",
+                        height: "58%",
+                        color: b.accent,
+                        filter: `drop-shadow(0 0 6px ${b.accent}) drop-shadow(0 1px 1px rgba(0,0,0,0.8))`,
+                      }}
+                    >
+                      {b.icon}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: "'Rajdhani', 'Arial Narrow', sans-serif",
+                      fontWeight: 700,
+                      fontSize: "clamp(8.5px,1vw,11.5px)",
+                      letterSpacing: "0.04em",
+                      color: "#f1ecff",
+                      textAlign: "center",
+                      lineHeight: 1.2,
+                      textShadow: `0 1px 1px rgba(0,0,0,0.9), 0 -1px 0 rgba(255,255,255,0.15), 0 0 10px ${b.accent}bb`,
+                    }}
+                  >
+                    {b.label}
+                  </div>
                 </div>
               </div>
             </div>
