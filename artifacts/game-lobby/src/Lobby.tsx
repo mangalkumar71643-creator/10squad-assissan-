@@ -32,10 +32,10 @@ export default function Lobby({ visible }: { visible: boolean }) {
         style={{
           position: "absolute",
           left: "32%",
-          top: "73%",
+          top: "85%",
           transform: "translate(-50%, -14%)",
-          width: "clamp(70px,9vw,128px)",
-          height: "clamp(14px,1.8vw,26px)",
+          width: "clamp(130px,16.5vw,230px)",
+          height: "clamp(22px,2.8vw,38px)",
           borderRadius: "50%",
           background: "radial-gradient(ellipse, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 72%)",
           filter: "blur(2px)",
@@ -48,9 +48,9 @@ export default function Lobby({ visible }: { visible: boolean }) {
         style={{
           position: "absolute",
           left: "32%",
-          top: "73%",
+          top: "85%",
           transform: "translate(-50%, -100%)",
-          width: "clamp(96px,12vw,168px)",
+          width: "clamp(150px,12.4vw,260px)",
           height: "auto",
         }}
       />
