@@ -33,9 +33,9 @@ export default function Lobby({ visible }: { visible: boolean }) {
         overflow: "hidden",
       }}
     >
-      {/* Whole lobby (background + all UI overlays) nudged down 5px as one
+      {/* Whole lobby (background + all UI overlays) nudged down 10px as one
           unit so it lines up with the bottom of the real device screen. */}
-      <div style={{ position: "absolute", inset: 0, transform: "translateY(5px)" }}>
+      <div style={{ position: "absolute", inset: 0, transform: "translateY(10px)" }}>
         <img
           src="/lobby-full-mockup.jpg"
           alt="10 Squad Assassin lobby"
