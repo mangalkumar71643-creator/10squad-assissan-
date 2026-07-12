@@ -8,9 +8,17 @@
 // and are layered back on top here as their own sprites pinned to a
 // small fixed safe-area margin, so they stay fully visible on every
 // device no matter how much the background itself gets cropped.
-const TOP_MARGIN = "max(10px, env(safe-area-inset-top, 0px) + 10px)";
 const BOTTOM_MARGIN = "max(14px, env(safe-area-inset-bottom, 0px) + 14px)";
-const SIDE_MARGIN = "max(10px, env(safe-area-inset-left, 0px) + 10px)";
+// Top panels: shifted 60px inward from their original 10px corner position
+// (>=60px side margin, as requested). The right panel also drops the full
+// 35px (>=40px top margin) since there's open background below it. The
+// left panel can only drop ~8px before its box starts covering the
+// SYSTEM CORE panel title directly beneath it in the source art, so its
+// vertical shift is capped there to avoid overlapping that panel.
+const TOP_RIGHT_PANEL_TOP = "max(45px, env(safe-area-inset-top, 0px) + 45px)";
+const TOP_LEFT_PANEL_TOP = "max(18px, env(safe-area-inset-top, 0px) + 18px)";
+const TOP_LEFT_PANEL_LEFT = "max(70px, env(safe-area-inset-left, 0px) + 70px)";
+const TOP_RIGHT_PANEL_RIGHT = "max(70px, env(safe-area-inset-right, 0px) + 70px)";
 
 export default function Lobby({ visible }: { visible: boolean }) {
   return (
@@ -34,13 +42,13 @@ export default function Lobby({ visible }: { visible: boolean }) {
         src="/lobby-bar-top-left.png"
         alt=""
         aria-hidden="true"
-        style={{ position: "absolute", top: TOP_MARGIN, left: SIDE_MARGIN, width: "21.875%" }}
+        style={{ position: "absolute", top: TOP_LEFT_PANEL_TOP, left: TOP_LEFT_PANEL_LEFT, width: "21.875%" }}
       />
       <img
         src="/lobby-bar-top-right.png"
         alt=""
         aria-hidden="true"
-        style={{ position: "absolute", top: TOP_MARGIN, right: SIDE_MARGIN, width: "24.48%" }}
+        style={{ position: "absolute", top: TOP_RIGHT_PANEL_TOP, right: TOP_RIGHT_PANEL_RIGHT, width: "24.48%" }}
       />
       <img
         src="/lobby-bar-bottom.png"
