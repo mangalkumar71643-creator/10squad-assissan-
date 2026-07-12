@@ -1,12 +1,18 @@
 // Main hub screen shown after the splash/loading sequence: the approved
-// concept-art mockup, natively 16:9. The mockup has UI (Deploy Now,
-// bottom nav, System Core, Live Intel, etc.) baked right up to its edges,
-// so on a device wider than 16:9 a `cover` fit crops those elements off.
-// Shown via `contain` instead (never crops the artwork) inset by a safe
-// margin, with a blurred copy of the same image filling the space around
-// it so there are no black bars.
+// concept-art mockup, natively 16:9, rendered full-bleed edge-to-edge
+// (object-fit: cover, same scale as the rest of the app's backgrounds,
+// no letterboxing). The mockup originally had UI (profile panel,
+// currency panel, Deploy Now, bottom nav) baked right up to its edges,
+// which a `cover` fit crops on devices wider than 16:9. Those pieces
+// have been cut out of the background (with the gap blended back in)
+// and are layered back on top here as their own sprites pinned to a
+// small fixed safe-area margin, so they stay fully visible on every
+// device no matter how much the background itself gets cropped.
+const TOP_MARGIN = "max(10px, env(safe-area-inset-top, 0px) + 10px)";
+const BOTTOM_MARGIN = "max(14px, env(safe-area-inset-bottom, 0px) + 14px)";
+const SIDE_MARGIN = "max(10px, env(safe-area-inset-left, 0px) + 10px)";
+
 export default function Lobby({ visible }: { visible: boolean }) {
-  const inset = "max(70px, env(safe-area-inset-top, 0px) + 70px)";
   return (
     <div
       style={{
@@ -21,31 +27,26 @@ export default function Lobby({ visible }: { visible: boolean }) {
     >
       <img
         src="/lobby-full-mockup.jpg"
-        alt=""
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          inset: 0,
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          filter: "blur(40px) brightness(0.5)",
-          transform: "scale(1.1)",
-        }}
+        alt="10 Squad Assassin lobby"
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
       />
       <img
-        src="/lobby-full-mockup.jpg"
-        alt="10 Squad Assassin lobby"
-        style={{
-          position: "absolute",
-          top: inset,
-          bottom: inset,
-          left: inset,
-          right: inset,
-          width: `calc(100% - 2 * ${inset})`,
-          height: `calc(100% - 2 * ${inset})`,
-          objectFit: "contain",
-        }}
+        src="/lobby-bar-top-left.png"
+        alt=""
+        aria-hidden="true"
+        style={{ position: "absolute", top: TOP_MARGIN, left: SIDE_MARGIN, width: "21.875%" }}
+      />
+      <img
+        src="/lobby-bar-top-right.png"
+        alt=""
+        aria-hidden="true"
+        style={{ position: "absolute", top: TOP_MARGIN, right: SIDE_MARGIN, width: "24.48%" }}
+      />
+      <img
+        src="/lobby-bar-bottom.png"
+        alt=""
+        aria-hidden="true"
+        style={{ position: "absolute", bottom: BOTTOM_MARGIN, left: 0, width: "100%" }}
       />
     </div>
   );
