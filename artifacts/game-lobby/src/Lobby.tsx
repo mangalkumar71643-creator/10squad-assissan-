@@ -36,7 +36,21 @@ export default function Lobby({ visible }: { visible: boolean }) {
       <img
         src="/lobby-full-mockup.jpg"
         alt="10 Squad Assassin lobby"
-        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          // Slight overscan: some viewports report a hair less usable
+          // height than 100% (mobile browser/WebView chrome), which left
+          // a thin gap at the bottom under a plain `cover` fit. Scaling
+          // up a touch from the top edge grows the image downward only,
+          // so it always overshoots the bottom with zero gap while the
+          // top stays exactly where it was.
+          transform: "scale(1.04)",
+          transformOrigin: "50% 0%",
+        }}
       />
       <img
         src="/lobby-bar-top-left.png"
