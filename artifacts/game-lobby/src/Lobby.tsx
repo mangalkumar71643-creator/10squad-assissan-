@@ -88,6 +88,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
             top: "52.11%",
             width: "6.83%",
             height: "21.75%",
+            clipPath: CHAR_BTN_CLIP,
           }}
         >
           <img
