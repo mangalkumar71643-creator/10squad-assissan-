@@ -48,14 +48,14 @@ export default function Lobby({ visible }: { visible: boolean }) {
     >
       <style>{`
         @keyframes char-btn-pop {
-          0% { transform: scale(1) translateY(0); filter: brightness(1) drop-shadow(0 0 0 rgba(180,140,255,0)); }
-          32% { transform: scale(0.92) translateY(3px); filter: brightness(0.82) drop-shadow(0 0 0 rgba(180,140,255,0)); }
-          68% { transform: scale(1.08) translateY(-6px); filter: brightness(1.3) drop-shadow(0 6px 14px rgba(180,140,255,0.7)); }
-          100% { transform: scale(1) translateY(0); filter: brightness(1) drop-shadow(0 0 0 rgba(180,140,255,0)); }
+          0% { transform: translateY(0) scale(1); filter: brightness(1) drop-shadow(0 0 0 rgba(180,140,255,0)); }
+          32% { transform: translateY(7px) scale(0.985); filter: brightness(0.82) drop-shadow(0 0 0 rgba(180,140,255,0)); }
+          68% { transform: translateY(-11px) scale(1.015); filter: brightness(1.3) drop-shadow(0 6px 14px rgba(180,140,255,0.7)); }
+          100% { transform: translateY(0) scale(1); filter: brightness(1) drop-shadow(0 0 0 rgba(180,140,255,0)); }
         }
         .char-btn-wrap { cursor: pointer; }
-        .char-btn-wrap img { display: block; transition: transform 0.1s ease, filter 0.1s ease; transform-origin: 50% 100%; }
-        .char-btn-wrap:active img { transform: scale(0.92) translateY(3px); filter: brightness(0.82); }
+        .char-btn-wrap img { display: block; transition: transform 0.1s ease, filter 0.1s ease; transform-origin: 50% 50%; }
+        .char-btn-wrap:active img { transform: translateY(7px) scale(0.985); filter: brightness(0.82); }
         .char-btn-wrap.is-popping img { animation: char-btn-pop 340ms ease-out; }
       `}</style>
 
