@@ -131,6 +131,7 @@ function CharacterPanel({ onClose }: { onClose: () => void }) {
 
 export default function Lobby({ visible }: { visible: boolean }) {
   const [characterOpen, setCharacterOpen] = useState(false);
+  const [characterPressed, setCharacterPressed] = useState(false);
 
   return (
     <div
@@ -167,6 +168,12 @@ export default function Lobby({ visible }: { visible: boolean }) {
       <button
         aria-label="Character"
         onClick={() => setCharacterOpen(true)}
+        onMouseDown={() => setCharacterPressed(true)}
+        onMouseUp={() => setCharacterPressed(false)}
+        onMouseLeave={() => setCharacterPressed(false)}
+        onTouchStart={() => setCharacterPressed(true)}
+        onTouchEnd={() => setCharacterPressed(false)}
+        onTouchCancel={() => setCharacterPressed(false)}
         style={{
           position: "absolute",
           left: `${CHAR_BTN.left}%`,
@@ -180,7 +187,24 @@ export default function Lobby({ visible }: { visible: boolean }) {
           cursor: "pointer",
           WebkitTapHighlightColor: "transparent",
         }}
-      />
+      >
+        {/* The button itself is baked into the background and doesn't
+            move; this highlight just outlines the actual tappable area
+            while held, so it's visible how far the hit-area extends. */}
+        <span
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: 10,
+            border: "2px solid rgba(190,140,255,0.9)",
+            background: "rgba(150,90,255,0.16)",
+            boxShadow: "0 0 18px rgba(170,110,255,0.6), inset 0 0 18px rgba(170,110,255,0.35)",
+            opacity: characterPressed ? 1 : 0,
+            transition: "opacity 100ms ease-out",
+          }}
+        />
+      </button>
 
       {characterOpen && <CharacterPanel onClose={() => setCharacterOpen(false)} />}
     </div>
