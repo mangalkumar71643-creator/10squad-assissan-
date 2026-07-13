@@ -12,12 +12,21 @@ import { useState } from "react";
 // screen). There's no character roster backend wired into this rebuilt
 // frontend yet, so tapping it opens a placeholder panel.
 
+// Precisely traced against the source artwork (1920x1080) at 4x zoom with
+// a pixel grid overlay, so the hit-area matches the visible crystal card
+// exactly instead of a loose rectangle around it.
+const CHAR_BOX = { left: 515, top: 615, right: 712, bottom: 880 };
 const CHAR_BTN = {
-  left: (495 / 1920) * 100,
-  top: (590 / 1080) * 100,
-  width: ((755 - 495) / 1920) * 100,
-  height: ((935 - 590) / 1080) * 100,
+  left: (CHAR_BOX.left / 1920) * 100,
+  top: (CHAR_BOX.top / 1080) * 100,
+  width: ((CHAR_BOX.right - CHAR_BOX.left) / 1920) * 100,
+  height: ((CHAR_BOX.bottom - CHAR_BOX.top) / 1080) * 100,
 };
+// Octagon outline of the card, as % of CHAR_BTN's own box (clip-path is
+// relative to the element it's applied to, so this stays correct however
+// CHAR_BTN itself is scaled/positioned).
+const CHAR_CLIP =
+  "polygon(52% 1%, 98% 14%, 99% 79%, 73% 93%, 52% 99%, 32% 93%, 4% 79%, 5% 14%)";
 
 function CharacterPanel({ onClose }: { onClose: () => void }) {
   return (
@@ -180,6 +189,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
           top: `${CHAR_BTN.top}%`,
           width: `${CHAR_BTN.width}%`,
           height: `${CHAR_BTN.height}%`,
+          clipPath: CHAR_CLIP,
           background: "transparent",
           border: "none",
           padding: 0,
@@ -190,13 +200,16 @@ export default function Lobby({ visible }: { visible: boolean }) {
       >
         {/* The button itself is baked into the background and doesn't
             move; this highlight just outlines the actual tappable area
-            while held, so it's visible how far the hit-area extends. */}
+            while held, so it's visible how far the hit-area extends.
+            Same clip-path as the button itself (not just this visual
+            child) so the shown outline always matches the real hit-test
+            region exactly. */}
         <span
           aria-hidden="true"
           style={{
             position: "absolute",
             inset: 0,
-            borderRadius: 10,
+            clipPath: CHAR_CLIP,
             border: "2px solid rgba(190,140,255,0.9)",
             background: "rgba(150,90,255,0.16)",
             boxShadow: "0 0 18px rgba(170,110,255,0.6), inset 0 0 18px rgba(170,110,255,0.35)",
