@@ -131,7 +131,6 @@ function CharacterPanel({ onClose }: { onClose: () => void }) {
 
 export default function Lobby({ visible }: { visible: boolean }) {
   const [characterOpen, setCharacterOpen] = useState(false);
-  const [characterPressed, setCharacterPressed] = useState(false);
 
   return (
     <div
@@ -168,12 +167,6 @@ export default function Lobby({ visible }: { visible: boolean }) {
       <button
         aria-label="Character"
         onClick={() => setCharacterOpen(true)}
-        onMouseDown={() => setCharacterPressed(true)}
-        onMouseUp={() => setCharacterPressed(false)}
-        onMouseLeave={() => setCharacterPressed(false)}
-        onTouchStart={() => setCharacterPressed(true)}
-        onTouchEnd={() => setCharacterPressed(false)}
-        onTouchCancel={() => setCharacterPressed(false)}
         style={{
           position: "absolute",
           left: `${CHAR_BTN.left}%`,
@@ -187,26 +180,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
           cursor: "pointer",
           WebkitTapHighlightColor: "transparent",
         }}
-      >
-        {/* The Character monolith is baked into the background; this sprite
-            is the same artwork cut out and layered back on top so it can
-            visibly move on tap — the original spot underneath is blended
-            into the floor so nothing peeks out when it shifts. */}
-        <img
-          src="/char-button-sprite.png"
-          alt=""
-          aria-hidden="true"
-          draggable={false}
-          style={{
-            width: "100%",
-            height: "100%",
-            display: "block",
-            pointerEvents: "none",
-            transform: `translateY(${characterPressed ? 7 : 0}px)`,
-            transition: characterPressed ? "transform 80ms ease-out" : "transform 160ms ease-out",
-          }}
-        />
-      </button>
+      />
 
       {characterOpen && <CharacterPanel onClose={() => setCharacterOpen(false)} />}
     </div>
