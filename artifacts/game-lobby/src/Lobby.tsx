@@ -140,6 +140,71 @@ function CardHotspot({
   );
 }
 
+const DEPLOY_CLIP = "polygon(14% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 45%)";
+
+function DeployButton({
+  pressed,
+  onPress,
+  onRelease,
+  onClick,
+}: {
+  pressed: boolean;
+  onPress: () => void;
+  onRelease: () => void;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-label="Deploy"
+      onClick={onClick}
+      onMouseDown={onPress}
+      onMouseUp={onRelease}
+      onMouseLeave={onRelease}
+      onTouchStart={onPress}
+      onTouchEnd={onRelease}
+      onTouchCancel={onRelease}
+      style={{
+        position: "absolute",
+        right: "4%",
+        bottom: "5%",
+        zIndex: 5,
+        padding: "clamp(10px, 1.6vh, 16px) clamp(22px, 3.4vw, 40px)",
+        minWidth: "clamp(120px, 16vw, 220px)",
+        clipPath: DEPLOY_CLIP,
+        border: "none",
+        cursor: "pointer",
+        WebkitTapHighlightColor: "transparent",
+        background: "linear-gradient(135deg, #ff6a2b 0%, #ff3d1a 55%, #d81f0f 100%)",
+        boxShadow: pressed
+          ? "0 0 14px rgba(255,90,30,0.55), inset 0 0 14px rgba(0,0,0,0.35)"
+          : "0 0 26px rgba(255,110,40,0.75), 0 0 50px rgba(255,60,20,0.35), inset 0 1px 0 rgba(255,255,255,0.35)",
+        transform: pressed ? "scale(0.96)" : "scale(1)",
+        transition: "transform 90ms ease-out, box-shadow 90ms ease-out",
+        animation: pressed ? "none" : "deploy-pulse 2.4s ease-in-out infinite",
+      }}
+    >
+      <style>{`
+        @keyframes deploy-pulse {
+          0%, 100% { filter: brightness(1); }
+          50% { filter: brightness(1.18); }
+        }
+      `}</style>
+      <span
+        style={{
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: "clamp(16px, 2.4vw, 26px)",
+          letterSpacing: "0.12em",
+          color: "#fff8f0",
+          textShadow: "0 0 10px rgba(255,140,60,0.9), 0 1px 2px rgba(0,0,0,0.5)",
+        }}
+      >
+        DEPLOY
+      </span>
+    </button>
+  );
+}
+
 function ComingSoonPanel({
   title,
   icon,
@@ -271,6 +336,8 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [missionsPressed, setMissionsPressed] = useState(false);
   const [nexusOpen, setNexusOpen] = useState(false);
   const [nexusPressed, setNexusPressed] = useState(false);
+  const [deployOpen, setDeployOpen] = useState(false);
+  const [deployPressed, setDeployPressed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [charRect, setCharRect] = useState<CardRect>(null);
   const [mapRect, setMapRect] = useState<CardRect>(null);
@@ -358,6 +425,13 @@ export default function Lobby({ visible }: { visible: boolean }) {
         onClick={() => setNexusOpen(true)}
       />
 
+      <DeployButton
+        pressed={deployPressed}
+        onPress={() => setDeployPressed(true)}
+        onRelease={() => setDeployPressed(false)}
+        onClick={() => setDeployOpen(true)}
+      />
+
       {characterOpen && (
         <ComingSoonPanel
           title="CHARACTER"
@@ -392,6 +466,15 @@ export default function Lobby({ visible }: { visible: boolean }) {
           subtitle="Nexus Mode coming soon"
           message="This game mode will be selectable here once Nexus Mode goes live."
           onClose={() => setNexusOpen(false)}
+        />
+      )}
+      {deployOpen && (
+        <ComingSoonPanel
+          title="DEPLOY"
+          icon="🚀"
+          subtitle="Matchmaking coming soon"
+          message="Deploying into a match will be live here once matchmaking is ready."
+          onClose={() => setDeployOpen(false)}
         />
       )}
     </div>
