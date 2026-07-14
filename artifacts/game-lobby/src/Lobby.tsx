@@ -140,7 +140,10 @@ function CardHotspot({
   );
 }
 
-const DEPLOY_CLIP = "polygon(14% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 45%)";
+// Elongated hex/capsule silhouette with chamfered ends — the metal frame's
+// outer edge. The inner glow panel reuses the same polygon on an inset box
+// so the two nest as a consistent "framed plate" shape at any size.
+const DEPLOY_CLIP = "polygon(7% 0%, 93% 0%, 100% 30%, 100% 70%, 93% 100%, 7% 100%, 0% 70%, 0% 30%)";
 
 function DeployButton({
   pressed,
@@ -168,23 +171,42 @@ function DeployButton({
         right: "4%",
         bottom: "5%",
         zIndex: 5,
-        padding: "clamp(10px, 1.6vh, 16px) clamp(22px, 3.4vw, 40px)",
-        minWidth: "clamp(120px, 16vw, 220px)",
+        padding: "clamp(12px, 1.9vh, 18px) clamp(32px, 4.4vw, 54px)",
+        minWidth: "clamp(160px, 20vw, 280px)",
         clipPath: DEPLOY_CLIP,
         border: "none",
         cursor: "pointer",
         WebkitTapHighlightColor: "transparent",
-        background: "linear-gradient(135deg, #ff6a2b 0%, #ff3d1a 55%, #d81f0f 100%)",
-        boxShadow: "0 0 26px rgba(255,110,40,0.75), 0 0 50px rgba(255,60,20,0.35), inset 0 1px 0 rgba(255,255,255,0.35)",
+        // Dark brushed-metal plate, same family of purples as the rest of
+        // the UI (character panel border/glow) rather than a flat color.
+        background: "linear-gradient(160deg, #55496f 0%, #2c2540 35%, #16101f 75%, #0a0712 100%)",
+        boxShadow: "0 0 18px rgba(150,90,255,0.35), 0 4px 10px rgba(0,0,0,0.55)",
         animation: pressed ? "none" : "deploy-pulse 2.4s ease-in-out infinite",
       }}
     >
       <style>{`
         @keyframes deploy-pulse {
           0%, 100% { filter: brightness(1); }
-          50% { filter: brightness(1.18); }
+          50% { filter: brightness(1.15); }
         }
       `}</style>
+
+      {/* Inner glowing panel, inset from the metal frame's edge. */}
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          top: "clamp(5px, 1vh, 8px)",
+          bottom: "clamp(5px, 1vh, 8px)",
+          left: "clamp(12px, 2.2vw, 22px)",
+          right: "clamp(12px, 2.2vw, 22px)",
+          clipPath: DEPLOY_CLIP,
+          background: "linear-gradient(180deg, rgba(20,14,42,0.95), rgba(8,6,20,0.95))",
+          border: "1.5px solid rgba(190,140,255,0.85)",
+          boxShadow: "0 0 14px rgba(170,110,255,0.7), inset 0 0 16px rgba(140,80,255,0.35)",
+        }}
+      />
+
       {/* Same press-highlight pattern as the card hotspots: the button
           itself never moves or resizes, only this overlay appears while
           held. */}
@@ -194,24 +216,39 @@ function DeployButton({
           position: "absolute",
           inset: 0,
           clipPath: DEPLOY_CLIP,
-          background: "rgba(255,255,255,0.22)",
-          boxShadow: "inset 0 0 18px rgba(255,255,255,0.4)",
+          background: "rgba(190,140,255,0.24)",
           opacity: pressed ? 1 : 0,
           transition: "opacity 100ms ease-out",
         }}
       />
+
       <span
         style={{
           position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "0.45em",
           fontFamily: "'Rajdhani', sans-serif",
           fontWeight: 700,
+          fontStyle: "italic",
           fontSize: "clamp(16px, 2.4vw, 26px)",
-          letterSpacing: "0.12em",
-          color: "#fff8f0",
-          textShadow: "0 0 10px rgba(255,140,60,0.9), 0 1px 2px rgba(0,0,0,0.5)",
+          letterSpacing: "0.06em",
         }}
       >
-        DEPLOY
+        <span style={{ color: "#c9a8ff", textShadow: "0 0 10px rgba(170,110,255,0.9)" }}>»</span>
+        <span
+          style={{
+            background: "linear-gradient(180deg, #ffffff 0%, #ddc8ff 60%, #b98cff 100%)",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            color: "transparent",
+            textShadow: "0 0 16px rgba(170,110,255,0.85)",
+          }}
+        >
+          DEPLOY
+        </span>
+        <span style={{ color: "#c9a8ff", textShadow: "0 0 10px rgba(170,110,255,0.9)" }}>«</span>
       </span>
     </button>
   );
