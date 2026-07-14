@@ -19,6 +19,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 // loose/eyeballed rectangle around it.
 const CHAR_BOX = { left: 560, top: 624, right: 718, bottom: 883 };
 const MAP_BOX = { left: 761, top: 617, right: 925, bottom: 878 };
+const MISSIONS_BOX = { left: 980, top: 625, right: 1133, bottom: 883 };
 // Octagon outline of a card, as % of the button's own box (clip-path is
 // relative to the element it's applied to, so this stays correct however
 // the button itself is scaled/positioned). All four monolith cards share
@@ -265,9 +266,12 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [characterPressed, setCharacterPressed] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [mapPressed, setMapPressed] = useState(false);
+  const [missionsOpen, setMissionsOpen] = useState(false);
+  const [missionsPressed, setMissionsPressed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [charRect, setCharRect] = useState<CardRect>(null);
   const [mapRect, setMapRect] = useState<CardRect>(null);
+  const [missionsRect, setMissionsRect] = useState<CardRect>(null);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -275,6 +279,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
     const update = () => {
       setCharRect(computeCardRect(CHAR_BOX, el.clientWidth, el.clientHeight));
       setMapRect(computeCardRect(MAP_BOX, el.clientWidth, el.clientHeight));
+      setMissionsRect(computeCardRect(MISSIONS_BOX, el.clientWidth, el.clientHeight));
     };
     update();
     const ro = new ResizeObserver(update);
@@ -331,6 +336,14 @@ export default function Lobby({ visible }: { visible: boolean }) {
         onRelease={() => setMapPressed(false)}
         onClick={() => setMapOpen(true)}
       />
+      <CardHotspot
+        label="Missions"
+        rect={missionsRect}
+        pressed={missionsPressed}
+        onPress={() => setMissionsPressed(true)}
+        onRelease={() => setMissionsPressed(false)}
+        onClick={() => setMissionsOpen(true)}
+      />
 
       {characterOpen && (
         <ComingSoonPanel
@@ -348,6 +361,15 @@ export default function Lobby({ visible }: { visible: boolean }) {
           subtitle="Map selection coming soon"
           message="Pick your drop zone here once the map roster is live."
           onClose={() => setMapOpen(false)}
+        />
+      )}
+      {missionsOpen && (
+        <ComingSoonPanel
+          title="MISSIONS"
+          icon="🎯"
+          subtitle="Missions coming soon"
+          message="Your squad's mission list will be here once missions go live."
+          onClose={() => setMissionsOpen(false)}
         />
       )}
     </div>
