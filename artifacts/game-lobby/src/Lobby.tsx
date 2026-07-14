@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 // Main hub screen shown after the splash/loading sequence: the approved
 // concept-art mockup, natively 16:9, rendered full-bleed edge-to-edge
@@ -12,21 +12,60 @@ import { useState } from "react";
 // screen). There's no character roster backend wired into this rebuilt
 // frontend yet, so tapping it opens a placeholder panel.
 
-// Precisely traced against the source artwork (1920x1080) at 4x zoom with
-// a pixel grid overlay, so the hit-area matches the visible crystal card
-// exactly instead of a loose rectangle around it.
-const CHAR_BOX = { left: 515, top: 615, right: 712, bottom: 880 };
-const CHAR_BTN = {
-  left: (CHAR_BOX.left / 1920) * 100,
-  top: (CHAR_BOX.top / 1080) * 100,
-  width: ((CHAR_BOX.right - CHAR_BOX.left) / 1920) * 100,
-  height: ((CHAR_BOX.bottom - CHAR_BOX.top) / 1080) * 100,
-};
-// Octagon outline of the card, as % of CHAR_BTN's own box (clip-path is
+// Traced against the source artwork (1920x1080) by isolating the card's
+// dark body via brightness thresholding and taking its connected-component
+// bounding box, so the hit-area matches the visible crystal card's actual
+// pixel footprint instead of a loose/eyeballed rectangle around it.
+const CHAR_BOX = { left: 540, top: 624, right: 728, bottom: 904 };
+// Octagon outline of the card, as % of the button's own box (clip-path is
 // relative to the element it's applied to, so this stays correct however
-// CHAR_BTN itself is scaled/positioned).
+// the button itself is scaled/positioned).
 const CHAR_CLIP =
   "polygon(52% 1%, 98% 14%, 99% 79%, 73% 93%, 52% 99%, 32% 93%, 4% 79%, 5% 14%)";
+
+const IMG_W = 1920;
+const IMG_H = 1080;
+// Matches the background image's own CSS transform below — the button's
+// hit-area is computed through the exact same object-fit:cover + overscan
+// math applied to the art, so it tracks the visible card pixel-for-pixel
+// at any container aspect ratio instead of only lining up at 16:9 (a plain
+// "% of image size" box drifts from the art as soon as the aspect ratio
+// diverges from 16:9, which is common on real phones).
+const IMG_OVERSCAN = 1.04;
+
+function computeCharRect(containerW: number, containerH: number) {
+  if (containerW <= 0 || containerH <= 0) return null;
+
+  // object-fit: cover — image scaled so it fully covers the container,
+  // centered, with the overflow cropped equally on the long axis.
+  const baseScale = Math.max(containerW / IMG_W, containerH / IMG_H);
+  const imgLeft = (containerW - IMG_W * baseScale) / 2;
+  const imgTop = (containerH - IMG_H * baseScale) / 2;
+
+  // Then the extra CSS transform: scale(IMG_OVERSCAN) with
+  // transformOrigin "50% 0%" (top-center of the cover-fitted image box).
+  const originX = imgLeft + (IMG_W * baseScale) / 2;
+  const originY = imgTop;
+
+  const toScreen = (px: number, py: number) => {
+    const x1 = imgLeft + px * baseScale;
+    const y1 = imgTop + py * baseScale;
+    return {
+      x: originX + (x1 - originX) * IMG_OVERSCAN,
+      y: originY + (y1 - originY) * IMG_OVERSCAN,
+    };
+  };
+
+  const topLeft = toScreen(CHAR_BOX.left, CHAR_BOX.top);
+  const bottomRight = toScreen(CHAR_BOX.right, CHAR_BOX.bottom);
+
+  return {
+    left: topLeft.x,
+    top: topLeft.y,
+    width: bottomRight.x - topLeft.x,
+    height: bottomRight.y - topLeft.y,
+  };
+}
 
 function CharacterPanel({ onClose }: { onClose: () => void }) {
   return (
@@ -141,9 +180,22 @@ function CharacterPanel({ onClose }: { onClose: () => void }) {
 export default function Lobby({ visible }: { visible: boolean }) {
   const [characterOpen, setCharacterOpen] = useState(false);
   const [characterPressed, setCharacterPressed] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [charRect, setCharRect] = useState<ReturnType<typeof computeCharRect>>(null);
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => setCharRect(computeCharRect(el.clientWidth, el.clientHeight));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   return (
     <div
+      ref={containerRef}
       style={{
         position: "absolute",
         inset: 0,
@@ -185,10 +237,11 @@ export default function Lobby({ visible }: { visible: boolean }) {
         onTouchCancel={() => setCharacterPressed(false)}
         style={{
           position: "absolute",
-          left: `${CHAR_BTN.left}%`,
-          top: `${CHAR_BTN.top}%`,
-          width: `${CHAR_BTN.width}%`,
-          height: `${CHAR_BTN.height}%`,
+          left: charRect ? `${charRect.left}px` : 0,
+          top: charRect ? `${charRect.top}px` : 0,
+          width: charRect ? `${charRect.width}px` : 0,
+          height: charRect ? `${charRect.height}px` : 0,
+          visibility: charRect ? "visible" : "hidden",
           clipPath: CHAR_CLIP,
           background: "transparent",
           border: "none",
