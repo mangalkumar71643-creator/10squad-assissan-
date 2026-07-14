@@ -16,7 +16,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 // dark body via brightness thresholding and taking its connected-component
 // bounding box, so the hit-area matches the visible crystal card's actual
 // pixel footprint instead of a loose/eyeballed rectangle around it.
-const CHAR_BOX = { left: 540, top: 624, right: 728, bottom: 904 };
+const CHAR_BOX = { left: 560, top: 624, right: 718, bottom: 883 };
 // Octagon outline of the card, as % of the button's own box (clip-path is
 // relative to the element it's applied to, so this stays correct however
 // the button itself is scaled/positioned).
