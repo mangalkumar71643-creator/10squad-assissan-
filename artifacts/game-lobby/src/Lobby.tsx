@@ -20,6 +20,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 const CHAR_BOX = { left: 560, top: 624, right: 718, bottom: 883 };
 const MAP_BOX = { left: 761, top: 617, right: 925, bottom: 878 };
 const MISSIONS_BOX = { left: 980, top: 625, right: 1133, bottom: 883 };
+const NEXUS_BOX = { left: 1194, top: 621, right: 1351, bottom: 878 };
 // Octagon outline of a card, as % of the button's own box (clip-path is
 // relative to the element it's applied to, so this stays correct however
 // the button itself is scaled/positioned). All four monolith cards share
@@ -268,10 +269,13 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [mapPressed, setMapPressed] = useState(false);
   const [missionsOpen, setMissionsOpen] = useState(false);
   const [missionsPressed, setMissionsPressed] = useState(false);
+  const [nexusOpen, setNexusOpen] = useState(false);
+  const [nexusPressed, setNexusPressed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [charRect, setCharRect] = useState<CardRect>(null);
   const [mapRect, setMapRect] = useState<CardRect>(null);
   const [missionsRect, setMissionsRect] = useState<CardRect>(null);
+  const [nexusRect, setNexusRect] = useState<CardRect>(null);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -280,6 +284,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
       setCharRect(computeCardRect(CHAR_BOX, el.clientWidth, el.clientHeight));
       setMapRect(computeCardRect(MAP_BOX, el.clientWidth, el.clientHeight));
       setMissionsRect(computeCardRect(MISSIONS_BOX, el.clientWidth, el.clientHeight));
+      setNexusRect(computeCardRect(NEXUS_BOX, el.clientWidth, el.clientHeight));
     };
     update();
     const ro = new ResizeObserver(update);
@@ -344,6 +349,14 @@ export default function Lobby({ visible }: { visible: boolean }) {
         onRelease={() => setMissionsPressed(false)}
         onClick={() => setMissionsOpen(true)}
       />
+      <CardHotspot
+        label="Nexus Mode"
+        rect={nexusRect}
+        pressed={nexusPressed}
+        onPress={() => setNexusPressed(true)}
+        onRelease={() => setNexusPressed(false)}
+        onClick={() => setNexusOpen(true)}
+      />
 
       {characterOpen && (
         <ComingSoonPanel
@@ -370,6 +383,15 @@ export default function Lobby({ visible }: { visible: boolean }) {
           subtitle="Missions coming soon"
           message="Your squad's mission list will be here once missions go live."
           onClose={() => setMissionsOpen(false)}
+        />
+      )}
+      {nexusOpen && (
+        <ComingSoonPanel
+          title="NEXUS MODE"
+          icon="🌀"
+          subtitle="Nexus Mode coming soon"
+          message="This game mode will be selectable here once Nexus Mode goes live."
+          onClose={() => setNexusOpen(false)}
         />
       )}
     </div>
