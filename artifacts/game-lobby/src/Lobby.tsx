@@ -175,11 +175,7 @@ function DeployButton({
         cursor: "pointer",
         WebkitTapHighlightColor: "transparent",
         background: "linear-gradient(135deg, #ff6a2b 0%, #ff3d1a 55%, #d81f0f 100%)",
-        boxShadow: pressed
-          ? "0 0 14px rgba(255,90,30,0.55), inset 0 0 14px rgba(0,0,0,0.35)"
-          : "0 0 26px rgba(255,110,40,0.75), 0 0 50px rgba(255,60,20,0.35), inset 0 1px 0 rgba(255,255,255,0.35)",
-        transform: pressed ? "scale(0.96)" : "scale(1)",
-        transition: "transform 90ms ease-out, box-shadow 90ms ease-out",
+        boxShadow: "0 0 26px rgba(255,110,40,0.75), 0 0 50px rgba(255,60,20,0.35), inset 0 1px 0 rgba(255,255,255,0.35)",
         animation: pressed ? "none" : "deploy-pulse 2.4s ease-in-out infinite",
       }}
     >
@@ -189,8 +185,24 @@ function DeployButton({
           50% { filter: brightness(1.18); }
         }
       `}</style>
+      {/* Same press-highlight pattern as the card hotspots: the button
+          itself never moves or resizes, only this overlay appears while
+          held. */}
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          clipPath: DEPLOY_CLIP,
+          background: "rgba(255,255,255,0.22)",
+          boxShadow: "inset 0 0 18px rgba(255,255,255,0.4)",
+          opacity: pressed ? 1 : 0,
+          transition: "opacity 100ms ease-out",
+        }}
+      />
       <span
         style={{
+          position: "relative",
           fontFamily: "'Rajdhani', sans-serif",
           fontWeight: 700,
           fontSize: "clamp(16px, 2.4vw, 26px)",
