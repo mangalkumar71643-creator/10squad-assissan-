@@ -12,20 +12,23 @@ import { useLayoutEffect, useRef, useState } from "react";
 // screen). There's no character roster backend wired into this rebuilt
 // frontend yet, so tapping it opens a placeholder panel.
 
-// Traced against the source artwork (1920x1080) by isolating the card's
-// dark body via brightness thresholding and taking its connected-component
-// bounding box, so the hit-area matches the visible crystal card's actual
-// pixel footprint instead of a loose/eyeballed rectangle around it.
+// Traced against the source artwork (1920x1080) by isolating each card's
+// dark body via brightness thresholding (profiling rows/columns for its
+// true edges, cross-checked against the rendered art), so each hit-area
+// matches its visible crystal card's actual pixel footprint instead of a
+// loose/eyeballed rectangle around it.
 const CHAR_BOX = { left: 560, top: 624, right: 718, bottom: 883 };
-// Octagon outline of the card, as % of the button's own box (clip-path is
+const MAP_BOX = { left: 761, top: 617, right: 925, bottom: 878 };
+// Octagon outline of a card, as % of the button's own box (clip-path is
 // relative to the element it's applied to, so this stays correct however
-// the button itself is scaled/positioned).
-const CHAR_CLIP =
+// the button itself is scaled/positioned). All four monolith cards share
+// this same proportional shape.
+const CARD_CLIP =
   "polygon(52% 1%, 98% 14%, 99% 79%, 73% 93%, 52% 99%, 32% 93%, 4% 79%, 5% 14%)";
 
 const IMG_W = 1920;
 const IMG_H = 1080;
-// Matches the background image's own CSS transform below — the button's
+// Matches the background image's own CSS transform below — each button's
 // hit-area is computed through the exact same object-fit:cover + overscan
 // math applied to the art, so it tracks the visible card pixel-for-pixel
 // at any container aspect ratio instead of only lining up at 16:9 (a plain
@@ -33,7 +36,9 @@ const IMG_H = 1080;
 // diverges from 16:9, which is common on real phones).
 const IMG_OVERSCAN = 1.04;
 
-function computeCharRect(containerW: number, containerH: number) {
+type Box = { left: number; top: number; right: number; bottom: number };
+
+function computeCardRect(box: Box, containerW: number, containerH: number) {
   if (containerW <= 0 || containerH <= 0) return null;
 
   // object-fit: cover — image scaled so it fully covers the container,
@@ -56,8 +61,8 @@ function computeCharRect(containerW: number, containerH: number) {
     };
   };
 
-  const topLeft = toScreen(CHAR_BOX.left, CHAR_BOX.top);
-  const bottomRight = toScreen(CHAR_BOX.right, CHAR_BOX.bottom);
+  const topLeft = toScreen(box.left, box.top);
+  const bottomRight = toScreen(box.right, box.bottom);
 
   return {
     left: topLeft.x,
@@ -67,11 +72,89 @@ function computeCharRect(containerW: number, containerH: number) {
   };
 }
 
-function CharacterPanel({ onClose }: { onClose: () => void }) {
+type CardRect = ReturnType<typeof computeCardRect>;
+
+function CardHotspot({
+  label,
+  rect,
+  pressed,
+  onPress,
+  onRelease,
+  onClick,
+}: {
+  label: string;
+  rect: CardRect;
+  pressed: boolean;
+  onPress: () => void;
+  onRelease: () => void;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-label={label}
+      onClick={onClick}
+      onMouseDown={onPress}
+      onMouseUp={onRelease}
+      onMouseLeave={onRelease}
+      onTouchStart={onPress}
+      onTouchEnd={onRelease}
+      onTouchCancel={onRelease}
+      style={{
+        position: "absolute",
+        left: rect ? `${rect.left}px` : 0,
+        top: rect ? `${rect.top}px` : 0,
+        width: rect ? `${rect.width}px` : 0,
+        height: rect ? `${rect.height}px` : 0,
+        visibility: rect ? "visible" : "hidden",
+        clipPath: CARD_CLIP,
+        background: "transparent",
+        border: "none",
+        padding: 0,
+        margin: 0,
+        cursor: "pointer",
+        WebkitTapHighlightColor: "transparent",
+      }}
+    >
+      {/* The button itself is baked into the background and doesn't move;
+          this highlight just outlines the actual tappable area while
+          held, so it's visible how far the hit-area extends. Same
+          clip-path as the button itself (not just this visual child) so
+          the shown outline always matches the real hit-test region
+          exactly. */}
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          clipPath: CARD_CLIP,
+          border: "2px solid rgba(190,140,255,0.9)",
+          background: "rgba(150,90,255,0.16)",
+          boxShadow: "0 0 18px rgba(170,110,255,0.6), inset 0 0 18px rgba(170,110,255,0.35)",
+          opacity: pressed ? 1 : 0,
+          transition: "opacity 100ms ease-out",
+        }}
+      />
+    </button>
+  );
+}
+
+function ComingSoonPanel({
+  title,
+  icon,
+  subtitle,
+  message,
+  onClose,
+}: {
+  title: string;
+  icon: string;
+  subtitle: string;
+  message: string;
+  onClose: () => void;
+}) {
   return (
     <div
       role="dialog"
-      aria-label="Character"
+      aria-label={title}
       style={{
         position: "absolute",
         inset: 0,
@@ -111,7 +194,7 @@ function CharacterPanel({ onClose }: { onClose: () => void }) {
               textShadow: "0 0 18px rgba(170,110,255,0.7)",
             }}
           >
-            CHARACTER
+            {title}
           </h2>
           <button
             onClick={onClose}
@@ -154,7 +237,7 @@ function CharacterPanel({ onClose }: { onClose: () => void }) {
               fontSize: 34,
             }}
           >
-            🛡️
+            {icon}
           </div>
           <div
             style={{
@@ -166,10 +249,10 @@ function CharacterPanel({ onClose }: { onClose: () => void }) {
               textAlign: "center",
             }}
           >
-            Character roster coming soon
+            {subtitle}
           </div>
           <div style={{ fontSize: 14, color: "#8a80a8", textAlign: "center", maxWidth: 340 }}>
-            Your squad's operatives will be selectable here once the roster is live.
+            {message}
           </div>
         </div>
       </div>
@@ -180,13 +263,19 @@ function CharacterPanel({ onClose }: { onClose: () => void }) {
 export default function Lobby({ visible }: { visible: boolean }) {
   const [characterOpen, setCharacterOpen] = useState(false);
   const [characterPressed, setCharacterPressed] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [mapPressed, setMapPressed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [charRect, setCharRect] = useState<ReturnType<typeof computeCharRect>>(null);
+  const [charRect, setCharRect] = useState<CardRect>(null);
+  const [mapRect, setMapRect] = useState<CardRect>(null);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const update = () => setCharRect(computeCharRect(el.clientWidth, el.clientHeight));
+    const update = () => {
+      setCharRect(computeCardRect(CHAR_BOX, el.clientWidth, el.clientHeight));
+      setMapRect(computeCardRect(MAP_BOX, el.clientWidth, el.clientHeight));
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
@@ -226,53 +315,41 @@ export default function Lobby({ visible }: { visible: boolean }) {
         }}
       />
 
-      <button
-        aria-label="Character"
+      <CardHotspot
+        label="Character"
+        rect={charRect}
+        pressed={characterPressed}
+        onPress={() => setCharacterPressed(true)}
+        onRelease={() => setCharacterPressed(false)}
         onClick={() => setCharacterOpen(true)}
-        onMouseDown={() => setCharacterPressed(true)}
-        onMouseUp={() => setCharacterPressed(false)}
-        onMouseLeave={() => setCharacterPressed(false)}
-        onTouchStart={() => setCharacterPressed(true)}
-        onTouchEnd={() => setCharacterPressed(false)}
-        onTouchCancel={() => setCharacterPressed(false)}
-        style={{
-          position: "absolute",
-          left: charRect ? `${charRect.left}px` : 0,
-          top: charRect ? `${charRect.top}px` : 0,
-          width: charRect ? `${charRect.width}px` : 0,
-          height: charRect ? `${charRect.height}px` : 0,
-          visibility: charRect ? "visible" : "hidden",
-          clipPath: CHAR_CLIP,
-          background: "transparent",
-          border: "none",
-          padding: 0,
-          margin: 0,
-          cursor: "pointer",
-          WebkitTapHighlightColor: "transparent",
-        }}
-      >
-        {/* The button itself is baked into the background and doesn't
-            move; this highlight just outlines the actual tappable area
-            while held, so it's visible how far the hit-area extends.
-            Same clip-path as the button itself (not just this visual
-            child) so the shown outline always matches the real hit-test
-            region exactly. */}
-        <span
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            inset: 0,
-            clipPath: CHAR_CLIP,
-            border: "2px solid rgba(190,140,255,0.9)",
-            background: "rgba(150,90,255,0.16)",
-            boxShadow: "0 0 18px rgba(170,110,255,0.6), inset 0 0 18px rgba(170,110,255,0.35)",
-            opacity: characterPressed ? 1 : 0,
-            transition: "opacity 100ms ease-out",
-          }}
-        />
-      </button>
+      />
+      <CardHotspot
+        label="Map Selection"
+        rect={mapRect}
+        pressed={mapPressed}
+        onPress={() => setMapPressed(true)}
+        onRelease={() => setMapPressed(false)}
+        onClick={() => setMapOpen(true)}
+      />
 
-      {characterOpen && <CharacterPanel onClose={() => setCharacterOpen(false)} />}
+      {characterOpen && (
+        <ComingSoonPanel
+          title="CHARACTER"
+          icon="🛡️"
+          subtitle="Character roster coming soon"
+          message="Your squad's operatives will be selectable here once the roster is live."
+          onClose={() => setCharacterOpen(false)}
+        />
+      )}
+      {mapOpen && (
+        <ComingSoonPanel
+          title="MAP SELECTION"
+          icon="🗺️"
+          subtitle="Map selection coming soon"
+          message="Pick your drop zone here once the map roster is live."
+          onClose={() => setMapOpen(false)}
+        />
+      )}
     </div>
   );
 }
