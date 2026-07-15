@@ -996,6 +996,407 @@ function MapSelectionPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
+const ARENA_HALF = 5; // 10x10 arena, centered on the origin
+const PLAYER_SPEED = 2.6;
+const BOT_SPEED = 1.9;
+const ATTACK_RANGE = 1.3;
+const PLAYER_DAMAGE = 14;
+const BOT_DAMAGE = 10;
+const PLAYER_ATTACK_COOLDOWN = 0.55;
+const BOT_ATTACK_COOLDOWN = 1.3;
+
+function clamp(v: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+// Loads the one character model we have twice — once as the player (its
+// natural color) and once as the bot (red-tinted) — since there's no
+// separate enemy asset yet.
+function loadFighter(
+  scene: THREE.Scene,
+  tint: THREE.ColorRepresentation,
+  onLoaded: (rig: { root: THREE.Object3D; mixer: THREE.AnimationMixer | null }) => void,
+) {
+  new GLTFLoader().load(
+    "/characters/char-1.glb",
+    (gltf) => {
+      const model = gltf.scene;
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const scale = 1.6 / (size.y || 1);
+      model.scale.setScalar(scale);
+      model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+
+      model.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const src = mesh.material as THREE.MeshStandardMaterial;
+        const mat = src.clone();
+        const tintColor = new THREE.Color(tint);
+        // This model's texture is baked mostly as an emissive map (full-
+        // intensity emissiveFactor), so tinting only the base `color`
+        // barely shows — the glow washes it out. Tint emissive too.
+        mat.color = src.color.clone().multiply(tintColor);
+        if (mat.emissive) mat.emissive = src.emissive.clone().multiply(tintColor);
+        mesh.material = mat;
+      });
+
+      const root = new THREE.Group();
+      root.add(model);
+      scene.add(root);
+
+      let mixer: THREE.AnimationMixer | null = null;
+      if (gltf.animations.length > 0) {
+        mixer = new THREE.AnimationMixer(model);
+        mixer.clipAction(gltf.animations[0]).play();
+      }
+      onLoaded({ root, mixer });
+    },
+    undefined,
+    (err) => console.error("Failed to load fighter model", err),
+  );
+}
+
+// A minimal single-player vs. bot skirmish on a 10x10 arena: touch
+// joystick to move, tap the attack button in range. No networking — the
+// "bot" is just a simple chase-and-swing AI running in the same tick loop
+// as the player, both driven by the same idle-animation character model
+// (there's only one character asset right now) tinted to tell them apart.
+function CombatArena({ onExit }: { onExit: () => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const joystickKnobRef = useRef<HTMLDivElement>(null);
+  const joystickVec = useRef({ x: 0, y: 0 });
+  const attackRequested = useRef(false);
+  const joystickTouchId = useRef<number | null>(null);
+  const joystickBaseRef = useRef<HTMLDivElement>(null);
+
+  const [playerHp, setPlayerHp] = useState(100);
+  const [botHp, setBotHp] = useState(100);
+  const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    let disposed = false;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+    camera.position.set(0, 7.6, 7.2);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    container.appendChild(renderer.domElement);
+
+    scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x0a0e18, 1.15));
+    const key = new THREE.DirectionalLight(0xffffff, 1.5);
+    key.position.set(3, 6, 4);
+    scene.add(key);
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(ARENA_HALF * 2, ARENA_HALF * 2),
+      new THREE.MeshStandardMaterial({ color: 0x0f2338, roughness: 0.95 }),
+    );
+    ground.rotation.x = -Math.PI / 2;
+    scene.add(ground);
+    scene.add(new THREE.GridHelper(ARENA_HALF * 2, 10, 0x6be2ff, 0x1c4560));
+
+    let player: { root: THREE.Object3D; mixer: THREE.AnimationMixer | null } | null = null;
+    let bot: { root: THREE.Object3D; mixer: THREE.AnimationMixer | null } | null = null;
+
+    loadFighter(scene, 0xffffff, (rig) => {
+      if (disposed) return;
+      rig.root.position.set(0, 0, 3);
+      player = rig;
+    });
+    loadFighter(scene, 0xff6b5e, (rig) => {
+      if (disposed) return;
+      rig.root.position.set(0, 0, -3);
+      bot = rig;
+    });
+
+    const resize = () => {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w === 0 || h === 0) return;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(container);
+
+    let raf = 0;
+    const clock = new THREE.Clock();
+    let playerHpLocal = 100;
+    let botHpLocal = 100;
+    let playerCooldown = 0;
+    let botCooldown = 0;
+    let ended = false;
+
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const dt = Math.min(clock.getDelta(), 0.05);
+      player?.mixer?.update(dt);
+      bot?.mixer?.update(dt);
+
+      if (!ended && player && bot) {
+        const jv = joystickVec.current;
+        if (jv.x !== 0 || jv.y !== 0) {
+          player.root.position.x = clamp(player.root.position.x + jv.x * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+          player.root.position.z = clamp(player.root.position.z + jv.y * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+          player.root.rotation.y = Math.atan2(jv.x, jv.y);
+        }
+
+        const dx = player.root.position.x - bot.root.position.x;
+        const dz = player.root.position.z - bot.root.position.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist > ATTACK_RANGE * 0.85) {
+          bot.root.position.x += (dx / dist) * BOT_SPEED * dt;
+          bot.root.position.z += (dz / dist) * BOT_SPEED * dt;
+        }
+        bot.root.rotation.y = Math.atan2(dx, dz);
+
+        playerCooldown = Math.max(0, playerCooldown - dt);
+        botCooldown = Math.max(0, botCooldown - dt);
+
+        if (attackRequested.current) {
+          attackRequested.current = false;
+          if (playerCooldown <= 0 && dist <= ATTACK_RANGE) {
+            botHpLocal = Math.max(0, botHpLocal - PLAYER_DAMAGE);
+            setBotHp(botHpLocal);
+            playerCooldown = PLAYER_ATTACK_COOLDOWN;
+          }
+        }
+
+        if (dist <= ATTACK_RANGE && botCooldown <= 0) {
+          playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
+          setPlayerHp(playerHpLocal);
+          botCooldown = BOT_ATTACK_COOLDOWN;
+        }
+
+        if (botHpLocal <= 0) {
+          ended = true;
+          setResult("win");
+        } else if (playerHpLocal <= 0) {
+          ended = true;
+          setResult("lose");
+        }
+      }
+
+      renderer.render(scene, camera);
+    };
+    tick();
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      renderer.dispose();
+      container.removeChild(renderer.domElement);
+    };
+  }, []);
+
+  const updateJoystick = (clientX: number, clientY: number) => {
+    const base = joystickBaseRef.current;
+    if (!base) return;
+    const rect = base.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const radius = rect.width / 2;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > radius) {
+      dx = (dx / dist) * radius;
+      dy = (dy / dist) * radius;
+    }
+    joystickVec.current = { x: dx / radius, y: dy / radius };
+    const knob = joystickKnobRef.current;
+    if (knob) knob.style.transform = `translate(${dx}px, ${dy}px)`;
+  };
+
+  const resetJoystick = () => {
+    joystickVec.current = { x: 0, y: 0 };
+    joystickTouchId.current = null;
+    const knob = joystickKnobRef.current;
+    if (knob) knob.style.transform = "translate(0px, 0px)";
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-label="DEPLOY"
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 10,
+        background: "linear-gradient(160deg, #0a1220 0%, #060a14 100%)",
+        overflow: "hidden",
+        touchAction: "none",
+      }}
+    >
+      <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+
+      {/* Health bars */}
+      <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
+        <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>YOU</div>
+        <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
+        </div>
+      </div>
+      <div style={{ position: "absolute", top: 16, right: 16, width: "min(38%, 260px)" }}>
+        <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4, textAlign: "right" }}>BOT</div>
+        <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${botHp}%`, marginLeft: `${100 - botHp}%`, background: "linear-gradient(90deg,#ff8a6b,#ff5e4e)", transition: "width 150ms ease-out, margin-left 150ms ease-out" }} />
+        </div>
+      </div>
+
+      <button
+        onClick={onExit}
+        aria-label="Exit match"
+        style={{
+          position: "absolute",
+          top: 16,
+          left: "50%",
+          transform: "translateX(-50%)",
+          padding: "6px 18px",
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(200,220,240,0.4)",
+          borderRadius: 4,
+          color: "#dce8f5",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          letterSpacing: "0.08em",
+          fontSize: 12,
+          cursor: "pointer",
+        }}
+      >
+        EXIT
+      </button>
+
+      {/* Virtual joystick */}
+      <div
+        ref={joystickBaseRef}
+        onPointerDown={(e) => {
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          joystickTouchId.current = e.pointerId;
+          updateJoystick(e.clientX, e.clientY);
+        }}
+        onPointerMove={(e) => {
+          if (joystickTouchId.current === e.pointerId) updateJoystick(e.clientX, e.clientY);
+        }}
+        onPointerUp={() => resetJoystick()}
+        onPointerCancel={() => resetJoystick()}
+        style={{
+          position: "absolute",
+          left: "6%",
+          bottom: "8%",
+          width: "clamp(90px, 16vw, 130px)",
+          height: "clamp(90px, 16vw, 130px)",
+          borderRadius: "50%",
+          background: "rgba(255,255,255,0.06)",
+          border: "1.5px solid rgba(150,200,230,0.4)",
+          touchAction: "none",
+        }}
+      >
+        <div
+          ref={joystickKnobRef}
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            width: "42%",
+            height: "42%",
+            marginLeft: "-21%",
+            marginTop: "-21%",
+            borderRadius: "50%",
+            background: "rgba(107,216,255,0.5)",
+            border: "1.5px solid rgba(190,235,255,0.85)",
+            pointerEvents: "none",
+          }}
+        />
+      </div>
+
+      {/* Attack button */}
+      <button
+        onPointerDown={(e) => {
+          e.preventDefault();
+          attackRequested.current = true;
+        }}
+        aria-label="Attack"
+        style={{
+          position: "absolute",
+          right: "7%",
+          bottom: "9%",
+          width: "clamp(72px, 13vw, 100px)",
+          height: "clamp(72px, 13vw, 100px)",
+          borderRadius: "50%",
+          background: "radial-gradient(circle, #ff8a6b, #d8402c)",
+          border: "2px solid rgba(255,220,210,0.85)",
+          boxShadow: "0 0 20px rgba(255,90,60,0.6)",
+          color: "#fff8f0",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          letterSpacing: "0.05em",
+          fontSize: "clamp(13px, 2vw, 16px)",
+          cursor: "pointer",
+        }}
+      >
+        ATTACK
+      </button>
+
+      {result !== "playing" && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 18,
+            background: "rgba(3,6,13,0.75)",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: "clamp(28px, 6vw, 52px)",
+              letterSpacing: "0.15em",
+              color: result === "win" ? "#6be2ff" : "#ff6b5e",
+              textShadow: result === "win" ? "0 0 24px rgba(107,216,255,0.8)" : "0 0 24px rgba(255,107,94,0.8)",
+            }}
+          >
+            {result === "win" ? "VICTORY" : "DEFEAT"}
+          </div>
+          <button
+            onClick={onExit}
+            style={{
+              padding: "10px 32px",
+              background: "rgba(120,140,160,0.28)",
+              border: "1px solid rgba(180,200,220,0.4)",
+              borderRadius: 4,
+              color: "#eef4fa",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              fontSize: 15,
+              cursor: "pointer",
+            }}
+          >
+            RETURN TO LOBBY
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ComingSoonPanel({
   title,
   icon,
@@ -1243,15 +1644,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
           onClose={() => setNexusOpen(false)}
         />
       )}
-      {deployOpen && (
-        <ComingSoonPanel
-          title="DEPLOY"
-          icon="🚀"
-          subtitle="Matchmaking coming soon"
-          message="Deploying into a match will be live here once matchmaking is ready."
-          onClose={() => setDeployOpen(false)}
-        />
-      )}
+      {deployOpen && <CombatArena onExit={() => setDeployOpen(false)} />}
     </div>
   );
 }
