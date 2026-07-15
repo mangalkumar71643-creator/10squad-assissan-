@@ -527,12 +527,6 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "clamp(12px, 1.8vw, 20px)" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
-            <span aria-hidden="true">🪙</span> 0
-          </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
-            <span aria-hidden="true">💎</span> 0
-          </span>
           <button
             style={{
               padding: "10px 24px",
