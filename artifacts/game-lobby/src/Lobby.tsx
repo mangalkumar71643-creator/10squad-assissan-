@@ -1247,11 +1247,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
         // Chase camera: sits behind the player along their facing
         // direction and eases toward that spot each frame instead of
-        // snapping, so turning feels smooth rather than jittery. While the
-        // player is dragging to free-look, camera yaw comes from the drag
-        // instead of snapping back to the movement direction; it re-syncs
-        // once the drag is released.
-        if (lookTouchId.current === null) {
+        // snapping, so turning feels smooth rather than jittery. Dragging
+        // free-looks around the player; releasing it holds that angle
+        // (it does not snap back) until the player actually moves again,
+        // at which point the camera resumes following the movement
+        // direction like a normal chase cam.
+        if (lookTouchId.current === null && (jv.x !== 0 || jv.y !== 0)) {
           cameraYaw.current = player.root.rotation.y;
         }
         const facing = cameraYaw.current;
