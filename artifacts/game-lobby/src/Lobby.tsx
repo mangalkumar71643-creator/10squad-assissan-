@@ -763,6 +763,239 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
+const MAP_GRID_SIZE = 100;
+const MAP_SECTOR_COUNT = 10; // 10x10 lettered/numbered sectors, each 10x10 cells
+const MAP_SECTOR_LETTERS = "ABCDEFGHIJ".split("");
+
+// Deterministic 2D value noise (hash-based, no Math.random) so the map
+// renders identically every time instead of reshuffling on each mount.
+function hash2(x: number, y: number): number {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+  return s - Math.floor(s);
+}
+function valueNoise(x: number, y: number): number {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const sx = x - x0;
+  const sy = y - y0;
+  const n00 = hash2(x0, y0);
+  const n10 = hash2(x0 + 1, y0);
+  const n01 = hash2(x0, y0 + 1);
+  const n11 = hash2(x0 + 1, y0 + 1);
+  const ix0 = n00 + (n10 - n00) * sx;
+  const ix1 = n01 + (n11 - n01) * sx;
+  return ix0 + (ix1 - ix0) * sy;
+}
+
+// Terrain colors, low → high blended noise value: deep water, shallow
+// water, plains, forest, desert, mountain rock.
+const TERRAIN_STOPS: Array<[number, [number, number, number]]> = [
+  [0.0, [16, 42, 74]],
+  [0.32, [26, 64, 104]],
+  [0.42, [58, 96, 60]],
+  [0.58, [40, 74, 44]],
+  [0.72, [30, 58, 36]],
+  [0.83, [112, 100, 66]],
+  [1.01, [92, 92, 96]],
+];
+
+function terrainColor(v: number): [number, number, number] {
+  for (let i = 1; i < TERRAIN_STOPS.length; i++) {
+    const [t1, c1] = TERRAIN_STOPS[i];
+    if (v <= t1) {
+      const [t0, c0] = TERRAIN_STOPS[i - 1];
+      const f = t1 === t0 ? 0 : (v - t0) / (t1 - t0);
+      return [0, 1, 2].map((k) => Math.round(c0[k] + (c1[k] - c0[k]) * f)) as [number, number, number];
+    }
+  }
+  return TERRAIN_STOPS[TERRAIN_STOPS.length - 1][1];
+}
+
+// A procedurally-shaded 100x100 grid minimap, drawn on a single canvas
+// (10,000 individual DOM cells would be far too slow) at native 1:1
+// pixel-per-cell resolution, then scaled up with crisp pixelated edges so
+// the grid itself stays visible instead of blurring into a smooth blob.
+function MiniMapGrid() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const img = ctx.createImageData(MAP_GRID_SIZE, MAP_GRID_SIZE);
+    for (let y = 0; y < MAP_GRID_SIZE; y++) {
+      for (let x = 0; x < MAP_GRID_SIZE; x++) {
+        const n1 = valueNoise(x / 14, y / 14);
+        const n2 = valueNoise(x / 5 + 40, y / 5 + 40);
+        const v = n1 * 0.75 + n2 * 0.25;
+        const [r, g, b] = terrainColor(v);
+        const idx = (y * MAP_GRID_SIZE + x) * 4;
+        img.data[idx] = r;
+        img.data[idx + 1] = g;
+        img.data[idx + 2] = b;
+        img.data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={MAP_GRID_SIZE}
+      height={MAP_GRID_SIZE}
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", imageRendering: "pixelated" }}
+    />
+  );
+}
+
+function MapSelectionPanel({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      role="dialog"
+      aria-label="MAP SELECTION"
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 10,
+        display: "flex",
+        flexDirection: "column",
+        background: "linear-gradient(160deg, rgba(7,12,22,0.97) 0%, rgba(3,6,13,0.98) 100%)",
+        fontFamily: "'Barlow', sans-serif",
+        color: "#dce8f5",
+      }}
+    >
+      {/* Header */}
+      <div style={{ position: "relative", textAlign: "center", padding: "clamp(14px, 2.4vh, 22px) 60px 8px" }}>
+        <h2
+          style={{
+            margin: 0,
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: "clamp(18px, 2.6vw, 30px)",
+            letterSpacing: "0.2em",
+            textShadow: "0 0 16px rgba(120,200,255,0.65)",
+          }}
+        >
+          MAP SELECTION
+        </h2>
+        <div
+          style={{
+            margin: "8px auto 0",
+            width: "clamp(80px, 8vw, 130px)",
+            height: 2,
+            background: "linear-gradient(90deg, transparent, #6be2ff, transparent)",
+          }}
+        />
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            position: "absolute",
+            right: 16,
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: 34,
+            height: 34,
+            borderRadius: "50%",
+            border: "1px solid rgba(110,226,255,0.5)",
+            background: "rgba(255,255,255,0.05)",
+            color: "#dce8f5",
+            fontSize: 18,
+            lineHeight: 1,
+            cursor: "pointer",
+          }}
+        >
+          ×
+        </button>
+      </div>
+
+      {/* 100x100 grid map, framed with lettered/numbered sector labels. */}
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0, padding: "0 clamp(16px, 3vw, 32px) clamp(12px, 2vh, 20px)" }}>
+        <div style={{ position: "relative", height: "100%", aspectRatio: "1 / 1", maxWidth: "100%" }}>
+          {/* Column letters */}
+          <div style={{ position: "absolute", left: 0, right: 0, top: "-22px", display: "flex" }}>
+            {MAP_SECTOR_LETTERS.map((l) => (
+              <div key={l} style={{ flex: 1, textAlign: "center", fontSize: 12, letterSpacing: "0.1em", color: "rgba(150,200,230,0.75)" }}>
+                {l}
+              </div>
+            ))}
+          </div>
+          {/* Row numbers */}
+          <div style={{ position: "absolute", top: 0, bottom: 0, left: "-26px", display: "flex", flexDirection: "column" }}>
+            {Array.from({ length: MAP_SECTOR_COUNT }, (_, i) => i + 1).map((n) => (
+              <div key={n} style={{ flex: 1, display: "flex", alignItems: "center", fontSize: 12, color: "rgba(150,200,230,0.75)" }}>
+                {n}
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              position: "relative",
+              width: "100%",
+              height: "100%",
+              border: "1.5px solid rgba(110,226,255,0.6)",
+              boxShadow: "0 0 24px rgba(90,190,255,0.35), inset 0 0 30px rgba(0,0,0,0.4)",
+              overflow: "hidden",
+            }}
+          >
+            <MiniMapGrid />
+
+            {/* Sector grid lines, every 10x10 cells. */}
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+              {Array.from({ length: MAP_SECTOR_COUNT + 1 }, (_, i) => i * 10).map((p) => (
+                <g key={p}>
+                  <line x1={p} y1={0} x2={p} y2={100} stroke="rgba(120,200,255,0.35)" strokeWidth={0.3} />
+                  <line x1={0} y1={p} x2={100} y2={p} stroke="rgba(120,200,255,0.35)" strokeWidth={0.3} />
+                </g>
+              ))}
+            </svg>
+
+            {/* Decorative shrinking safe-zone ring. */}
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: "28%",
+                top: "34%",
+                width: "40%",
+                height: "40%",
+                borderRadius: "50%",
+                border: "2px solid rgba(255,255,255,0.85)",
+                boxShadow: "0 0 0 1000px rgba(0,0,0,0.35), 0 0 16px rgba(255,255,255,0.5)",
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{ display: "flex", justifyContent: "center", padding: "clamp(10px, 1.8vh, 16px) 0 clamp(16px, 2.6vh, 22px)" }}>
+        <button
+          onClick={onClose}
+          style={{
+            padding: "10px 40px",
+            background: "rgba(120,140,160,0.28)",
+            border: "1px solid rgba(180,200,220,0.4)",
+            borderRadius: 4,
+            color: "#eef4fa",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            fontSize: "clamp(13px, 1.6vw, 16px)",
+            cursor: "pointer",
+          }}
+        >
+          CONFIRM
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ComingSoonPanel({
   title,
   icon,
@@ -991,15 +1224,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
       />
 
       {characterOpen && <CharacterSelectionPanel onClose={() => setCharacterOpen(false)} />}
-      {mapOpen && (
-        <ComingSoonPanel
-          title="MAP SELECTION"
-          icon="🗺️"
-          subtitle="Map selection coming soon"
-          message="Pick your drop zone here once the map roster is live."
-          onClose={() => setMapOpen(false)}
-        />
-      )}
+      {mapOpen && <MapSelectionPanel onClose={() => setMapOpen(false)} />}
       {missionsOpen && (
         <ComingSoonPanel
           title="MISSIONS"
