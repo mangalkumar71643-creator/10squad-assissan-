@@ -13,12 +13,14 @@
     "@capacitor/core": "^8.4.1",
     "@capacitor/splash-screen": "^8.0.1",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "three": "0.169.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@types/three": "0.169.0",
     "@vitejs/plugin-react": "catalog:",
     "typescript": "~5.9.3",
     "vite": "catalog:"

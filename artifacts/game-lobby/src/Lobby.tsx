@@ -1,4 +1,6 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 // Main hub screen shown after the splash/loading sequence: the approved
 // concept-art mockup, natively 16:9, rendered full-bleed edge-to-edge
@@ -244,6 +246,12 @@ const CHAR_SLOT_IMAGES: Record<number, string> = {
   0: "/characters/char-1.jpg",
 };
 
+// Real 3D model (glTF binary, baked idle animation) shown on the preview
+// stage once its slot is selected. Only slot 1 has one so far.
+const CHAR_SLOT_MODELS: Record<number, string> = {
+  0: "/characters/char-1.glb",
+};
+
 // Tick marks around the platform's outer ring — computed once (not
 // per-render) so the flat disc reads as a single ground plane viewed in
 // perspective, rather than several rings stacked on top of each other.
@@ -288,9 +296,100 @@ function CharacterSlot({
   );
 }
 
+// Renders a glTF character model with its baked idle animation looping,
+// standing on the preview stage. Plain three.js (no react-three-fiber) —
+// this is the only place in the app that needs a 3D scene, so pulling in
+// a whole renderer abstraction wasn't worth it.
+function CharacterViewer3D({ src }: { src: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    let disposed = false;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+    camera.position.set(0, 1.35, 3.4);
+    camera.lookAt(0, 0.95, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    container.appendChild(renderer.domElement);
+
+    scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x0a0e18, 1.2));
+    const key = new THREE.DirectionalLight(0xbfe0ff, 1.6);
+    key.position.set(2, 4, 3);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0x6bd8ff, 1.1);
+    rim.position.set(-2.5, 2.5, -2.5);
+    scene.add(rim);
+
+    let mixer: THREE.AnimationMixer | null = null;
+    const clock = new THREE.Clock();
+
+    new GLTFLoader().load(
+      src,
+      (gltf) => {
+        if (disposed) return;
+        const model = gltf.scene;
+
+        // Center horizontally, sit exactly on the platform, and scale to a
+        // consistent on-screen height regardless of the source model's units.
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const scale = 1.7 / (size.y || 1);
+        model.scale.setScalar(scale);
+        model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+        scene.add(model);
+
+        if (gltf.animations.length > 0) {
+          mixer = new THREE.AnimationMixer(model);
+          mixer.clipAction(gltf.animations[0]).play();
+        }
+      },
+      undefined,
+      (err) => console.error("Failed to load character model", src, err),
+    );
+
+    const resize = () => {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w === 0 || h === 0) return;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(container);
+
+    let raf = 0;
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      mixer?.update(clock.getDelta());
+      renderer.render(scene, camera);
+    };
+    tick();
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      renderer.dispose();
+      container.removeChild(renderer.domElement);
+    };
+  }, [src]);
+
+  return <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />;
+}
+
 function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
+  const selectedGlobalIndex = selected === null ? null : page * CHAR_SLOTS_PER_PAGE + selected;
 
   return (
     <div
@@ -587,6 +686,10 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
               <div key={i} style={{ width: `${w}%`, height: 2, background: "rgba(140,200,235,0.35)" }} />
             ))}
           </div>
+
+          {selectedGlobalIndex !== null && CHAR_SLOT_MODELS[selectedGlobalIndex] && (
+            <CharacterViewer3D key={selectedGlobalIndex} src={CHAR_SLOT_MODELS[selectedGlobalIndex]} />
+          )}
         </div>
       </div>
 
