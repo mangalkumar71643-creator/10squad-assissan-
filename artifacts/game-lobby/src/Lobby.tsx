@@ -221,6 +221,22 @@ const CHAR_SLOTS_PER_PAGE = 10;
 const CHAR_PAGE_COUNT = 5;
 const CHAR_SLOT_CORNERS = ["tl", "tr", "bl", "br"] as const;
 
+// Fixed (not randomized) positions/timings for the preview stage's falling
+// light particles — randomizing on every render would make them jump
+// around each time the panel re-renders (e.g. on page/selection change).
+const STAGE_PARTICLES = [
+  { left: 22, delay: 0, duration: 3.2 },
+  { left: 31, delay: 0.6, duration: 2.8 },
+  { left: 40, delay: 1.1, duration: 3.6 },
+  { left: 48, delay: 0.3, duration: 3.0 },
+  { left: 55, delay: 1.6, duration: 2.6 },
+  { left: 63, delay: 0.8, duration: 3.4 },
+  { left: 70, delay: 1.9, duration: 2.9 },
+  { left: 78, delay: 0.2, duration: 3.3 },
+  { left: 35, delay: 2.2, duration: 3.1 },
+  { left: 60, delay: 2.6, duration: 2.7 },
+];
+
 // Idle state shows four separate corner brackets (a gap along each edge,
 // no full outline) — reference art only draws a continuous glowing border
 // once a slot is hovered or selected.
@@ -420,9 +436,70 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
             position: "relative",
             borderRadius: 8,
             overflow: "hidden",
-            background: "radial-gradient(ellipse at 50% 78%, rgba(40,110,200,0.35) 0%, rgba(5,10,25,0.9) 68%)",
+            background:
+              "radial-gradient(ellipse at 50% 88%, rgba(60,150,240,0.45) 0%, rgba(20,45,90,0.55) 35%, rgba(8,14,28,0.95) 62%, rgba(2,4,10,0.98) 88%)",
           }}
         >
+          <style>{`
+            @keyframes stage-ring-pulse {
+              0%, 100% { transform: translateX(-50%) scale(1); filter: brightness(1); }
+              50% { transform: translateX(-50%) scale(1.035); filter: brightness(1.3); }
+            }
+            @keyframes stage-core-pulse {
+              0%, 100% { opacity: 0.85; transform: translateX(-50%) scale(1); }
+              50% { opacity: 1; transform: translateX(-50%) scale(1.08); }
+            }
+            @keyframes stage-particle-fall {
+              0% { transform: translateY(-10px); opacity: 0; }
+              12% { opacity: 1; }
+              80% { opacity: 0.8; }
+              100% { transform: translateY(240px); opacity: 0; }
+            }
+          `}</style>
+
+          {/* Ascending stacked rings — a soft "portal" effect rising off the
+              platform, echoing the reference's materialize animation. */}
+          {[
+            { bottom: "20%", width: "70%", op: 0.85, dur: 3.2, delay: 0 },
+            { bottom: "40%", width: "50%", op: 0.5, dur: 3.8, delay: 0.4 },
+            { bottom: "56%", width: "34%", op: 0.3, dur: 4.4, delay: 0.8 },
+          ].map((ring, i) => (
+            <div
+              key={i}
+              style={{
+                position: "absolute",
+                left: "50%",
+                bottom: ring.bottom,
+                width: ring.width,
+                aspectRatio: "3.4 / 1",
+                borderRadius: "50%",
+                border: `2px solid rgba(140,220,255,${ring.op})`,
+                boxShadow: `0 0 ${16 + i * 8}px rgba(100,200,255,${ring.op * 0.7})`,
+                transform: "translateX(-50%)",
+                animation: `stage-ring-pulse ${ring.dur}s ease-in-out ${ring.delay}s infinite`,
+              }}
+            />
+          ))}
+
+          {/* Falling light particles drifting down toward the platform. */}
+          {STAGE_PARTICLES.map((p, i) => (
+            <div
+              key={i}
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                top: "8%",
+                left: `${p.left}%`,
+                width: 2,
+                height: 16,
+                borderRadius: 2,
+                background: "linear-gradient(180deg, rgba(200,235,255,0) 0%, rgba(200,235,255,0.9) 60%, rgba(200,235,255,0) 100%)",
+                animation: `stage-particle-fall ${p.duration}s linear ${p.delay}s infinite`,
+              }}
+            />
+          ))}
+
+          {/* Base concentric platform rings. */}
           <div style={{ position: "absolute", left: "50%", bottom: "14%", transform: "translateX(-50%)", width: "76%", aspectRatio: "3 / 1" }}>
             {[100, 76, 52, 30].map((size) => (
               <div
@@ -435,8 +512,8 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
                   width: `${size}%`,
                   aspectRatio: "3 / 1",
                   borderRadius: "50%",
-                  border: "2px solid rgba(120,210,255,0.55)",
-                  boxShadow: "0 0 20px rgba(90,190,255,0.45)",
+                  border: "2px solid rgba(130,215,255,0.6)",
+                  boxShadow: "0 0 22px rgba(100,200,255,0.5)",
                 }}
               />
             ))}
@@ -445,12 +522,13 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
                 position: "absolute",
                 left: "50%",
                 bottom: "6%",
-                transform: "translateX(-50%)",
                 width: "18%",
                 aspectRatio: "1 / 1",
                 borderRadius: "50%",
-                background: "radial-gradient(circle, rgba(190,235,255,0.95), rgba(90,190,255,0) 72%)",
+                background: "radial-gradient(circle, rgba(210,240,255,0.95), rgba(100,200,255,0) 72%)",
                 filter: "blur(2px)",
+                transform: "translateX(-50%)",
+                animation: "stage-core-pulse 2.6s ease-in-out infinite",
               }}
             />
           </div>
