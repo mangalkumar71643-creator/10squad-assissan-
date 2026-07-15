@@ -1081,13 +1081,15 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let disposed = false;
 
     const scene = new THREE.Scene();
-    // Orthographic, straight overhead — a perspective camera makes a flat
-    // square arena read as a trapezoid; this keeps the 10x10 floor looking
-    // like an actual square, matching the map-selection grid's look.
-    const VIEW_HALF = ARENA_HALF * 1.02;
-    const camera = new THREE.OrthographicCamera(-VIEW_HALF, VIEW_HALF, VIEW_HALF, -VIEW_HALF, 0.1, 100);
-    camera.position.set(0, 12, 0.001);
-    camera.lookAt(0, 0, 0);
+    // Third-person chase camera (Free Fire / PUBG Mobile style): positioned
+    // behind and above the player, following their facing direction, rather
+    // than a fixed top-down view.
+    const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 100);
+    const CAM_DISTANCE = 4.2;
+    const CAM_HEIGHT = 2.4;
+    const CAM_LOOK_HEIGHT = 1.1;
+    const CAM_LERP = 0.08;
+    camera.position.set(0, CAM_HEIGHT, CAM_DISTANCE + 3);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -1113,6 +1115,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     loadFighter(scene, 0xffffff, (rig) => {
       if (disposed) return;
       rig.root.position.set(0, 0, 3);
+      rig.root.rotation.y = Math.PI; // face the bot at the start
       player = rig;
     });
     loadFighter(scene, 0xff6b5e, (rig) => {
@@ -1126,11 +1129,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       const h = container.clientHeight;
       if (w === 0 || h === 0) return;
       renderer.setSize(w, h);
-      const aspect = w / h;
-      camera.left = -VIEW_HALF * aspect;
-      camera.right = VIEW_HALF * aspect;
-      camera.top = VIEW_HALF;
-      camera.bottom = -VIEW_HALF;
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
     resize();
@@ -1144,6 +1143,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerCooldown = 0;
     let botCooldown = 0;
     let ended = false;
+    const camTargetPos = new THREE.Vector3();
+    const camLookAt = new THREE.Vector3();
 
     const tick = () => {
       raf = requestAnimationFrame(tick);
@@ -1193,6 +1194,19 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           ended = true;
           setResult("lose");
         }
+
+        // Chase camera: sits behind the player along their facing
+        // direction and eases toward that spot each frame instead of
+        // snapping, so turning feels smooth rather than jittery.
+        const facing = player.root.rotation.y;
+        camTargetPos.set(
+          player.root.position.x - Math.sin(facing) * CAM_DISTANCE,
+          CAM_HEIGHT,
+          player.root.position.z - Math.cos(facing) * CAM_DISTANCE,
+        );
+        camera.position.lerp(camTargetPos, CAM_LERP);
+        camLookAt.set(player.root.position.x, CAM_LOOK_HEIGHT, player.root.position.z);
+        camera.lookAt(camLookAt);
       }
 
       renderer.render(scene, camera);
