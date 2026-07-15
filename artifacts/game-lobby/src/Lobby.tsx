@@ -1007,6 +1007,10 @@ const PLAYER_ATTACK_COOLDOWN = 0.55;
 const BOT_ATTACK_COOLDOWN = 1.3;
 const JUMP_VELOCITY = 4.6;
 const GRAVITY = 13;
+const LOOK_SENSITIVITY_BASE = 0.009;
+const LOOK_SENSITIVITY_MIN = 0.4;
+const LOOK_SENSITIVITY_MAX = 2.5;
+const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
@@ -1083,6 +1087,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const [playerHp, setPlayerHp] = useState(100);
   const [botHp, setBotHp] = useState(100);
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
+  const [lookSensitivity, setLookSensitivity] = useState(() => {
+    const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
+    return saved >= LOOK_SENSITIVITY_MIN && saved <= LOOK_SENSITIVITY_MAX ? saved : 1;
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -1295,7 +1304,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     if (knob) knob.style.transform = "translate(0px, 0px)";
   };
 
-  const LOOK_SENSITIVITY = 0.009;
   const handleLookDown = (e: React.PointerEvent) => {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     lookTouchId.current = e.pointerId;
@@ -1305,7 +1313,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     if (lookTouchId.current !== e.pointerId) return;
     const dx = e.clientX - lookLastX.current;
     lookLastX.current = e.clientX;
-    cameraYaw.current -= dx * LOOK_SENSITIVITY;
+    cameraYaw.current -= dx * LOOK_SENSITIVITY_BASE * lookSensitivity;
+  };
+
+  const changeSensitivity = (value: number) => {
+    const clamped = clamp(value, LOOK_SENSITIVITY_MIN, LOOK_SENSITIVITY_MAX);
+    setLookSensitivity(clamped);
+    localStorage.setItem(LOOK_SENSITIVITY_STORAGE_KEY, String(clamped));
   };
   const handleLookUp = () => {
     lookTouchId.current = null;
@@ -1369,6 +1383,67 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       >
         EXIT
       </button>
+
+      {/* Look-sensitivity settings */}
+      <button
+        onClick={() => setSettingsOpen((v) => !v)}
+        aria-label="Camera settings"
+        style={{
+          position: "absolute",
+          top: 58,
+          right: 16,
+          width: 32,
+          height: 32,
+          borderRadius: "50%",
+          background: settingsOpen ? "rgba(107,216,255,0.25)" : "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(200,220,240,0.4)",
+          color: "#dce8f5",
+          fontSize: 16,
+          cursor: "pointer",
+        }}
+      >
+        ⚙
+      </button>
+      {settingsOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: 96,
+            right: 16,
+            width: "min(72vw, 260px)",
+            padding: "12px 14px",
+            background: "rgba(8,14,24,0.92)",
+            border: "1px solid rgba(150,200,230,0.35)",
+            borderRadius: 8,
+            touchAction: "none",
+          }}
+        >
+          <div
+            style={{
+              color: "#dce8f5",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 12,
+              letterSpacing: "0.06em",
+              marginBottom: 8,
+              display: "flex",
+              justifyContent: "space-between",
+            }}
+          >
+            <span>LOOK SENSITIVITY</span>
+            <span>{lookSensitivity.toFixed(1)}x</span>
+          </div>
+          <input
+            type="range"
+            min={LOOK_SENSITIVITY_MIN}
+            max={LOOK_SENSITIVITY_MAX}
+            step={0.1}
+            value={lookSensitivity}
+            onChange={(e) => changeSensitivity(Number(e.target.value))}
+            style={{ width: "100%" }}
+          />
+        </div>
+      )}
 
       {/* Virtual joystick */}
       <div
