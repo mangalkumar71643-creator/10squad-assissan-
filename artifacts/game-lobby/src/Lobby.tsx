@@ -237,6 +237,13 @@ const STAGE_PARTICLES = [
   { left: 60, delay: 2.6, duration: 2.7 },
 ];
 
+// Maps a global slot index (across all pages) to its character portrait.
+// Only slot 1 has real art so far — everything else stays an empty locked
+// placeholder until the rest of the roster is ready.
+const CHAR_SLOT_IMAGES: Record<number, string> = {
+  0: "/characters/char-1.jpg",
+};
+
 // Tick marks around the platform's outer ring — computed once (not
 // per-render) so the flat disc reads as a single ground plane viewed in
 // perspective, rather than several rings stacked on top of each other.
@@ -250,10 +257,12 @@ const STAGE_TICKS = Array.from({ length: 16 }, (_, i) => {
 // once a slot is hovered or selected.
 function CharacterSlot({
   label,
+  image,
   selected,
   onClick,
 }: {
   label: string;
+  image?: string;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -262,7 +271,14 @@ function CharacterSlot({
       aria-label={label}
       className={`char-slot${selected ? " selected" : ""}`}
       onClick={onClick}
-      style={{ position: "relative", background: "rgba(10,22,38,0.55)", border: "none", cursor: "pointer", padding: 0 }}
+      style={{
+        position: "relative",
+        background: image ? `url(${image}) center / cover no-repeat, rgba(10,22,38,0.55)` : "rgba(10,22,38,0.55)",
+        border: "none",
+        cursor: "pointer",
+        padding: 0,
+        overflow: "hidden",
+      }}
     >
       <span className="char-slot-border" aria-hidden="true" style={{ position: "absolute", inset: 0, border: "1.5px solid transparent", pointerEvents: "none" }} />
       {CHAR_SLOT_CORNERS.map((corner) => (
@@ -382,6 +398,7 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
               <CharacterSlot
                 key={i}
                 label={`Character slot ${page * CHAR_SLOTS_PER_PAGE + i + 1}`}
+                image={CHAR_SLOT_IMAGES[page * CHAR_SLOTS_PER_PAGE + i]}
                 selected={selected === i}
                 onClick={() => setSelected(i)}
               />
