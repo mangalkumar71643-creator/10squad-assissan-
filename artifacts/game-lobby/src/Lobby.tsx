@@ -1004,6 +1004,8 @@ const PLAYER_DAMAGE = 14;
 const BOT_DAMAGE = 10;
 const PLAYER_ATTACK_COOLDOWN = 0.55;
 const BOT_ATTACK_COOLDOWN = 1.3;
+const JUMP_VELOCITY = 4.6;
+const GRAVITY = 13;
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
@@ -1068,6 +1070,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const joystickKnobRef = useRef<HTMLDivElement>(null);
   const joystickVec = useRef({ x: 0, y: 0 });
   const attackRequested = useRef(false);
+  const jumpRequested = useRef(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
 
@@ -1142,6 +1145,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let botHpLocal = 100;
     let playerCooldown = 0;
     let botCooldown = 0;
+    let playerVelY = 0;
+    let grounded = true;
     let ended = false;
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
@@ -1158,6 +1163,23 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           player.root.position.x = clamp(player.root.position.x + jv.x * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
           player.root.position.z = clamp(player.root.position.z + jv.y * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
           player.root.rotation.y = Math.atan2(jv.x, jv.y);
+        }
+
+        if (jumpRequested.current) {
+          jumpRequested.current = false;
+          if (grounded) {
+            playerVelY = JUMP_VELOCITY;
+            grounded = false;
+          }
+        }
+        if (!grounded) {
+          playerVelY -= GRAVITY * dt;
+          player.root.position.y = Math.max(0, player.root.position.y + playerVelY * dt);
+          if (player.root.position.y <= 0) {
+            player.root.position.y = 0;
+            playerVelY = 0;
+            grounded = true;
+          }
         }
 
         const dx = player.root.position.x - bot.root.position.x;
@@ -1201,11 +1223,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         const facing = player.root.rotation.y;
         camTargetPos.set(
           player.root.position.x - Math.sin(facing) * CAM_DISTANCE,
-          CAM_HEIGHT,
+          CAM_HEIGHT + player.root.position.y,
           player.root.position.z - Math.cos(facing) * CAM_DISTANCE,
         );
         camera.position.lerp(camTargetPos, CAM_LERP);
-        camLookAt.set(player.root.position.x, CAM_LOOK_HEIGHT, player.root.position.z);
+        camLookAt.set(player.root.position.x, CAM_LOOK_HEIGHT + player.root.position.y, player.root.position.z);
         camera.lookAt(camLookAt);
       }
 
@@ -1369,6 +1391,34 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }}
       >
         ATTACK
+      </button>
+
+      {/* Jump button */}
+      <button
+        onPointerDown={(e) => {
+          e.preventDefault();
+          jumpRequested.current = true;
+        }}
+        aria-label="Jump"
+        style={{
+          position: "absolute",
+          right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+          bottom: "9%",
+          width: "clamp(56px, 10vw, 76px)",
+          height: "clamp(56px, 10vw, 76px)",
+          borderRadius: "50%",
+          background: "radial-gradient(circle, #7fd8ff, #2b8fd8)",
+          border: "2px solid rgba(210,240,255,0.85)",
+          boxShadow: "0 0 20px rgba(80,180,255,0.55)",
+          color: "#f0faff",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          letterSpacing: "0.05em",
+          fontSize: "clamp(11px, 1.7vw, 14px)",
+          cursor: "pointer",
+        }}
+      >
+        JUMP
       </button>
 
       {result !== "playing" && (
