@@ -1074,6 +1074,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const jumpRequested = useRef(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
+  // Free-look: dragging anywhere on the arena view (outside the joystick/
+  // buttons) orbits the camera around the player, independent of movement.
+  const cameraYaw = useRef(Math.PI);
+  const lookTouchId = useRef<number | null>(null);
+  const lookLastX = useRef(0);
 
   const [playerHp, setPlayerHp] = useState(100);
   const [botHp, setBotHp] = useState(100);
@@ -1233,8 +1238,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
         // Chase camera: sits behind the player along their facing
         // direction and eases toward that spot each frame instead of
-        // snapping, so turning feels smooth rather than jittery.
-        const facing = player.root.rotation.y;
+        // snapping, so turning feels smooth rather than jittery. While the
+        // player is dragging to free-look, camera yaw comes from the drag
+        // instead of snapping back to the movement direction; it re-syncs
+        // once the drag is released.
+        if (lookTouchId.current === null) {
+          cameraYaw.current = player.root.rotation.y;
+        }
+        const facing = cameraYaw.current;
         camTargetPos.set(
           player.root.position.x - Math.sin(facing) * CAM_DISTANCE,
           CAM_HEIGHT + player.root.position.y,
@@ -1284,6 +1295,22 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     if (knob) knob.style.transform = "translate(0px, 0px)";
   };
 
+  const LOOK_SENSITIVITY = 0.009;
+  const handleLookDown = (e: React.PointerEvent) => {
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    lookTouchId.current = e.pointerId;
+    lookLastX.current = e.clientX;
+  };
+  const handleLookMove = (e: React.PointerEvent) => {
+    if (lookTouchId.current !== e.pointerId) return;
+    const dx = e.clientX - lookLastX.current;
+    lookLastX.current = e.clientX;
+    cameraYaw.current -= dx * LOOK_SENSITIVITY;
+  };
+  const handleLookUp = () => {
+    lookTouchId.current = null;
+  };
+
   return (
     <div
       role="dialog"
@@ -1297,7 +1324,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         touchAction: "none",
       }}
     >
-      <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+      <div
+        ref={containerRef}
+        onPointerDown={handleLookDown}
+        onPointerMove={handleLookMove}
+        onPointerUp={handleLookUp}
+        onPointerCancel={handleLookUp}
+        style={{ position: "absolute", inset: 0, touchAction: "none" }}
+      />
 
       {/* Health bars */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
