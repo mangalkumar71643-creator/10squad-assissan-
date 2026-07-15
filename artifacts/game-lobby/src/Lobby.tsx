@@ -217,6 +217,284 @@ function DeployButton({
   );
 }
 
+const CHAR_SLOT_CLIP = "polygon(14% 0%, 100% 0%, 100% 88%, 86% 100%, 0% 100%, 0% 12%)";
+const CHAR_SLOTS_PER_PAGE = 10;
+const CHAR_PAGE_COUNT = 5;
+
+function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
+  const [page, setPage] = useState(0);
+  const [selected, setSelected] = useState<number | null>(null);
+
+  return (
+    <div
+      role="dialog"
+      aria-label="CHARACTER SELECTION"
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 10,
+        display: "flex",
+        flexDirection: "column",
+        background: "linear-gradient(160deg, rgba(7,12,22,0.97) 0%, rgba(3,6,13,0.98) 100%)",
+        fontFamily: "'Barlow', sans-serif",
+        color: "#dce8f5",
+      }}
+    >
+      <style>{`
+        .char-slot { transition: border-color 120ms ease-out, box-shadow 120ms ease-out, background 120ms ease-out; }
+        .char-slot:hover { border-color: #6be2ff; box-shadow: 0 0 14px rgba(80,200,255,0.55), inset 0 0 12px rgba(80,200,255,0.2); }
+        .char-slot.selected { border-color: #ffcf4d; box-shadow: 0 0 16px rgba(255,190,60,0.75), inset 0 0 12px rgba(255,190,60,0.25); }
+        .char-page-btn { transition: opacity 120ms ease-out, color 120ms ease-out; }
+        .char-page-btn:hover { color: #6be2ff; }
+      `}</style>
+
+      {/* Header */}
+      <div style={{ position: "relative", textAlign: "center", padding: "clamp(14px, 2.4vh, 22px) 60px 8px" }}>
+        <h2
+          style={{
+            margin: 0,
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: "clamp(18px, 2.6vw, 30px)",
+            letterSpacing: "0.2em",
+            textShadow: "0 0 16px rgba(120,200,255,0.65)",
+          }}
+        >
+          CHARACTER SELECTION
+        </h2>
+        <div
+          style={{
+            margin: "8px auto 0",
+            width: "clamp(80px, 8vw, 130px)",
+            height: 2,
+            background: "linear-gradient(90deg, transparent, #6be2ff, transparent)",
+          }}
+        />
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            position: "absolute",
+            right: 16,
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: 34,
+            height: 34,
+            borderRadius: "50%",
+            border: "1px solid rgba(110,226,255,0.5)",
+            background: "rgba(255,255,255,0.05)",
+            color: "#dce8f5",
+            fontSize: 18,
+            lineHeight: 1,
+            cursor: "pointer",
+          }}
+        >
+          ×
+        </button>
+      </div>
+
+      {/* Body: card grid + preview stage */}
+      <div style={{ flex: 1, display: "flex", minHeight: 0, padding: "0 clamp(12px, 2.4vw, 28px)", gap: "clamp(10px, 1.8vw, 20px)" }}>
+        <div style={{ flex: "1.4 1 0%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div
+            style={{
+              flex: 1,
+              display: "grid",
+              gridTemplateColumns: "repeat(5, 1fr)",
+              gridTemplateRows: "repeat(2, 1fr)",
+              gap: "clamp(6px, 1vw, 12px)",
+              minHeight: 0,
+            }}
+          >
+            {Array.from({ length: CHAR_SLOTS_PER_PAGE }).map((_, i) => (
+              <button
+                key={i}
+                aria-label={`Character slot ${page * CHAR_SLOTS_PER_PAGE + i + 1}`}
+                className={`char-slot${selected === i ? " selected" : ""}`}
+                onClick={() => setSelected(i)}
+                style={{
+                  background: "rgba(10,22,38,0.55)",
+                  border: "1.5px solid rgba(90,150,190,0.45)",
+                  clipPath: CHAR_SLOT_CLIP,
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Pagination */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, padding: "clamp(8px, 1.6vh, 14px) 0" }}>
+            <button
+              className="char-page-btn"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              aria-label="Previous page"
+              disabled={page === 0}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: page === 0 ? "rgba(150,180,210,0.3)" : "#a8c4dc",
+                fontSize: 20,
+                cursor: page === 0 ? "default" : "pointer",
+              }}
+            >
+              ‹‹
+            </button>
+            <div style={{ display: "flex", gap: 7 }}>
+              {Array.from({ length: CHAR_PAGE_COUNT }).map((_, i) => (
+                <span
+                  key={i}
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: i === page ? "#6be2ff" : "rgba(150,180,210,0.35)",
+                    boxShadow: i === page ? "0 0 6px rgba(110,226,255,0.9)" : "none",
+                  }}
+                />
+              ))}
+            </div>
+            <button
+              className="char-page-btn"
+              onClick={() => setPage((p) => Math.min(CHAR_PAGE_COUNT - 1, p + 1))}
+              aria-label="Next page"
+              disabled={page === CHAR_PAGE_COUNT - 1}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: page === CHAR_PAGE_COUNT - 1 ? "rgba(150,180,210,0.3)" : "#a8c4dc",
+                fontSize: 20,
+                cursor: page === CHAR_PAGE_COUNT - 1 ? "default" : "pointer",
+              }}
+            >
+              ››
+            </button>
+          </div>
+        </div>
+
+        {/* Preview stage */}
+        <div
+          style={{
+            flex: "1 1 0%",
+            position: "relative",
+            borderRadius: 8,
+            overflow: "hidden",
+            background: "radial-gradient(ellipse at 50% 78%, rgba(40,110,200,0.35) 0%, rgba(5,10,25,0.9) 68%)",
+          }}
+        >
+          <div style={{ position: "absolute", left: "50%", bottom: "14%", transform: "translateX(-50%)", width: "76%", aspectRatio: "3 / 1" }}>
+            {[100, 76, 52, 30].map((size) => (
+              <div
+                key={size}
+                style={{
+                  position: "absolute",
+                  left: "50%",
+                  bottom: 0,
+                  transform: "translateX(-50%)",
+                  width: `${size}%`,
+                  aspectRatio: "3 / 1",
+                  borderRadius: "50%",
+                  border: "2px solid rgba(120,210,255,0.55)",
+                  boxShadow: "0 0 20px rgba(90,190,255,0.45)",
+                }}
+              />
+            ))}
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                bottom: "6%",
+                transform: "translateX(-50%)",
+                width: "18%",
+                aspectRatio: "1 / 1",
+                borderRadius: "50%",
+                background: "radial-gradient(circle, rgba(190,235,255,0.95), rgba(90,190,255,0) 72%)",
+                filter: "blur(2px)",
+              }}
+            />
+          </div>
+          <span aria-hidden="true" style={{ position: "absolute", right: "8%", bottom: "10%", color: "rgba(180,220,255,0.6)", fontSize: "clamp(16px, 2vw, 22px)" }}>
+            ✦
+          </span>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 10,
+          padding: "clamp(10px, 1.8vh, 16px) clamp(12px, 2.4vw, 28px) clamp(14px, 2.4vh, 20px)",
+        }}
+      >
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: "10px 28px",
+              background: "rgba(120,140,160,0.28)",
+              border: "1px solid rgba(180,200,220,0.4)",
+              borderRadius: 4,
+              color: "#eef4fa",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              fontSize: "clamp(13px, 1.6vw, 16px)",
+              cursor: "pointer",
+            }}
+          >
+            CONFIRM
+          </button>
+          <button
+            onClick={() => setSelected(Math.floor(Math.random() * CHAR_SLOTS_PER_PAGE))}
+            style={{
+              padding: "10px 28px",
+              background: "rgba(90,100,115,0.28)",
+              border: "1px solid rgba(180,200,220,0.4)",
+              borderRadius: 4,
+              color: "#eef4fa",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              fontSize: "clamp(13px, 1.6vw, 16px)",
+              cursor: "pointer",
+            }}
+          >
+            RANDOM
+          </button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "clamp(12px, 1.8vw, 20px)" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
+            <span aria-hidden="true">🪙</span> 0
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
+            <span aria-hidden="true">💎</span> 0
+          </span>
+          <button
+            style={{
+              padding: "10px 24px",
+              background: "rgba(70,130,190,0.35)",
+              border: "1px solid rgba(140,200,255,0.55)",
+              borderRadius: 4,
+              color: "#eef4fa",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              fontSize: "clamp(13px, 1.6vw, 16px)",
+              cursor: "pointer",
+            }}
+          >
+            SKINS
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ComingSoonPanel({
   title,
   icon,
@@ -444,15 +722,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
         onClick={() => setDeployOpen(true)}
       />
 
-      {characterOpen && (
-        <ComingSoonPanel
-          title="CHARACTER"
-          icon="🛡️"
-          subtitle="Character roster coming soon"
-          message="Your squad's operatives will be selectable here once the roster is live."
-          onClose={() => setCharacterOpen(false)}
-        />
-      )}
+      {characterOpen && <CharacterSelectionPanel onClose={() => setCharacterOpen(false)} />}
       {mapOpen && (
         <ComingSoonPanel
           title="MAP SELECTION"
