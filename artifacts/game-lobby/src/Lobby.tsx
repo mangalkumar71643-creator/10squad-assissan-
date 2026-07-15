@@ -1081,8 +1081,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let disposed = false;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-    camera.position.set(0, 7.6, 7.2);
+    // Orthographic, straight overhead — a perspective camera makes a flat
+    // square arena read as a trapezoid; this keeps the 10x10 floor looking
+    // like an actual square, matching the map-selection grid's look.
+    const VIEW_HALF = ARENA_HALF * 1.02;
+    const camera = new THREE.OrthographicCamera(-VIEW_HALF, VIEW_HALF, VIEW_HALF, -VIEW_HALF, 0.1, 100);
+    camera.position.set(0, 12, 0.001);
     camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -1122,7 +1126,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       const h = container.clientHeight;
       if (w === 0 || h === 0) return;
       renderer.setSize(w, h);
-      camera.aspect = w / h;
+      const aspect = w / h;
+      camera.left = -VIEW_HALF * aspect;
+      camera.right = VIEW_HALF * aspect;
+      camera.top = VIEW_HALF;
+      camera.bottom = -VIEW_HALF;
       camera.updateProjectionMatrix();
     };
     resize();
