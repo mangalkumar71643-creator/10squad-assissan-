@@ -237,6 +237,14 @@ const STAGE_PARTICLES = [
   { left: 60, delay: 2.6, duration: 2.7 },
 ];
 
+// Tick marks around the platform's outer ring — computed once (not
+// per-render) so the flat disc reads as a single ground plane viewed in
+// perspective, rather than several rings stacked on top of each other.
+const STAGE_TICKS = Array.from({ length: 16 }, (_, i) => {
+  const angle = (i / 16) * Math.PI * 2;
+  return { x: 50 + 47 * Math.cos(angle), y: 50 + 47 * Math.sin(angle) };
+});
+
 // Idle state shows four separate corner brackets (a gap along each edge,
 // no full outline) — reference art only draws a continuous glowing border
 // once a slot is hovered or selected.
@@ -441,10 +449,6 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
           }}
         >
           <style>{`
-            @keyframes stage-ring-pulse {
-              0%, 100% { transform: translateX(-50%) scale(1); filter: brightness(1); }
-              50% { transform: translateX(-50%) scale(1.035); filter: brightness(1.3); }
-            }
             @keyframes stage-core-pulse {
               0%, 100% { opacity: 0.85; transform: translateX(-50%) scale(1); }
               50% { opacity: 1; transform: translateX(-50%) scale(1.08); }
@@ -455,31 +459,11 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
               80% { opacity: 0.8; }
               100% { transform: translateY(240px); opacity: 0; }
             }
+            @keyframes stage-ticks-spin {
+              from { transform: translateX(-50%) rotate(0deg); }
+              to { transform: translateX(-50%) rotate(360deg); }
+            }
           `}</style>
-
-          {/* Ascending stacked rings — a soft "portal" effect rising off the
-              platform, echoing the reference's materialize animation. */}
-          {[
-            { bottom: "20%", width: "70%", op: 0.85, dur: 3.2, delay: 0 },
-            { bottom: "40%", width: "50%", op: 0.5, dur: 3.8, delay: 0.4 },
-            { bottom: "56%", width: "34%", op: 0.3, dur: 4.4, delay: 0.8 },
-          ].map((ring, i) => (
-            <div
-              key={i}
-              style={{
-                position: "absolute",
-                left: "50%",
-                bottom: ring.bottom,
-                width: ring.width,
-                aspectRatio: "3.4 / 1",
-                borderRadius: "50%",
-                border: `2px solid rgba(140,220,255,${ring.op})`,
-                boxShadow: `0 0 ${16 + i * 8}px rgba(100,200,255,${ring.op * 0.7})`,
-                transform: "translateX(-50%)",
-                animation: `stage-ring-pulse ${ring.dur}s ease-in-out ${ring.delay}s infinite`,
-              }}
-            />
-          ))}
 
           {/* Falling light particles drifting down toward the platform. */}
           {STAGE_PARTICLES.map((p, i) => (
@@ -499,7 +483,10 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
             />
           ))}
 
-          {/* Base concentric platform rings. */}
+          {/* Base concentric platform — a single flat ground-plane disc
+              (all rings share the same base) rather than rings stacked
+              above one another. A slowly spinning tick-mark ring sells the
+              "3D turntable" read without needing any vertical stacking. */}
           <div style={{ position: "absolute", left: "50%", bottom: "14%", transform: "translateX(-50%)", width: "76%", aspectRatio: "3 / 1" }}>
             {[100, 76, 52, 30].map((size) => (
               <div
@@ -517,6 +504,35 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
                 }}
               />
             ))}
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: "50%",
+                bottom: 0,
+                width: "100%",
+                aspectRatio: "3 / 1",
+                animation: "stage-ticks-spin 14s linear infinite",
+              }}
+            >
+              {STAGE_TICKS.map((t, i) => (
+                <span
+                  key={i}
+                  style={{
+                    position: "absolute",
+                    left: `${t.x}%`,
+                    top: `${t.y}%`,
+                    width: 3,
+                    height: 3,
+                    marginLeft: -1.5,
+                    marginTop: -1.5,
+                    borderRadius: "50%",
+                    background: "rgba(180,230,255,0.8)",
+                    boxShadow: "0 0 4px rgba(140,215,255,0.9)",
+                  }}
+                />
+              ))}
+            </div>
             <div
               style={{
                 position: "absolute",
