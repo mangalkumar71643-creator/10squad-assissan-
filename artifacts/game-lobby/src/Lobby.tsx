@@ -143,7 +143,42 @@ function CardHotspot({
 // Elongated hex/capsule silhouette with chamfered ends — the metal frame's
 // outer edge. The inner glow panel reuses the same polygon on an inset box
 // so the two nest as a consistent "framed plate" shape at any size.
-const DEPLOY_CLIP = "polygon(7% 0%, 93% 0%, 100% 30%, 100% 70%, 93% 100%, 7% 100%, 0% 70%, 0% 30%)";
+const DEPLOY_CLIP = "polygon(9% 0%, 91% 0%, 100% 26%, 100% 74%, 91% 100%, 9% 100%, 0% 74%, 0% 26%)";
+// A single thick chevron arrow (like ">"); two of these overlapped make the
+// "»" mark. Concave notch on the left edge is what makes it read as an
+// arrowhead instead of a plain triangle.
+const CHEVRON_CLIP = "polygon(0% 0%, 35% 0%, 100% 50%, 35% 100%, 0% 100%, 55% 50%)";
+
+function Chevron({ mirrored }: { mirrored?: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        position: "relative",
+        display: "inline-block",
+        width: "0.85em",
+        height: "0.95em",
+        transform: mirrored ? "scaleX(-1)" : undefined,
+      }}
+    >
+      {[0, 0.4].map((offset) => (
+        <span
+          key={offset}
+          style={{
+            position: "absolute",
+            left: `${offset * 100}%`,
+            top: 0,
+            width: "60%",
+            height: "100%",
+            clipPath: CHEVRON_CLIP,
+            background: "linear-gradient(180deg, #f5ecff 0%, #cda6ff 55%, #9b63ff 100%)",
+            filter: "drop-shadow(0 0 5px rgba(180,120,255,0.95))",
+          }}
+        />
+      ))}
+    </span>
+  );
+}
 
 function DeployButton({
   pressed,
@@ -171,16 +206,16 @@ function DeployButton({
         right: "4%",
         bottom: "5%",
         zIndex: 5,
-        padding: "clamp(12px, 1.9vh, 18px) clamp(32px, 4.4vw, 54px)",
-        minWidth: "clamp(160px, 20vw, 280px)",
+        padding: "clamp(14px, 2.2vh, 20px) clamp(40px, 5.2vw, 62px)",
+        minWidth: "clamp(180px, 22vw, 300px)",
         clipPath: DEPLOY_CLIP,
         border: "none",
         cursor: "pointer",
         WebkitTapHighlightColor: "transparent",
         // Dark brushed-metal plate, same family of purples as the rest of
         // the UI (character panel border/glow) rather than a flat color.
-        background: "linear-gradient(160deg, #55496f 0%, #2c2540 35%, #16101f 75%, #0a0712 100%)",
-        boxShadow: "0 0 18px rgba(150,90,255,0.35), 0 4px 10px rgba(0,0,0,0.55)",
+        background: "linear-gradient(160deg, #5c5078 0%, #2f2744 30%, #17111f 70%, #0a0712 100%)",
+        boxShadow: "0 0 20px rgba(150,90,255,0.4), 0 4px 12px rgba(0,0,0,0.6)",
         animation: pressed ? "none" : "deploy-pulse 2.4s ease-in-out infinite",
       }}
     >
@@ -191,19 +226,105 @@ function DeployButton({
         }
       `}</style>
 
-      {/* Inner glowing panel, inset from the metal frame's edge. */}
+      {/* Diagonal sheen across the metal to sell a beveled/faceted plate
+          instead of a flat-shaded fill. */}
       <span
         aria-hidden="true"
         style={{
           position: "absolute",
-          top: "clamp(5px, 1vh, 8px)",
-          bottom: "clamp(5px, 1vh, 8px)",
-          left: "clamp(12px, 2.2vw, 22px)",
-          right: "clamp(12px, 2.2vw, 22px)",
+          inset: 0,
           clipPath: DEPLOY_CLIP,
-          background: "linear-gradient(180deg, rgba(20,14,42,0.95), rgba(8,6,20,0.95))",
-          border: "1.5px solid rgba(190,140,255,0.85)",
-          boxShadow: "0 0 14px rgba(170,110,255,0.7), inset 0 0 16px rgba(140,80,255,0.35)",
+          background:
+            "linear-gradient(115deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 16%, rgba(255,255,255,0) 84%, rgba(255,255,255,0.12) 100%)",
+        }}
+      />
+
+      {/* Small glowing vertical light-slits set into the metal near each
+          pointed end, echoing the reference art's corner detailing. */}
+      {[7.5, 13].map((pct) => (
+        <span
+          key={`l${pct}`}
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: `${pct}%`,
+            top: "28%",
+            bottom: "28%",
+            width: "2px",
+            background: "linear-gradient(180deg, transparent, #d6bbff, transparent)",
+            boxShadow: "0 0 7px 1px rgba(190,140,255,0.9)",
+          }}
+        />
+      ))}
+      {[93 - 7.5, 93 - 13].map((pct) => (
+        <span
+          key={`r${pct}`}
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: `${pct}%`,
+            top: "28%",
+            bottom: "28%",
+            width: "2px",
+            background: "linear-gradient(180deg, transparent, #d6bbff, transparent)",
+            boxShadow: "0 0 7px 1px rgba(190,140,255,0.9)",
+          }}
+        />
+      ))}
+
+      {/* Glowing slit inset along the top/bottom edges of the frame. */}
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          top: 0,
+          left: "34%",
+          right: "34%",
+          height: "3px",
+          background: "#ecdcff",
+          boxShadow: "0 0 10px 2px rgba(190,140,255,0.95), 0 0 22px 6px rgba(150,90,255,0.5)",
+        }}
+      />
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: "34%",
+          right: "34%",
+          height: "3px",
+          background: "#ecdcff",
+          boxShadow: "0 0 10px 2px rgba(190,140,255,0.95), 0 0 22px 6px rgba(150,90,255,0.5)",
+        }}
+      />
+
+      {/* Soft outer glow, sitting just outside the crisp inner border line
+          below — the reference's neon edge reads as two nested strokes. */}
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          top: "clamp(4px, 0.9vh, 7px)",
+          bottom: "clamp(4px, 0.9vh, 7px)",
+          left: "clamp(16px, 2.7vw, 27px)",
+          right: "clamp(16px, 2.7vw, 27px)",
+          clipPath: DEPLOY_CLIP,
+          boxShadow: "0 0 18px rgba(170,110,255,0.75), 0 0 34px rgba(140,80,255,0.4)",
+        }}
+      />
+
+      {/* Inner dark panel with the crisp neon border line. */}
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          top: "clamp(6px, 1.1vh, 9px)",
+          bottom: "clamp(6px, 1.1vh, 9px)",
+          left: "clamp(18px, 2.9vw, 29px)",
+          right: "clamp(18px, 2.9vw, 29px)",
+          clipPath: DEPLOY_CLIP,
+          background: "linear-gradient(180deg, rgba(22,15,40,0.95), rgba(8,6,18,0.97))",
+          border: "1.5px solid #caa6ff",
         }}
       />
 
@@ -228,7 +349,7 @@ function DeployButton({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          gap: "0.45em",
+          gap: "0.5em",
           fontFamily: "'Rajdhani', sans-serif",
           fontWeight: 700,
           fontStyle: "italic",
@@ -236,7 +357,7 @@ function DeployButton({
           letterSpacing: "0.06em",
         }}
       >
-        <span style={{ color: "#c9a8ff", textShadow: "0 0 10px rgba(170,110,255,0.9)" }}>»</span>
+        <Chevron />
         <span
           style={{
             background: "linear-gradient(180deg, #ffffff 0%, #ddc8ff 60%, #b98cff 100%)",
@@ -248,7 +369,7 @@ function DeployButton({
         >
           DEPLOY
         </span>
-        <span style={{ color: "#c9a8ff", textShadow: "0 0 10px rgba(170,110,255,0.9)" }}>«</span>
+        <Chevron mirrored />
       </span>
     </button>
   );
