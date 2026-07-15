@@ -217,9 +217,36 @@ function DeployButton({
   );
 }
 
-const CHAR_SLOT_CLIP = "polygon(14% 0%, 100% 0%, 100% 88%, 86% 100%, 0% 100%, 0% 12%)";
 const CHAR_SLOTS_PER_PAGE = 10;
 const CHAR_PAGE_COUNT = 5;
+const CHAR_SLOT_CORNERS = ["tl", "tr", "bl", "br"] as const;
+
+// Idle state shows four separate corner brackets (a gap along each edge,
+// no full outline) — reference art only draws a continuous glowing border
+// once a slot is hovered or selected.
+function CharacterSlot({
+  label,
+  selected,
+  onClick,
+}: {
+  label: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-label={label}
+      className={`char-slot${selected ? " selected" : ""}`}
+      onClick={onClick}
+      style={{ position: "relative", background: "rgba(10,22,38,0.55)", border: "none", cursor: "pointer", padding: 0 }}
+    >
+      <span className="char-slot-border" aria-hidden="true" style={{ position: "absolute", inset: 0, border: "1.5px solid transparent", pointerEvents: "none" }} />
+      {CHAR_SLOT_CORNERS.map((corner) => (
+        <span key={corner} aria-hidden="true" className={`char-slot-corner char-slot-corner-${corner}`} />
+      ))}
+    </button>
+  );
+}
 
 function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
   const [page, setPage] = useState(0);
@@ -241,9 +268,30 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
       }}
     >
       <style>{`
-        .char-slot { transition: border-color 120ms ease-out, box-shadow 120ms ease-out, background 120ms ease-out; }
-        .char-slot:hover { border-color: #6be2ff; box-shadow: 0 0 14px rgba(80,200,255,0.55), inset 0 0 12px rgba(80,200,255,0.2); }
-        .char-slot.selected { border-color: #ffcf4d; box-shadow: 0 0 16px rgba(255,190,60,0.75), inset 0 0 12px rgba(255,190,60,0.25); }
+        .char-slot-corner {
+          position: absolute;
+          width: 24%;
+          height: 18%;
+          border-color: #8fd0ec;
+          opacity: 0.8;
+          pointer-events: none;
+          transition: opacity 120ms ease-out;
+        }
+        .char-slot-corner-tl { top: 0; left: 0; border-top: 2px solid; border-left: 2px solid; }
+        .char-slot-corner-tr { top: 0; right: 0; border-top: 2px solid; border-right: 2px solid; }
+        .char-slot-corner-bl { bottom: 0; left: 0; border-bottom: 2px solid; border-left: 2px solid; }
+        .char-slot-corner-br { bottom: 0; right: 0; border-bottom: 2px solid; border-right: 2px solid; }
+        .char-slot-border { transition: border-color 120ms ease-out, box-shadow 120ms ease-out; }
+        .char-slot:hover .char-slot-border {
+          border-color: #6be2ff;
+          box-shadow: 0 0 14px rgba(80,200,255,0.55), inset 0 0 12px rgba(80,200,255,0.2);
+        }
+        .char-slot:hover .char-slot-corner { opacity: 0; }
+        .char-slot.selected .char-slot-border {
+          border-color: #ffcf4d;
+          box-shadow: 0 0 16px rgba(255,190,60,0.8), inset 0 0 12px rgba(255,190,60,0.3);
+        }
+        .char-slot.selected .char-slot-corner { opacity: 0; }
         .char-page-btn { transition: opacity 120ms ease-out, color 120ms ease-out; }
         .char-page-btn:hover { color: #6be2ff; }
       `}</style>
@@ -307,18 +355,11 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
             }}
           >
             {Array.from({ length: CHAR_SLOTS_PER_PAGE }).map((_, i) => (
-              <button
+              <CharacterSlot
                 key={i}
-                aria-label={`Character slot ${page * CHAR_SLOTS_PER_PAGE + i + 1}`}
-                className={`char-slot${selected === i ? " selected" : ""}`}
+                label={`Character slot ${page * CHAR_SLOTS_PER_PAGE + i + 1}`}
+                selected={selected === i}
                 onClick={() => setSelected(i)}
-                style={{
-                  background: "rgba(10,22,38,0.55)",
-                  border: "1.5px solid rgba(90,150,190,0.45)",
-                  clipPath: CHAR_SLOT_CLIP,
-                  cursor: "pointer",
-                  padding: 0,
-                }}
               />
             ))}
           </div>
@@ -416,6 +457,25 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
           <span aria-hidden="true" style={{ position: "absolute", right: "8%", bottom: "10%", color: "rgba(180,220,255,0.6)", fontSize: "clamp(16px, 2vw, 22px)" }}>
             ✦
           </span>
+
+          {/* Decorative HUD readout along the stage's right edge. */}
+          <div aria-hidden="true" style={{ position: "absolute", top: "6%", bottom: "6%", right: "4%", width: "1px", background: "rgba(120,190,230,0.35)" }} />
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              top: "42%",
+              right: "5%",
+              width: "34%",
+              display: "flex",
+              flexDirection: "column",
+              gap: 5,
+            }}
+          >
+            {[100, 62, 80, 46].map((w, i) => (
+              <div key={i} style={{ width: `${w}%`, height: 2, background: "rgba(140,200,235,0.35)" }} />
+            ))}
+          </div>
         </div>
       </div>
 
