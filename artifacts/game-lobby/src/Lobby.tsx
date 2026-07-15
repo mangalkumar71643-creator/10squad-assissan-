@@ -1000,6 +1000,7 @@ const ARENA_HALF = 5; // 10x10 arena, centered on the origin
 const PLAYER_SPEED = 2.6;
 const BOT_SPEED = 1.9;
 const ATTACK_RANGE = 1.3;
+const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
 const PLAYER_DAMAGE = 14;
 const BOT_DAMAGE = 10;
 const PLAYER_ATTACK_COOLDOWN = 0.55;
@@ -1182,9 +1183,22 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           }
         }
 
-        const dx = player.root.position.x - bot.root.position.x;
-        const dz = player.root.position.z - bot.root.position.z;
-        const dist = Math.hypot(dx, dz);
+        let dx = player.root.position.x - bot.root.position.x;
+        let dz = player.root.position.z - bot.root.position.z;
+        let dist = Math.hypot(dx, dz);
+
+        // Keep the two fighters from walking through each other's bodies —
+        // push the player back out to the minimum separation distance.
+        if (dist < BODY_SEPARATION) {
+          const nx = dist > 0.0001 ? dx / dist : 0;
+          const nz = dist > 0.0001 ? dz / dist : 1;
+          player.root.position.x = clamp(bot.root.position.x + nx * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+          player.root.position.z = clamp(bot.root.position.z + nz * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+          dx = player.root.position.x - bot.root.position.x;
+          dz = player.root.position.z - bot.root.position.z;
+          dist = Math.hypot(dx, dz);
+        }
+
         if (dist > ATTACK_RANGE * 0.85) {
           bot.root.position.x += (dx / dist) * BOT_SPEED * dt;
           bot.root.position.z += (dz / dist) * BOT_SPEED * dt;
