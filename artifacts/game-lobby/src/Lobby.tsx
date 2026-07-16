@@ -1031,6 +1031,10 @@ const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
 const PUNCH_DURATION = 0.35;
 const PUNCH_SWING_ANGLE = 1.4;
 const PUNCH_ELBOW_ANGLE = 0.9;
+const BOT2_TINT = 0xffb703;
+const BOT2_SPAWN = { x: 3.4, z: -3.2 };
+const SWORD_DAMAGE = 26;
+const SWORD_RANGE = 2.0;
 
 // Swings a fighter's right arm forward and back (bind-pose-relative, layered
 // on top of whatever the idle clip set that frame) — there's no punch clip
@@ -1050,6 +1054,46 @@ interface FighterRig {
   mixer: THREE.AnimationMixer | null;
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
+  rightHand: THREE.Object3D | null;
+}
+
+// A simple procedural sword (no sword asset on hand) — blade, crossguard and
+// hilt built from basic primitives, meant to be parented to a fighter's
+// RightHand bone so it swings along with the arm automatically.
+function createSwordMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const blade = new THREE.Mesh(
+    new THREE.BoxGeometry(0.045, 0.85, 0.11),
+    new THREE.MeshStandardMaterial({ color: 0xdce8f2, metalness: 0.85, roughness: 0.25, emissive: 0x2a6a8a, emissiveIntensity: 0.4 }),
+  );
+  blade.position.y = 0.55;
+  group.add(blade);
+  const guard = new THREE.Mesh(
+    new THREE.BoxGeometry(0.05, 0.05, 0.32),
+    new THREE.MeshStandardMaterial({ color: 0x8a7248, metalness: 0.7, roughness: 0.4 }),
+  );
+  guard.position.y = 0.1;
+  group.add(guard);
+  const hilt = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.028, 0.028, 0.22, 8),
+    new THREE.MeshStandardMaterial({ color: 0x3a2c1e, roughness: 0.7 }),
+  );
+  hilt.position.y = -0.02;
+  group.add(hilt);
+  return group;
+}
+
+// The rig's hand bones carry a tiny cumulative world scale inherited from the
+// skeleton (the source model bakes a large armature scale), so a sword sized
+// in normal world units would render nearly invisible if parented directly.
+// Counteract that by scaling the sword up by the bone's inverse world scale.
+function attachSword(hand: THREE.Object3D) {
+  hand.updateWorldMatrix(true, false);
+  const worldScale = new THREE.Vector3();
+  hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
+  const sword = createSwordMesh();
+  sword.scale.setScalar(1 / (worldScale.x || 1));
+  hand.add(sword);
 }
 
 // Loads the one character model we have twice — once as the player (its
@@ -1076,10 +1120,12 @@ function loadFighter(
       // (see the punch logic in CombatArena's tick loop) instead.
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
+      let rightHand: THREE.Object3D | null = null;
 
       model.traverse((o) => {
         if (o.name === "RightArm") rightArm = o;
         if (o.name === "RightForeArm") rightForeArm = o;
+        if (o.name === "RightHand") rightHand = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
@@ -1102,7 +1148,7 @@ function loadFighter(
         mixer = new THREE.AnimationMixer(model);
         mixer.clipAction(gltf.animations[0]).play();
       }
-      onLoaded({ root, mixer, rightArm, rightForeArm });
+      onLoaded({ root, mixer, rightArm, rightForeArm, rightHand });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -1130,6 +1176,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
   const [playerHp, setPlayerHp] = useState(100);
   const [botHp, setBotHp] = useState(100);
+  const [phase, setPhase] = useState<"bot1" | "bot2">("bot1");
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
@@ -1186,18 +1233,26 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     scene.add(wallEdges);
 
     let player: FighterRig | null = null;
-    let bot: FighterRig | null = null;
+    let bot1: FighterRig | null = null;
+    let bot2: FighterRig | null = null;
 
     loadFighter(scene, 0xffffff, (rig) => {
       if (disposed) return;
       rig.root.position.set(0, 0, 3);
-      rig.root.rotation.y = Math.PI; // face the bot at the start
+      rig.root.rotation.y = Math.PI; // face bot1 at the start
       player = rig;
     });
     loadFighter(scene, 0xff6b5e, (rig) => {
       if (disposed) return;
       rig.root.position.set(0, 0, -3);
-      bot = rig;
+      bot1 = rig;
+    });
+    // Bot 2 stands off to the side, idle, until bot 1 is defeated.
+    loadFighter(scene, BOT2_TINT, (rig) => {
+      if (disposed) return;
+      rig.root.position.set(BOT2_SPAWN.x, 0, BOT2_SPAWN.z);
+      rig.root.rotation.y = Math.PI * 0.75;
+      bot2 = rig;
     });
 
     const resize = () => {
@@ -1223,6 +1278,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerVelY = 0;
     let grounded = true;
     let ended = false;
+    let phaseLocal: "bot1" | "bot2" = "bot1";
+    let playerDamage = PLAYER_DAMAGE;
+    let playerAttackRange = ATTACK_RANGE;
+    let swordAttached = false;
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
 
@@ -1230,9 +1289,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       raf = requestAnimationFrame(tick);
       const dt = Math.min(clock.getDelta(), 0.05);
       player?.mixer?.update(dt);
-      bot?.mixer?.update(dt);
+      bot1?.mixer?.update(dt);
+      bot2?.mixer?.update(dt);
 
-      if (!ended && player && bot) {
+      if (!ended && player && bot1 && bot2) {
+        const activeBot = phaseLocal === "bot1" ? bot1 : bot2;
         const jv = joystickVec.current;
         if (jv.x !== 0 || jv.y !== 0) {
           player.root.position.x = clamp(player.root.position.x + jv.x * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
@@ -1258,8 +1319,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           }
         }
 
-        let dx = player.root.position.x - bot.root.position.x;
-        let dz = player.root.position.z - bot.root.position.z;
+        let dx = player.root.position.x - activeBot.root.position.x;
+        let dz = player.root.position.z - activeBot.root.position.z;
         let dist = Math.hypot(dx, dz);
 
         // Keep the two fighters from walking through each other's bodies —
@@ -1267,10 +1328,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         if (dist < BODY_SEPARATION) {
           const nx = dist > 0.0001 ? dx / dist : 0;
           const nz = dist > 0.0001 ? dz / dist : 1;
-          player.root.position.x = clamp(bot.root.position.x + nx * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-          player.root.position.z = clamp(bot.root.position.z + nz * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-          dx = player.root.position.x - bot.root.position.x;
-          dz = player.root.position.z - bot.root.position.z;
+          player.root.position.x = clamp(activeBot.root.position.x + nx * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+          player.root.position.z = clamp(activeBot.root.position.z + nz * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+          dx = player.root.position.x - activeBot.root.position.x;
+          dz = player.root.position.z - activeBot.root.position.z;
           dist = Math.hypot(dx, dz);
         }
 
@@ -1280,11 +1341,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           // Steer around the central block instead of walking straight into
           // it: the closer the bot gets to it, the more its seek-the-player
           // direction blends into a tangent that curves around the block.
-          const wallDist = Math.hypot(bot.root.position.x, bot.root.position.z);
+          const wallDist = Math.hypot(activeBot.root.position.x, activeBot.root.position.z);
           const AVOID_RADIUS = WALL_COLLISION_HALF + 1.2;
           if (wallDist < AVOID_RADIUS) {
-            const toWallX = wallDist > 0.0001 ? -bot.root.position.x / wallDist : 0;
-            const toWallZ = wallDist > 0.0001 ? -bot.root.position.z / wallDist : 1;
+            const toWallX = wallDist > 0.0001 ? -activeBot.root.position.x / wallDist : 0;
+            const toWallZ = wallDist > 0.0001 ? -activeBot.root.position.z / wallDist : 1;
             const tangentAX = -toWallZ;
             const tangentAZ = toWallX;
             const tangentBX = toWallZ;
@@ -1300,19 +1361,19 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             moveX /= moveLen;
             moveZ /= moveLen;
           }
-          bot.root.position.x += moveX * BOT_SPEED * dt;
-          bot.root.position.z += moveZ * BOT_SPEED * dt;
-          resolveWallCollision(bot.root.position);
+          activeBot.root.position.x += moveX * BOT_SPEED * dt;
+          activeBot.root.position.z += moveZ * BOT_SPEED * dt;
+          resolveWallCollision(activeBot.root.position);
         }
-        bot.root.rotation.y = Math.atan2(dx, dz);
+        activeBot.root.rotation.y = Math.atan2(dx, dz);
 
         playerCooldown = Math.max(0, playerCooldown - dt);
         botCooldown = Math.max(0, botCooldown - dt);
 
         if (attackRequested.current) {
           attackRequested.current = false;
-          if (playerCooldown <= 0 && dist <= ATTACK_RANGE) {
-            botHpLocal = Math.max(0, botHpLocal - PLAYER_DAMAGE);
+          if (playerCooldown <= 0 && dist <= playerAttackRange) {
+            botHpLocal = Math.max(0, botHpLocal - playerDamage);
             setBotHp(botHpLocal);
             playerCooldown = PLAYER_ATTACK_COOLDOWN;
             playerPunchT = 0;
@@ -1331,13 +1392,31 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           playerPunchT = playerPunchT + dt > PUNCH_DURATION ? -1 : playerPunchT + dt;
         }
         if (botPunchT >= 0) {
-          applyPunchPose(bot, botPunchT);
+          applyPunchPose(activeBot, botPunchT);
           botPunchT = botPunchT + dt > PUNCH_DURATION ? -1 : botPunchT + dt;
         }
 
         if (botHpLocal <= 0) {
-          ended = true;
-          setResult("win");
+          if (phaseLocal === "bot1") {
+            // Bot 1 down — hand the player a sword (parented to their
+            // right hand so it swings with the punch pose automatically)
+            // and send in bot 2 with full health.
+            phaseLocal = "bot2";
+            setPhase("bot2");
+            botHpLocal = 100;
+            setBotHp(100);
+            botCooldown = 0;
+            botPunchT = -1;
+            playerDamage = SWORD_DAMAGE;
+            playerAttackRange = SWORD_RANGE;
+            if (!swordAttached && player.rightHand) {
+              attachSword(player.rightHand);
+              swordAttached = true;
+            }
+          } else {
+            ended = true;
+            setResult("win");
+          }
         } else if (playerHpLocal <= 0) {
           ended = true;
           setResult("lose");
@@ -1448,13 +1527,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
       {/* Health bars */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
-        <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>YOU</div>
+        <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
+          YOU{phase === "bot2" ? " ⚔ SWORD" : ""}
+        </div>
         <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
         </div>
       </div>
       <div style={{ position: "absolute", top: 16, right: 16, width: "min(38%, 260px)" }}>
-        <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4, textAlign: "right" }}>BOT</div>
+        <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4, textAlign: "right" }}>
+          {phase === "bot1" ? "BOT 1 / 2" : "BOT 2 / 2"}
+        </div>
         <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${botHp}%`, marginLeft: `${100 - botHp}%`, background: "linear-gradient(90deg,#ff8a6b,#ff5e4e)", transition: "width 150ms ease-out, margin-left 150ms ease-out" }} />
         </div>
