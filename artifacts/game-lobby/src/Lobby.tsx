@@ -1031,7 +1031,18 @@ function MapSelectionPanel({ onClose }: { onClose: () => void }) {
 }
 
 const ARENA_HALF = 5; // 10x10 arena, centered on the origin
-const PLAYER_SPEED = 2.6;
+// The player's target ground speed is a continuous function of how far the
+// joystick is pushed (see PLAYER_MAX_SPEED below) rather than a fixed
+// constant — full tilt sustained past SPRINT_ENGAGE_MAG additionally ramps
+// in a sprint bonus. BOT_SPEED stays a plain constant; the bot's chase
+// logic isn't part of this pass.
+const PLAYER_MAX_SPEED = 3.4;
+const PLAYER_SPRINT_BONUS = 0.4; // extra fraction of top speed once sprint is fully engaged
+const SPRINT_ENGAGE_MAG = 0.92; // joystick magnitude that starts building sprint
+const SPRINT_BLEND_RATE = 2.4; // per-second ease rate in/out of sprint
+const PLAYER_ACCEL_RATE = 9; // per-second damping rate speeding up
+const PLAYER_DECEL_RATE = 15; // per-second damping rate slowing down (snappier stop than start)
+const PLAYER_TURN_RATE = 11; // per-second damping rate turning to face the move direction
 const BOT_SPEED = 1.9;
 const ATTACK_RANGE = 1.3;
 const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
@@ -1114,28 +1125,28 @@ function applyPunchPose(rig: FighterRig, t: number) {
   if (rig.rightForeArm) rig.rightForeArm.rotation.x -= swing * PUNCH_ELBOW_ANGLE;
 }
 
-const RUN_CYCLE_SPEED = 9;
+const RUN_PHASE_RATE = 3.4; // phase radians advanced per unit of world speed, so stride frequency tracks actual speed instead of a fixed rate (which is what causes visible foot sliding)
 const RUN_HIP_SWING = 0.7;
 const RUN_KNEE_BEND = 1.25;
 const RUN_ARM_SWING = 0.7;
 const RUN_ELBOW_BASE_BEND = 0.9;
 const RUN_ELBOW_SWING_BEND = 0.4;
 const RUN_SPINE_LEAN = 0.12;
+const SPRINT_SPINE_LEAN = 0.14; // extra lean layered on top once sprint is engaged
 
 // Drives a walking/running limb cycle by hand — without this the limbs
 // just keep playing the idle clip's subtle sway while the root glides
 // across the ground, which reads as skating rather than running. Legs and
-// arms both bend on rotation.z here — a numeric world-space displacement
-// probe on the hand bone (rotating each axis by a fixed test angle and
-// measuring which one produces forward+up motion vs. sideways motion,
-// same technique used to pin down the leg axis) showed rotation.x on the
-// arm/forearm is actually the sideways axis, not forward/back, which is
-// what made the earlier arm swing look like sideways flailing instead of
-// a running pump. Arms swing opposite the same-side leg (contralateral
-// gait) and elbows bend too, with a slight forward spine lean to sell a
-// sprint rather than a fast walk.
-function applyRunCycle(rig: FighterRig, phase: number) {
-  const swing = Math.sin(phase);
+// arms both bend on rotation.z (a numeric world-space displacement probe
+// on the hand bone showed rotation.x is actually this rig's sideways axis,
+// not forward/back). `intensity` is the caller's current speed as a 0..1
+// fraction of top speed — every swing/bend term scales off it so idle,
+// walk, jog and run are one continuous blend instead of a hard on/off cut,
+// and it's what keeps a stopped character from standing there with bent
+// running arms. `sprintBlend` layers in extra forward lean once sprint has
+// eased in.
+function applyRunCycle(rig: FighterRig, phase: number, intensity: number, sprintBlend = 0) {
+  const swing = Math.sin(phase) * intensity;
   if (rig.rightUpLeg) rig.rightUpLeg.rotation.z -= swing * RUN_HIP_SWING;
   if (rig.leftUpLeg) rig.leftUpLeg.rotation.z += swing * RUN_HIP_SWING;
   if (rig.rightArm) rig.rightArm.rotation.z += swing * RUN_ARM_SWING;
@@ -1144,9 +1155,9 @@ function applyRunCycle(rig: FighterRig, phase: number) {
   const leftKnee = Math.max(0, -swing);
   if (rig.rightLeg) rig.rightLeg.rotation.z -= rightKnee * RUN_KNEE_BEND;
   if (rig.leftLeg) rig.leftLeg.rotation.z -= leftKnee * RUN_KNEE_BEND;
-  if (rig.rightForeArm) rig.rightForeArm.rotation.z -= RUN_ELBOW_BASE_BEND + rightKnee * RUN_ELBOW_SWING_BEND;
-  if (rig.leftForeArm) rig.leftForeArm.rotation.z -= RUN_ELBOW_BASE_BEND + leftKnee * RUN_ELBOW_SWING_BEND;
-  if (rig.spine) rig.spine.rotation.x += RUN_SPINE_LEAN;
+  if (rig.rightForeArm) rig.rightForeArm.rotation.z -= intensity * RUN_ELBOW_BASE_BEND + rightKnee * RUN_ELBOW_SWING_BEND;
+  if (rig.leftForeArm) rig.leftForeArm.rotation.z -= intensity * RUN_ELBOW_BASE_BEND + leftKnee * RUN_ELBOW_SWING_BEND;
+  if (rig.spine) rig.spine.rotation.x += intensity * RUN_SPINE_LEAN + sprintBlend * SPRINT_SPINE_LEAN;
 }
 
 const DEATH_FALL_DURATION = 0.6;
@@ -1169,6 +1180,29 @@ function applyDeathPose(rig: FighterRig, t: number) {
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+// Frame-rate-independent exponential smoothing: eases `current` toward
+// `target` at `rate` per second regardless of dt, instead of a per-frame
+// lerp factor that speeds up or slows down with the frame rate.
+function approach(current: number, target: number, rate: number, dt: number) {
+  return current + (target - current) * (1 - Math.exp(-rate * dt));
+}
+
+// Same, but for an angle: turns the short way around instead of the long
+// way when the target crosses the -pi/pi wraparound.
+function dampAngle(current: number, target: number, rate: number, dt: number) {
+  let diff = (target - current) % (Math.PI * 2);
+  if (diff > Math.PI) diff -= Math.PI * 2;
+  if (diff < -Math.PI) diff += Math.PI * 2;
+  return current + diff * (1 - Math.exp(-rate * dt));
+}
+
+// Wraps an angle (e.g. a one-frame rotation delta) into (-pi, pi] so a
+// turn-rate computed from it doesn't spike when rotation.y crosses the
+// wraparound point.
+function wrapAngle(a: number) {
+  return ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
 }
 
 interface FighterRig {
@@ -1343,7 +1377,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const CAM_DISTANCE = 4.2;
     const CAM_HEIGHT = 2.4;
     const CAM_LOOK_HEIGHT = 1.1;
-    const CAM_LERP = 0.08;
+    const CAM_DAMP_RATE = 7; // per-second follow damping, frame-rate independent
+    const CAM_ACCEL_LAG = 0.09; // slows the follow down further while the player's speed is changing quickly
+    const CAM_MIN_DAMP_FRAC = 0.4; // floor on how much the accel lag can slow the follow by
+    const HEAD_BOB_AMOUNT = 0.045; // vertical camera bob at full running intensity
+    const CAM_TILT_RATE = 0.16; // how much camera roll per unit of player turn rate
+    const CAM_TILT_MAX = 0.09; // clamp on the roll angle (radians)
+    const CAM_TILT_DAMP = 9; // per-second smoothing on the roll itself
     camera.position.set(0, CAM_HEIGHT, CAM_DISTANCE + 3);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -1453,6 +1493,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let botPunchT = -1;
     let playerVelY = 0;
     let grounded = true;
+    // Smoothed horizontal ground velocity — movement eases toward the
+    // joystick-derived target instead of snapping to it, which is what
+    // gives the accel/decel and the turning its weight.
+    let playerVelX = 0;
+    let playerVelZ = 0;
+    let sprintBlend = 0;
+    let playerSpeedNow = 0;
+    let prevSpeed = 0;
+    let prevPlayerYaw = 0;
+    let camRoll = 0;
     let ended = false;
     let phaseLocal: "bot1" | "bot2" = "bot1";
     let playerDamage = PLAYER_DAMAGE;
@@ -1504,27 +1554,65 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       if (!ended && player && bot1 && bot2) {
         const activeBot = phaseLocal === "bot1" ? bot1 : bot2;
         const jv = joystickVec.current;
-        if (jv.x !== 0 || jv.y !== 0) {
-          // Movement is relative to where the camera is currently looking
-          // (like Free Fire), not fixed to world axes — dragging to look
-          // around with one finger while pushing the joystick with the
-          // other should send the player toward whatever direction the
-          // camera has been turned to face.
-          const camForwardX = -Math.sin(cameraYaw.current);
-          const camForwardZ = -Math.cos(cameraYaw.current);
-          const camRightX = Math.cos(cameraYaw.current);
-          const camRightZ = -Math.sin(cameraYaw.current);
-          const moveX = jv.x * camRightX + jv.y * camForwardX;
-          const moveZ = jv.x * camRightZ + jv.y * camForwardZ;
-          player.root.position.x = clamp(player.root.position.x + moveX * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-          player.root.position.z = clamp(player.root.position.z + moveZ * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-          player.root.rotation.y = Math.atan2(moveX, moveZ);
-          resolveObstacleCollisions(player.root.position);
-          playerRunPhase += dt * RUN_CYCLE_SPEED;
-          applyRunCycle(player, playerRunPhase);
-        } else {
-          playerRunPhase = 0;
+        const joyMag = Math.min(1, Math.hypot(jv.x, jv.y));
+
+        // Sprint eases in once the stick is held past SPRINT_ENGAGE_MAG and
+        // eases back out the instant it isn't, rather than snapping a
+        // speed multiplier on or off.
+        const wantSprint = joyMag > SPRINT_ENGAGE_MAG;
+        sprintBlend = approach(sprintBlend, wantSprint ? 1 : 0, SPRINT_BLEND_RATE, dt);
+
+        // Movement is relative to where the camera is currently looking
+        // (like Free Fire), not fixed to world axes — dragging to look
+        // around with one finger while pushing the joystick with the
+        // other should send the player toward whatever direction the
+        // camera has been turned to face.
+        const camForwardX = -Math.sin(cameraYaw.current);
+        const camForwardZ = -Math.cos(cameraYaw.current);
+        const camRightX = Math.cos(cameraYaw.current);
+        const camRightZ = -Math.sin(cameraYaw.current);
+        const rawX = jv.x * camRightX + jv.y * camForwardX;
+        const rawZ = jv.x * camRightZ + jv.y * camForwardZ;
+        const dirX = joyMag > 0.0001 ? rawX / joyMag : 0;
+        const dirZ = joyMag > 0.0001 ? rawZ / joyMag : 0;
+
+        // How far the stick is pushed sets the target speed continuously —
+        // a light tap walks, a full push runs, and holding full tilt ramps
+        // sprint in on top — so there's no discrete walk/jog/run jump.
+        const targetSpeed = joyMag * PLAYER_MAX_SPEED * (1 + PLAYER_SPRINT_BONUS * sprintBlend);
+        const targetVelX = dirX * targetSpeed;
+        const targetVelZ = dirZ * targetSpeed;
+        const curVelLen = Math.hypot(playerVelX, playerVelZ);
+        const targetVelLen = Math.hypot(targetVelX, targetVelZ);
+        // Speeding up and slowing down ease at different rates (a snappier
+        // stop than start) instead of both snapping instantly — that's
+        // what gives the movement its weight.
+        const accelRate = targetVelLen > curVelLen ? PLAYER_ACCEL_RATE : PLAYER_DECEL_RATE;
+        playerVelX = approach(playerVelX, targetVelX, accelRate, dt);
+        playerVelZ = approach(playerVelZ, targetVelZ, accelRate, dt);
+
+        player.root.position.x = clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+        player.root.position.z = clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+        resolveObstacleCollisions(player.root.position);
+
+        playerSpeedNow = Math.hypot(playerVelX, playerVelZ);
+        // Face the direction actually being moved in (not the raw stick
+        // input) and ease into it instead of snapping, which keeps the
+        // body orientation looking natural through a direction change
+        // instead of instantly spinning to face it.
+        if (playerSpeedNow > 0.05) {
+          const targetYaw = Math.atan2(playerVelX, playerVelZ);
+          player.root.rotation.y = dampAngle(player.root.rotation.y, targetYaw, PLAYER_TURN_RATE, dt);
         }
+
+        // Stride frequency is driven by actual speed instead of a fixed
+        // rate, so the feet never slide relative to the ground; the swing
+        // amplitude blends continuously off that same speed fraction,
+        // which is the idle -> walk -> jog -> run blend, and arms/legs
+        // pump faster on their own once sprint raises the speed.
+        const speedFrac = clamp(playerSpeedNow / PLAYER_MAX_SPEED, 0, 1.15);
+        playerRunPhase += dt * playerSpeedNow * RUN_PHASE_RATE;
+        applyRunCycle(player, playerRunPhase, speedFrac, sprintBlend);
 
         if (jumpRequested.current) {
           jumpRequested.current = false;
@@ -1611,8 +1699,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           activeBot.root.position.x += moveX * BOT_SPEED * dt;
           activeBot.root.position.z += moveZ * BOT_SPEED * dt;
           resolveObstacleCollisions(activeBot.root.position);
-          botRunPhase += dt * RUN_CYCLE_SPEED;
-          applyRunCycle(activeBot, botRunPhase);
+          botRunPhase += dt * BOT_SPEED * RUN_PHASE_RATE;
+          applyRunCycle(activeBot, botRunPhase, 1);
         } else {
           botRunPhase = 0;
         }
@@ -1688,16 +1776,43 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // same angle (see above), so the camera never needs to "catch up"
         // to the player — dragging to free-look simply turns cameraYaw
         // directly, and that's already where movement and the view both
-        // point.
+        // point. The follow damping is frame-rate independent (an
+        // exponential ease on dt, not a fixed per-frame lerp factor), and
+        // it eases a little slower while the player's speed is changing
+        // quickly — accelerating off the mark or braking to a stop — which
+        // reads as a slight, natural lag instead of a rigid, glued-on rig.
         const facing = cameraYaw.current;
         camTargetPos.set(
           player.root.position.x - Math.sin(facing) * CAM_DISTANCE,
           CAM_HEIGHT + player.root.position.y,
           player.root.position.z - Math.cos(facing) * CAM_DISTANCE,
         );
-        camera.position.lerp(camTargetPos, CAM_LERP);
+        const accelMag = Math.abs(playerSpeedNow - prevSpeed) / Math.max(dt, 0.001);
+        const dampFrac = clamp(1 - accelMag * CAM_ACCEL_LAG, CAM_MIN_DAMP_FRAC, 1);
+        camera.position.lerp(camTargetPos, 1 - Math.exp(-CAM_DAMP_RATE * dampFrac * dt));
+
+        // Subtle head bob synced to the same phase driving the legs (two
+        // bob cycles per stride, matching each footfall), scaled by actual
+        // speed so it's absent at a standstill and most pronounced at a
+        // full sprint. Applied after the follow lerp so it stays crisp
+        // instead of being smoothed away by the follow damping.
+        const speedFracNow = clamp(playerSpeedNow / PLAYER_MAX_SPEED, 0, 1);
+        camera.position.y += Math.cos(playerRunPhase * 2) * HEAD_BOB_AMOUNT * speedFracNow;
+
         camLookAt.set(player.root.position.x, CAM_LOOK_HEIGHT + player.root.position.y, player.root.position.z);
         camera.lookAt(camLookAt);
+
+        // A small camera roll while turning quickly — banking into the
+        // turn — smoothed on top of the raw turn rate so it doesn't
+        // jitter frame to frame. Applied after lookAt() since lookAt()
+        // sets the camera's orientation outright.
+        const turnRate = wrapAngle(player.root.rotation.y - prevPlayerYaw) / Math.max(dt, 0.0001);
+        const targetRoll = clamp(-turnRate * CAM_TILT_RATE, -CAM_TILT_MAX, CAM_TILT_MAX);
+        camRoll = approach(camRoll, targetRoll, CAM_TILT_DAMP, dt);
+        camera.rotateZ(camRoll);
+
+        prevSpeed = playerSpeedNow;
+        prevPlayerYaw = player.root.rotation.y;
       }
 
       renderer.render(scene, camera);
