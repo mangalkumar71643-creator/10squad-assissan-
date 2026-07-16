@@ -1447,9 +1447,20 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         const activeBot = phaseLocal === "bot1" ? bot1 : bot2;
         const jv = joystickVec.current;
         if (jv.x !== 0 || jv.y !== 0) {
-          player.root.position.x = clamp(player.root.position.x + jv.x * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-          player.root.position.z = clamp(player.root.position.z + jv.y * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-          player.root.rotation.y = Math.atan2(jv.x, jv.y);
+          // Movement is relative to where the camera is currently looking
+          // (like Free Fire), not fixed to world axes — dragging to look
+          // around with one finger while pushing the joystick with the
+          // other should send the player toward whatever direction the
+          // camera has been turned to face.
+          const camForwardX = -Math.sin(cameraYaw.current);
+          const camForwardZ = -Math.cos(cameraYaw.current);
+          const camRightX = Math.cos(cameraYaw.current);
+          const camRightZ = -Math.sin(cameraYaw.current);
+          const moveX = jv.x * camRightX + jv.y * camForwardX;
+          const moveZ = jv.x * camRightZ + jv.y * camForwardZ;
+          player.root.position.x = clamp(player.root.position.x + moveX * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+          player.root.position.z = clamp(player.root.position.z + moveZ * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+          player.root.rotation.y = Math.atan2(moveX, moveZ);
           resolveObstacleCollisions(player.root.position);
         }
 
@@ -1605,17 +1616,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       // so the loser's/bot's death animation actually plays out on screen
       // instead of the view freezing the instant HP hits zero.
       if (player) {
-        const jv = joystickVec.current;
-        // Chase camera: sits behind the player along their facing
-        // direction and eases toward that spot each frame instead of
-        // snapping, so turning feels smooth rather than jittery. Dragging
-        // free-looks around the player; releasing it holds that angle
-        // (it does not snap back) until the player actually moves again,
-        // at which point the camera resumes following the movement
-        // direction like a normal chase cam.
-        if (!ended && lookTouchId.current === null && (jv.x !== 0 || jv.y !== 0)) {
-          cameraYaw.current = player.root.rotation.y;
-        }
+        // Chase camera: sits behind the player along cameraYaw and eases
+        // toward that spot each frame instead of snapping, so turning
+        // feels smooth rather than jittery. Movement is derived from this
+        // same angle (see above), so the camera never needs to "catch up"
+        // to the player — dragging to free-look simply turns cameraYaw
+        // directly, and that's already where movement and the view both
+        // point.
         const facing = cameraYaw.current;
         camTargetPos.set(
           player.root.position.x - Math.sin(facing) * CAM_DISTANCE,
