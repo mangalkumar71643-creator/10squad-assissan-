@@ -1036,21 +1036,56 @@ const BOT_SPEED = 1.9;
 const ATTACK_RANGE = 1.3;
 const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
 const WALL_HEIGHT = 2.2;
-const WALL_HALF = 0.5; // the 1x1 cover block's half-extent
-const WALL_COLLISION_HALF = WALL_HALF + 0.35; // padded out by the fighters' body radius
+const WALL_LENGTH = 3.6;
+const WALL_THICKNESS = 0.28;
+const HOUSE_SIZE = 2.4;
+const HOUSE_WALL_HEIGHT = 1.8;
+const HOUSE_ROOF_HEIGHT = 1.15;
+const HOUSE_POS = { x: -3.1, z: 1.3 };
+const FIGHTER_PAD = 0.35; // padded out by the fighters' body radius
 
-// Pushes a fighter's x/z position out of the central 1x1 block's footprint,
-// kicking it out along whichever axis has the least overlap.
-function resolveWallCollision(pos: { x: number; z: number }) {
-  if (Math.abs(pos.x) < WALL_COLLISION_HALF && Math.abs(pos.z) < WALL_COLLISION_HALF) {
-    const penX = WALL_COLLISION_HALF - Math.abs(pos.x);
-    const penZ = WALL_COLLISION_HALF - Math.abs(pos.z);
-    if (penX < penZ) {
-      pos.x = WALL_COLLISION_HALF * (pos.x < 0 ? -1 : 1);
-    } else {
-      pos.z = WALL_COLLISION_HALF * (pos.z < 0 ? -1 : 1);
+interface Obstacle {
+  x: number;
+  z: number;
+  halfX: number;
+  halfZ: number;
+}
+
+const OBSTACLES: Obstacle[] = [
+  { x: 0, z: 0, halfX: WALL_LENGTH / 2, halfZ: WALL_THICKNESS / 2 },
+  { x: HOUSE_POS.x, z: HOUSE_POS.z, halfX: HOUSE_SIZE / 2, halfZ: HOUSE_SIZE / 2 },
+];
+
+// Pushes a fighter's x/z position out of any obstacle's footprint, kicking
+// it out along whichever axis has the least overlap.
+function resolveObstacleCollisions(pos: { x: number; z: number }) {
+  for (const ob of OBSTACLES) {
+    const halfX = ob.halfX + FIGHTER_PAD;
+    const halfZ = ob.halfZ + FIGHTER_PAD;
+    const dx = pos.x - ob.x;
+    const dz = pos.z - ob.z;
+    if (Math.abs(dx) < halfX && Math.abs(dz) < halfZ) {
+      const penX = halfX - Math.abs(dx);
+      const penZ = halfZ - Math.abs(dz);
+      if (penX < penZ) {
+        pos.x = ob.x + halfX * (dx < 0 ? -1 : 1);
+      } else {
+        pos.z = ob.z + halfZ * (dz < 0 ? -1 : 1);
+      }
     }
   }
+}
+
+// Vector from the nearest point on an obstacle's (padded) rectangle to the
+// given x/z position — used to steer bots around elongated obstacles by
+// actual surface distance instead of a circle around the center, which
+// fits a long thin wall poorly.
+function awayFromObstacle(x: number, z: number, ob: Obstacle, pad: number): { x: number; z: number; dist: number } {
+  const localX = clamp(x - ob.x, -ob.halfX - pad, ob.halfX + pad);
+  const localZ = clamp(z - ob.z, -ob.halfZ - pad, ob.halfZ + pad);
+  const awayX = x - (ob.x + localX);
+  const awayZ = z - (ob.z + localZ);
+  return { x: awayX, z: awayZ, dist: Math.hypot(awayX, awayZ) };
 }
 const PLAYER_DAMAGE = 14;
 const BOT_DAMAGE = 10;
@@ -1273,9 +1308,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     scene.add(ground);
     scene.add(new THREE.GridHelper(ARENA_HALF * 2, 10, 0x6be2ff, 0x1c4560));
 
-    // A single 1x1 cover block in the middle of the arena.
+    // A thin cover wall through the middle of the arena.
     const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(1, WALL_HEIGHT, 1),
+      new THREE.BoxGeometry(WALL_LENGTH, WALL_HEIGHT, WALL_THICKNESS),
       new THREE.MeshStandardMaterial({ color: 0x3a4a5c, roughness: 0.6, metalness: 0.3, emissive: 0x1c4560, emissiveIntensity: 0.4 }),
     );
     wall.position.set(0, WALL_HEIGHT / 2, 0);
@@ -1286,6 +1321,36 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     );
     wallEdges.position.copy(wall.position);
     scene.add(wallEdges);
+
+    // A small house off to the side — box walls plus a 4-sided pyramid roof.
+    const house = new THREE.Group();
+    const houseWalls = new THREE.Mesh(
+      new THREE.BoxGeometry(HOUSE_SIZE, HOUSE_WALL_HEIGHT, HOUSE_SIZE),
+      new THREE.MeshStandardMaterial({ color: 0xc9a876, roughness: 0.85 }),
+    );
+    houseWalls.position.y = HOUSE_WALL_HEIGHT / 2;
+    house.add(houseWalls);
+    const houseRoof = new THREE.Mesh(
+      new THREE.ConeGeometry((HOUSE_SIZE / 2) * Math.SQRT2 * 1.08, HOUSE_ROOF_HEIGHT, 4),
+      new THREE.MeshStandardMaterial({ color: 0x8b4a3a, roughness: 0.7 }),
+    );
+    houseRoof.rotation.y = Math.PI / 4;
+    houseRoof.position.y = HOUSE_WALL_HEIGHT + HOUSE_ROOF_HEIGHT / 2;
+    house.add(houseRoof);
+    const houseDoor = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.7, 1.15),
+      new THREE.MeshStandardMaterial({ color: 0x2a1c12, roughness: 0.9 }),
+    );
+    houseDoor.position.set(0, 0.575, HOUSE_SIZE / 2 + 0.01);
+    house.add(houseDoor);
+    house.position.set(HOUSE_POS.x, 0, HOUSE_POS.z);
+    scene.add(house);
+    const houseEdges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(houseWalls.geometry),
+      new THREE.LineBasicMaterial({ color: 0x6be2ff }),
+    );
+    houseEdges.position.copy(houseWalls.position);
+    house.add(houseEdges);
 
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
@@ -1342,6 +1407,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerDeathT = -1;
     let pendingResult: "win" | "lose" | null = null;
     let resultRevealT = 0;
+    // Which side the bot committed to going around each obstacle on — decided
+    // once when avoidance first engages and held until it clears, so the
+    // choice can't flip-flop frame to frame when the bot ends up nearly
+    // dead-on in line with the obstacle and the player (a near-zero signal
+    // that's noisy enough to flip sign every frame otherwise).
+    const obstacleAvoidSide = OBSTACLES.map(() => 0);
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
 
@@ -1379,7 +1450,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           player.root.position.x = clamp(player.root.position.x + jv.x * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
           player.root.position.z = clamp(player.root.position.z + jv.y * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
           player.root.rotation.y = Math.atan2(jv.x, jv.y);
-          resolveWallCollision(player.root.position);
+          resolveObstacleCollisions(player.root.position);
         }
 
         if (jumpRequested.current) {
@@ -1418,32 +1489,55 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         if (dist > ATTACK_RANGE * 0.85) {
           let moveX = dx / dist;
           let moveZ = dz / dist;
-          // Steer around the central block instead of walking straight into
-          // it: the closer the bot gets to it, the more its seek-the-player
-          // direction blends into a tangent that curves around the block.
-          const wallDist = Math.hypot(activeBot.root.position.x, activeBot.root.position.z);
-          const AVOID_RADIUS = WALL_COLLISION_HALF + 1.2;
-          if (wallDist < AVOID_RADIUS) {
-            const toWallX = wallDist > 0.0001 ? -activeBot.root.position.x / wallDist : 0;
-            const toWallZ = wallDist > 0.0001 ? -activeBot.root.position.z / wallDist : 1;
-            const tangentAX = -toWallZ;
-            const tangentAZ = toWallX;
-            const tangentBX = toWallZ;
-            const tangentBZ = -toWallX;
-            const dotA = tangentAX * moveX + tangentAZ * moveZ;
-            const dotB = tangentBX * moveX + tangentBZ * moveZ;
-            const tangentX = dotA >= dotB ? tangentAX : tangentBX;
-            const tangentZ = dotA >= dotB ? tangentAZ : tangentBZ;
-            const avoidWeight = clamp(1 - (wallDist - WALL_COLLISION_HALF) / 1.2, 0, 1);
-            moveX = moveX * (1 - avoidWeight) + tangentX * avoidWeight;
-            moveZ = moveZ * (1 - avoidWeight) + tangentZ * avoidWeight;
-            const moveLen = Math.hypot(moveX, moveZ) || 1;
-            moveX /= moveLen;
-            moveZ /= moveLen;
-          }
+          // Steer around each obstacle instead of walking straight into it:
+          // the closer the bot's nearest point on the obstacle's surface
+          // gets, the more its seek-the-player direction blends into a
+          // tangent that curves around it. Measuring from the actual
+          // surface (not the obstacle's center) matters for the long thin
+          // wall, where a center-based radius would trigger avoidance far
+          // too early along its length.
+          const AVOID_MARGIN = 1.0;
+          OBSTACLES.forEach((ob, obIndex) => {
+            const away = awayFromObstacle(activeBot.root.position.x, activeBot.root.position.z, ob, FIGHTER_PAD);
+            if (away.dist < AVOID_MARGIN) {
+              const toObX = away.dist > 0.0001 ? -away.x / away.dist : 0;
+              const toObZ = away.dist > 0.0001 ? -away.z / away.dist : 1;
+              const tangentAX = -toObZ;
+              const tangentAZ = toObX;
+              const tangentBX = toObZ;
+              const tangentBZ = -toObX;
+              if (obstacleAvoidSide[obIndex] === 0) {
+                // Decide which side to go around only once, right as
+                // avoidance engages, and hold that choice — recomputing it
+                // every frame from the seek direction flip-flops once the
+                // bot is nearly dead-on in line with the obstacle and the
+                // player, where that signal is too close to zero to be
+                // stable, stalling the bot in place instead of sliding it
+                // around to clear the obstacle.
+                const dotA = tangentAX * moveX + tangentAZ * moveZ;
+                const dotB = tangentBX * moveX + tangentBZ * moveZ;
+                obstacleAvoidSide[obIndex] = dotA >= dotB ? 1 : -1;
+              }
+              const tangentX = obstacleAvoidSide[obIndex] === 1 ? tangentAX : tangentBX;
+              const tangentZ = obstacleAvoidSide[obIndex] === 1 ? tangentAZ : tangentBZ;
+              // Close to the surface, commit fully to the tangent instead of
+              // blending in the seek direction — blending lets the pull back
+              // toward the player cancel out the sideways push exactly at
+              // some equilibrium point, stalling the bot in place against a
+              // long flat wall instead of sliding it along to the end.
+              const avoidWeight = clamp((1 - away.dist / AVOID_MARGIN) * 1.6, 0, 1);
+              moveX = moveX * (1 - avoidWeight) + tangentX * avoidWeight;
+              moveZ = moveZ * (1 - avoidWeight) + tangentZ * avoidWeight;
+              const moveLen = Math.hypot(moveX, moveZ) || 1;
+              moveX /= moveLen;
+              moveZ /= moveLen;
+            } else {
+              obstacleAvoidSide[obIndex] = 0;
+            }
+          });
           activeBot.root.position.x += moveX * BOT_SPEED * dt;
           activeBot.root.position.z += moveZ * BOT_SPEED * dt;
-          resolveWallCollision(activeBot.root.position);
+          resolveObstacleCollisions(activeBot.root.position);
         }
         activeBot.root.rotation.y = Math.atan2(dx, dz);
 
