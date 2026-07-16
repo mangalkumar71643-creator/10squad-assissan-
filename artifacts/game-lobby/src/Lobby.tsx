@@ -1117,14 +1117,20 @@ function applyPunchPose(rig: FighterRig, t: number) {
 const RUN_CYCLE_SPEED = 8;
 const RUN_HIP_SWING = 0.6;
 const RUN_KNEE_BEND = 1.0;
+const RUN_ARM_SWING = 0.55;
 
-// Drives a walking/running leg cycle by hand — without this the legs just
-// keep playing the idle clip's subtle sway while the root glides across the
-// ground, which reads as skating rather than running.
+// Drives a walking/running leg-and-arm cycle by hand — without this the
+// limbs just keep playing the idle clip's subtle sway while the root
+// glides across the ground, which reads as skating rather than running.
+// Arms swing on the opposite side and axis convention proven by the punch
+// pose (rotation.x, "-=" is forward) so the right arm swings back while
+// the right leg swings forward, matching natural gait.
 function applyRunCycle(rig: FighterRig, phase: number) {
   const swing = Math.sin(phase);
   if (rig.rightUpLeg) rig.rightUpLeg.rotation.z -= swing * RUN_HIP_SWING;
   if (rig.leftUpLeg) rig.leftUpLeg.rotation.z += swing * RUN_HIP_SWING;
+  if (rig.rightArm) rig.rightArm.rotation.x += swing * RUN_ARM_SWING;
+  if (rig.leftArm) rig.leftArm.rotation.x -= swing * RUN_ARM_SWING;
   const rightKnee = Math.max(0, swing);
   const leftKnee = Math.max(0, -swing);
   if (rig.rightLeg) rig.rightLeg.rotation.z -= rightKnee * RUN_KNEE_BEND;
@@ -1159,6 +1165,7 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  leftArm: THREE.Object3D | null;
   leftUpLeg: THREE.Object3D | null;
   leftLeg: THREE.Object3D | null;
   rightUpLeg: THREE.Object3D | null;
@@ -1230,6 +1237,7 @@ function loadFighter(
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
+      let leftArm: THREE.Object3D | null = null;
       let leftUpLeg: THREE.Object3D | null = null;
       let leftLeg: THREE.Object3D | null = null;
       let rightUpLeg: THREE.Object3D | null = null;
@@ -1240,6 +1248,7 @@ function loadFighter(
         if (o.name === "RightArm") rightArm = o;
         if (o.name === "RightForeArm") rightForeArm = o;
         if (o.name === "RightHand") rightHand = o;
+        if (o.name === "LeftArm") leftArm = o;
         if (o.name === "LeftUpLeg") leftUpLeg = o;
         if (o.name === "LeftLeg") leftLeg = o;
         if (o.name === "RightUpLeg") rightUpLeg = o;
@@ -1267,7 +1276,7 @@ function loadFighter(
         mixer = new THREE.AnimationMixer(model);
         mixer.clipAction(gltf.animations[0]).play();
       }
-      onLoaded({ root, mixer, rightArm, rightForeArm, rightHand, leftUpLeg, leftLeg, rightUpLeg, rightLeg, materials });
+      onLoaded({ root, mixer, rightArm, rightForeArm, rightHand, leftArm, leftUpLeg, leftLeg, rightUpLeg, rightLeg, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
