@@ -1114,17 +1114,23 @@ function applyPunchPose(rig: FighterRig, t: number) {
   if (rig.rightForeArm) rig.rightForeArm.rotation.x -= swing * PUNCH_ELBOW_ANGLE;
 }
 
-const RUN_CYCLE_SPEED = 8;
-const RUN_HIP_SWING = 0.6;
-const RUN_KNEE_BEND = 1.0;
-const RUN_ARM_SWING = 0.55;
+const RUN_CYCLE_SPEED = 9;
+const RUN_HIP_SWING = 0.7;
+const RUN_KNEE_BEND = 1.25;
+const RUN_ARM_SWING = 0.7;
+const RUN_ELBOW_BASE_BEND = 0.9;
+const RUN_ELBOW_SWING_BEND = 0.4;
+const RUN_SPINE_LEAN = 0.12;
 
-// Drives a walking/running leg-and-arm cycle by hand — without this the
-// limbs just keep playing the idle clip's subtle sway while the root
-// glides across the ground, which reads as skating rather than running.
-// Arms swing on the opposite side and axis convention proven by the punch
-// pose (rotation.x, "-=" is forward) so the right arm swings back while
-// the right leg swings forward, matching natural gait.
+// Drives a walking/running limb cycle by hand — without this the limbs
+// just keep playing the idle clip's subtle sway while the root glides
+// across the ground, which reads as skating rather than running. Arms
+// swing on the opposite side and axis convention proven by the punch pose
+// (rotation.x, "-=" is forward) so the right arm swings back while the
+// right leg swings forward, matching natural gait. Elbows are also bent
+// (not just the straight-arm shoulder swing) and the spine leans forward
+// slightly, which is what actually sells a running sprint rather than a
+// fast walk.
 function applyRunCycle(rig: FighterRig, phase: number) {
   const swing = Math.sin(phase);
   if (rig.rightUpLeg) rig.rightUpLeg.rotation.z -= swing * RUN_HIP_SWING;
@@ -1135,6 +1141,9 @@ function applyRunCycle(rig: FighterRig, phase: number) {
   const leftKnee = Math.max(0, -swing);
   if (rig.rightLeg) rig.rightLeg.rotation.z -= rightKnee * RUN_KNEE_BEND;
   if (rig.leftLeg) rig.leftLeg.rotation.z -= leftKnee * RUN_KNEE_BEND;
+  if (rig.rightForeArm) rig.rightForeArm.rotation.x -= RUN_ELBOW_BASE_BEND + rightKnee * RUN_ELBOW_SWING_BEND;
+  if (rig.leftForeArm) rig.leftForeArm.rotation.x -= RUN_ELBOW_BASE_BEND + leftKnee * RUN_ELBOW_SWING_BEND;
+  if (rig.spine) rig.spine.rotation.x += RUN_SPINE_LEAN;
 }
 
 const DEATH_FALL_DURATION = 0.6;
@@ -1166,10 +1175,12 @@ interface FighterRig {
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
   leftArm: THREE.Object3D | null;
+  leftForeArm: THREE.Object3D | null;
   leftUpLeg: THREE.Object3D | null;
   leftLeg: THREE.Object3D | null;
   rightUpLeg: THREE.Object3D | null;
   rightLeg: THREE.Object3D | null;
+  spine: THREE.Object3D | null;
   materials: THREE.MeshStandardMaterial[];
 }
 
@@ -1238,10 +1249,12 @@ function loadFighter(
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
       let leftArm: THREE.Object3D | null = null;
+      let leftForeArm: THREE.Object3D | null = null;
       let leftUpLeg: THREE.Object3D | null = null;
       let leftLeg: THREE.Object3D | null = null;
       let rightUpLeg: THREE.Object3D | null = null;
       let rightLeg: THREE.Object3D | null = null;
+      let spine: THREE.Object3D | null = null;
       const materials: THREE.MeshStandardMaterial[] = [];
 
       model.traverse((o) => {
@@ -1249,10 +1262,12 @@ function loadFighter(
         if (o.name === "RightForeArm") rightForeArm = o;
         if (o.name === "RightHand") rightHand = o;
         if (o.name === "LeftArm") leftArm = o;
+        if (o.name === "LeftForeArm") leftForeArm = o;
         if (o.name === "LeftUpLeg") leftUpLeg = o;
         if (o.name === "LeftLeg") leftLeg = o;
         if (o.name === "RightUpLeg") rightUpLeg = o;
         if (o.name === "RightLeg") rightLeg = o;
+        if (o.name === "Spine01") spine = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
@@ -1276,7 +1291,7 @@ function loadFighter(
         mixer = new THREE.AnimationMixer(model);
         mixer.clipAction(gltf.animations[0]).play();
       }
-      onLoaded({ root, mixer, rightArm, rightForeArm, rightHand, leftArm, leftUpLeg, leftLeg, rightUpLeg, rightLeg, materials });
+      onLoaded({ root, mixer, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftUpLeg, leftLeg, rightUpLeg, rightLeg, spine, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
