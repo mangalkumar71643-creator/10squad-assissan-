@@ -1124,25 +1124,28 @@ const RUN_SPINE_LEAN = 0.12;
 
 // Drives a walking/running limb cycle by hand — without this the limbs
 // just keep playing the idle clip's subtle sway while the root glides
-// across the ground, which reads as skating rather than running. Arms
-// swing on the opposite side and axis convention proven by the punch pose
-// (rotation.x, "-=" is forward) so the right arm swings back while the
-// right leg swings forward, matching natural gait. Elbows are also bent
-// (not just the straight-arm shoulder swing) and the spine leans forward
-// slightly, which is what actually sells a running sprint rather than a
-// fast walk.
+// across the ground, which reads as skating rather than running. Legs and
+// arms both bend on rotation.z here — a numeric world-space displacement
+// probe on the hand bone (rotating each axis by a fixed test angle and
+// measuring which one produces forward+up motion vs. sideways motion,
+// same technique used to pin down the leg axis) showed rotation.x on the
+// arm/forearm is actually the sideways axis, not forward/back, which is
+// what made the earlier arm swing look like sideways flailing instead of
+// a running pump. Arms swing opposite the same-side leg (contralateral
+// gait) and elbows bend too, with a slight forward spine lean to sell a
+// sprint rather than a fast walk.
 function applyRunCycle(rig: FighterRig, phase: number) {
   const swing = Math.sin(phase);
   if (rig.rightUpLeg) rig.rightUpLeg.rotation.z -= swing * RUN_HIP_SWING;
   if (rig.leftUpLeg) rig.leftUpLeg.rotation.z += swing * RUN_HIP_SWING;
-  if (rig.rightArm) rig.rightArm.rotation.x += swing * RUN_ARM_SWING;
-  if (rig.leftArm) rig.leftArm.rotation.x -= swing * RUN_ARM_SWING;
+  if (rig.rightArm) rig.rightArm.rotation.z += swing * RUN_ARM_SWING;
+  if (rig.leftArm) rig.leftArm.rotation.z -= swing * RUN_ARM_SWING;
   const rightKnee = Math.max(0, swing);
   const leftKnee = Math.max(0, -swing);
   if (rig.rightLeg) rig.rightLeg.rotation.z -= rightKnee * RUN_KNEE_BEND;
   if (rig.leftLeg) rig.leftLeg.rotation.z -= leftKnee * RUN_KNEE_BEND;
-  if (rig.rightForeArm) rig.rightForeArm.rotation.x -= RUN_ELBOW_BASE_BEND + rightKnee * RUN_ELBOW_SWING_BEND;
-  if (rig.leftForeArm) rig.leftForeArm.rotation.x -= RUN_ELBOW_BASE_BEND + leftKnee * RUN_ELBOW_SWING_BEND;
+  if (rig.rightForeArm) rig.rightForeArm.rotation.z -= RUN_ELBOW_BASE_BEND + rightKnee * RUN_ELBOW_SWING_BEND;
+  if (rig.leftForeArm) rig.leftForeArm.rotation.z -= RUN_ELBOW_BASE_BEND + leftKnee * RUN_ELBOW_SWING_BEND;
   if (rig.spine) rig.spine.rotation.x += RUN_SPINE_LEAN;
 }
 
