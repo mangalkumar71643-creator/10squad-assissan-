@@ -1045,6 +1045,24 @@ function applyPunchPose(rig: FighterRig, t: number) {
   if (rig.rightForeArm) rig.rightForeArm.rotation.x -= swing * PUNCH_ELBOW_ANGLE;
 }
 
+const DEATH_FALL_DURATION = 0.6;
+const DEATH_FADE_DELAY = 0.3;
+const DEATH_FADE_DURATION = 1.0;
+const DEATH_TOTAL_DURATION = DEATH_FALL_DURATION + DEATH_FADE_DURATION;
+
+// Topples a defeated fighter onto its back and fades it out — there's no
+// death clip either, so this drives the root rotation and each mesh's
+// material opacity directly instead.
+function applyDeathPose(rig: FighterRig, t: number) {
+  const fallP = clamp(t / DEATH_FALL_DURATION, 0, 1);
+  rig.root.rotation.x = -(fallP * fallP * (3 - 2 * fallP)) * (Math.PI / 2); // smoothstep ease-out
+  const fadeP = clamp((t - DEATH_FADE_DELAY) / DEATH_FADE_DURATION, 0, 1);
+  for (const mat of rig.materials) {
+    mat.transparent = true;
+    mat.opacity = 1 - fadeP;
+  }
+}
+
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -1055,6 +1073,7 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  materials: THREE.MeshStandardMaterial[];
 }
 
 // A simple procedural sword (no sword asset on hand) — blade, crossguard and
@@ -1121,6 +1140,7 @@ function loadFighter(
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
+      const materials: THREE.MeshStandardMaterial[] = [];
 
       model.traverse((o) => {
         if (o.name === "RightArm") rightArm = o;
@@ -1137,6 +1157,7 @@ function loadFighter(
         mat.color = src.color.clone().multiply(tintColor);
         if (mat.emissive) mat.emissive = src.emissive.clone().multiply(tintColor);
         mesh.material = mat;
+        materials.push(mat);
       });
 
       const root = new THREE.Group();
@@ -1148,7 +1169,7 @@ function loadFighter(
         mixer = new THREE.AnimationMixer(model);
         mixer.clipAction(gltf.animations[0]).play();
       }
-      onLoaded({ root, mixer, rightArm, rightForeArm, rightHand });
+      onLoaded({ root, mixer, rightArm, rightForeArm, rightHand, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -1282,6 +1303,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerDamage = PLAYER_DAMAGE;
     let playerAttackRange = ATTACK_RANGE;
     let swordAttached = false;
+    let bot1DeathT = -1;
+    let bot2DeathT = -1;
+    let playerDeathT = -1;
+    let pendingResult: "win" | "lose" | null = null;
+    let resultRevealT = 0;
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
 
@@ -1291,6 +1317,26 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       player?.mixer?.update(dt);
       bot1?.mixer?.update(dt);
       bot2?.mixer?.update(dt);
+
+      if (bot1 && bot1DeathT >= 0) {
+        applyDeathPose(bot1, bot1DeathT);
+        bot1DeathT += dt;
+      }
+      if (bot2 && bot2DeathT >= 0) {
+        applyDeathPose(bot2, bot2DeathT);
+        bot2DeathT += dt;
+      }
+      if (player && playerDeathT >= 0) {
+        applyDeathPose(player, playerDeathT);
+        playerDeathT += dt;
+      }
+      if (ended && pendingResult) {
+        resultRevealT += dt;
+        if (resultRevealT > DEATH_TOTAL_DURATION) {
+          setResult(pendingResult);
+          pendingResult = null;
+        }
+      }
 
       if (!ended && player && bot1 && bot2) {
         const activeBot = phaseLocal === "bot1" ? bot1 : bot2;
@@ -1398,15 +1444,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
         if (botHpLocal <= 0) {
           if (phaseLocal === "bot1") {
-            // Bot 1 down — hand the player a sword (parented to their
-            // right hand so it swings with the punch pose automatically)
-            // and send in bot 2 with full health.
+            // Bot 1 down — it topples and fades out in the background while
+            // bot 2 (full health) steps in, and the player gets a sword
+            // (parented to their right hand so it swings with the punch
+            // pose automatically).
             phaseLocal = "bot2";
             setPhase("bot2");
             botHpLocal = 100;
             setBotHp(100);
             botCooldown = 0;
             botPunchT = -1;
+            bot1DeathT = 0;
             playerDamage = SWORD_DAMAGE;
             playerAttackRange = SWORD_RANGE;
             if (!swordAttached && player.rightHand) {
@@ -1415,13 +1463,21 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             }
           } else {
             ended = true;
-            setResult("win");
+            bot2DeathT = 0;
+            pendingResult = "win";
           }
         } else if (playerHpLocal <= 0) {
           ended = true;
-          setResult("lose");
+          playerDeathT = 0;
+          pendingResult = "lose";
         }
+      }
 
+      // Chase camera keeps following/rendering even after the match ends,
+      // so the loser's/bot's death animation actually plays out on screen
+      // instead of the view freezing the instant HP hits zero.
+      if (player) {
+        const jv = joystickVec.current;
         // Chase camera: sits behind the player along their facing
         // direction and eases toward that spot each frame instead of
         // snapping, so turning feels smooth rather than jittery. Dragging
@@ -1429,7 +1485,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // (it does not snap back) until the player actually moves again,
         // at which point the camera resumes following the movement
         // direction like a normal chase cam.
-        if (lookTouchId.current === null && (jv.x !== 0 || jv.y !== 0)) {
+        if (!ended && lookTouchId.current === null && (jv.x !== 0 || jv.y !== 0)) {
           cameraYaw.current = player.root.rotation.y;
         }
         const facing = cameraYaw.current;
