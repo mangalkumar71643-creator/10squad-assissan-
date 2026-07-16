@@ -1011,9 +1011,28 @@ const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
+const PUNCH_DURATION = 0.35;
+const PUNCH_SWING_ANGLE = 1.4;
+const PUNCH_ELBOW_ANGLE = 0.9;
+
+// Swings a fighter's right arm forward and back (bind-pose-relative, layered
+// on top of whatever the idle clip set that frame) — there's no punch clip
+// baked into the rig, so this drives the arm bones directly.
+function applyPunchPose(rig: FighterRig, t: number) {
+  const swing = Math.sin(clamp(t / PUNCH_DURATION, 0, 1) * Math.PI);
+  if (rig.rightArm) rig.rightArm.rotation.x -= swing * PUNCH_SWING_ANGLE;
+  if (rig.rightForeArm) rig.rightForeArm.rotation.x -= swing * PUNCH_ELBOW_ANGLE;
+}
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+interface FighterRig {
+  root: THREE.Object3D;
+  mixer: THREE.AnimationMixer | null;
+  rightArm: THREE.Object3D | null;
+  rightForeArm: THREE.Object3D | null;
 }
 
 // Loads the one character model we have twice — once as the player (its
@@ -1022,7 +1041,7 @@ function clamp(v: number, lo: number, hi: number) {
 function loadFighter(
   scene: THREE.Scene,
   tint: THREE.ColorRepresentation,
-  onLoaded: (rig: { root: THREE.Object3D; mixer: THREE.AnimationMixer | null }) => void,
+  onLoaded: (rig: FighterRig) => void,
 ) {
   new GLTFLoader().load(
     "/characters/char-1.glb",
@@ -1035,7 +1054,15 @@ function loadFighter(
       model.scale.setScalar(scale);
       model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
 
+      // The rig only ships one baked "Idle" clip — there's no punch
+      // animation — so grab the arm bones here and swing them by hand
+      // (see the punch logic in CombatArena's tick loop) instead.
+      let rightArm: THREE.Object3D | null = null;
+      let rightForeArm: THREE.Object3D | null = null;
+
       model.traverse((o) => {
+        if (o.name === "RightArm") rightArm = o;
+        if (o.name === "RightForeArm") rightForeArm = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
@@ -1058,7 +1085,7 @@ function loadFighter(
         mixer = new THREE.AnimationMixer(model);
         mixer.clipAction(gltf.animations[0]).play();
       }
-      onLoaded({ root, mixer });
+      onLoaded({ root, mixer, rightArm, rightForeArm });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -1127,8 +1154,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     scene.add(ground);
     scene.add(new THREE.GridHelper(ARENA_HALF * 2, 10, 0x6be2ff, 0x1c4560));
 
-    let player: { root: THREE.Object3D; mixer: THREE.AnimationMixer | null } | null = null;
-    let bot: { root: THREE.Object3D; mixer: THREE.AnimationMixer | null } | null = null;
+    let player: FighterRig | null = null;
+    let bot: FighterRig | null = null;
 
     loadFighter(scene, 0xffffff, (rig) => {
       if (disposed) return;
@@ -1160,6 +1187,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let botHpLocal = 100;
     let playerCooldown = 0;
     let botCooldown = 0;
+    let playerPunchT = -1;
+    let botPunchT = -1;
     let playerVelY = 0;
     let grounded = true;
     let ended = false;
@@ -1228,6 +1257,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             botHpLocal = Math.max(0, botHpLocal - PLAYER_DAMAGE);
             setBotHp(botHpLocal);
             playerCooldown = PLAYER_ATTACK_COOLDOWN;
+            playerPunchT = 0;
           }
         }
 
@@ -1235,6 +1265,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
           setPlayerHp(playerHpLocal);
           botCooldown = BOT_ATTACK_COOLDOWN;
+          botPunchT = 0;
+        }
+
+        if (playerPunchT >= 0) {
+          applyPunchPose(player, playerPunchT);
+          playerPunchT = playerPunchT + dt > PUNCH_DURATION ? -1 : playerPunchT + dt;
+        }
+        if (botPunchT >= 0) {
+          applyPunchPose(bot, botPunchT);
+          botPunchT = botPunchT + dt > PUNCH_DURATION ? -1 : botPunchT + dt;
         }
 
         if (botHpLocal <= 0) {
