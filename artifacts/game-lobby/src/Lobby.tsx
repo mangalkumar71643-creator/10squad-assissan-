@@ -1001,6 +1001,23 @@ const PLAYER_SPEED = 2.6;
 const BOT_SPEED = 1.9;
 const ATTACK_RANGE = 1.3;
 const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
+const WALL_HEIGHT = 2.2;
+const WALL_HALF = 0.5; // the 1x1 cover block's half-extent
+const WALL_COLLISION_HALF = WALL_HALF + 0.35; // padded out by the fighters' body radius
+
+// Pushes a fighter's x/z position out of the central 1x1 block's footprint,
+// kicking it out along whichever axis has the least overlap.
+function resolveWallCollision(pos: { x: number; z: number }) {
+  if (Math.abs(pos.x) < WALL_COLLISION_HALF && Math.abs(pos.z) < WALL_COLLISION_HALF) {
+    const penX = WALL_COLLISION_HALF - Math.abs(pos.x);
+    const penZ = WALL_COLLISION_HALF - Math.abs(pos.z);
+    if (penX < penZ) {
+      pos.x = WALL_COLLISION_HALF * (pos.x < 0 ? -1 : 1);
+    } else {
+      pos.z = WALL_COLLISION_HALF * (pos.z < 0 ? -1 : 1);
+    }
+  }
+}
 const PLAYER_DAMAGE = 14;
 const BOT_DAMAGE = 10;
 const PLAYER_ATTACK_COOLDOWN = 0.55;
@@ -1154,6 +1171,20 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     scene.add(ground);
     scene.add(new THREE.GridHelper(ARENA_HALF * 2, 10, 0x6be2ff, 0x1c4560));
 
+    // A single 1x1 cover block in the middle of the arena.
+    const wall = new THREE.Mesh(
+      new THREE.BoxGeometry(1, WALL_HEIGHT, 1),
+      new THREE.MeshStandardMaterial({ color: 0x3a4a5c, roughness: 0.6, metalness: 0.3, emissive: 0x1c4560, emissiveIntensity: 0.4 }),
+    );
+    wall.position.set(0, WALL_HEIGHT / 2, 0);
+    scene.add(wall);
+    const wallEdges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(wall.geometry),
+      new THREE.LineBasicMaterial({ color: 0x6be2ff }),
+    );
+    wallEdges.position.copy(wall.position);
+    scene.add(wallEdges);
+
     let player: FighterRig | null = null;
     let bot: FighterRig | null = null;
 
@@ -1207,6 +1238,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           player.root.position.x = clamp(player.root.position.x + jv.x * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
           player.root.position.z = clamp(player.root.position.z + jv.y * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
           player.root.rotation.y = Math.atan2(jv.x, jv.y);
+          resolveWallCollision(player.root.position);
         }
 
         if (jumpRequested.current) {
@@ -1243,8 +1275,34 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
 
         if (dist > ATTACK_RANGE * 0.85) {
-          bot.root.position.x += (dx / dist) * BOT_SPEED * dt;
-          bot.root.position.z += (dz / dist) * BOT_SPEED * dt;
+          let moveX = dx / dist;
+          let moveZ = dz / dist;
+          // Steer around the central block instead of walking straight into
+          // it: the closer the bot gets to it, the more its seek-the-player
+          // direction blends into a tangent that curves around the block.
+          const wallDist = Math.hypot(bot.root.position.x, bot.root.position.z);
+          const AVOID_RADIUS = WALL_COLLISION_HALF + 1.2;
+          if (wallDist < AVOID_RADIUS) {
+            const toWallX = wallDist > 0.0001 ? -bot.root.position.x / wallDist : 0;
+            const toWallZ = wallDist > 0.0001 ? -bot.root.position.z / wallDist : 1;
+            const tangentAX = -toWallZ;
+            const tangentAZ = toWallX;
+            const tangentBX = toWallZ;
+            const tangentBZ = -toWallX;
+            const dotA = tangentAX * moveX + tangentAZ * moveZ;
+            const dotB = tangentBX * moveX + tangentBZ * moveZ;
+            const tangentX = dotA >= dotB ? tangentAX : tangentBX;
+            const tangentZ = dotA >= dotB ? tangentAZ : tangentBZ;
+            const avoidWeight = clamp(1 - (wallDist - WALL_COLLISION_HALF) / 1.2, 0, 1);
+            moveX = moveX * (1 - avoidWeight) + tangentX * avoidWeight;
+            moveZ = moveZ * (1 - avoidWeight) + tangentZ * avoidWeight;
+            const moveLen = Math.hypot(moveX, moveZ) || 1;
+            moveX /= moveLen;
+            moveZ /= moveLen;
+          }
+          bot.root.position.x += moveX * BOT_SPEED * dt;
+          bot.root.position.z += moveZ * BOT_SPEED * dt;
+          resolveWallCollision(bot.root.position);
         }
         bot.root.rotation.y = Math.atan2(dx, dz);
 
