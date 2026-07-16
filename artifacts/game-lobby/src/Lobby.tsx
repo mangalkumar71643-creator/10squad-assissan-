@@ -1114,6 +1114,23 @@ function applyPunchPose(rig: FighterRig, t: number) {
   if (rig.rightForeArm) rig.rightForeArm.rotation.x -= swing * PUNCH_ELBOW_ANGLE;
 }
 
+const RUN_CYCLE_SPEED = 8;
+const RUN_HIP_SWING = 0.6;
+const RUN_KNEE_BEND = 1.0;
+
+// Drives a walking/running leg cycle by hand — without this the legs just
+// keep playing the idle clip's subtle sway while the root glides across the
+// ground, which reads as skating rather than running.
+function applyRunCycle(rig: FighterRig, phase: number) {
+  const swing = Math.sin(phase);
+  if (rig.rightUpLeg) rig.rightUpLeg.rotation.z -= swing * RUN_HIP_SWING;
+  if (rig.leftUpLeg) rig.leftUpLeg.rotation.z += swing * RUN_HIP_SWING;
+  const rightKnee = Math.max(0, swing);
+  const leftKnee = Math.max(0, -swing);
+  if (rig.rightLeg) rig.rightLeg.rotation.z -= rightKnee * RUN_KNEE_BEND;
+  if (rig.leftLeg) rig.leftLeg.rotation.z -= leftKnee * RUN_KNEE_BEND;
+}
+
 const DEATH_FALL_DURATION = 0.6;
 const DEATH_FADE_DELAY = 0.3;
 const DEATH_FADE_DURATION = 1.0;
@@ -1142,6 +1159,10 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  leftUpLeg: THREE.Object3D | null;
+  leftLeg: THREE.Object3D | null;
+  rightUpLeg: THREE.Object3D | null;
+  rightLeg: THREE.Object3D | null;
   materials: THREE.MeshStandardMaterial[];
 }
 
@@ -1209,12 +1230,20 @@ function loadFighter(
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
+      let leftUpLeg: THREE.Object3D | null = null;
+      let leftLeg: THREE.Object3D | null = null;
+      let rightUpLeg: THREE.Object3D | null = null;
+      let rightLeg: THREE.Object3D | null = null;
       const materials: THREE.MeshStandardMaterial[] = [];
 
       model.traverse((o) => {
         if (o.name === "RightArm") rightArm = o;
         if (o.name === "RightForeArm") rightForeArm = o;
         if (o.name === "RightHand") rightHand = o;
+        if (o.name === "LeftUpLeg") leftUpLeg = o;
+        if (o.name === "LeftLeg") leftLeg = o;
+        if (o.name === "RightUpLeg") rightUpLeg = o;
+        if (o.name === "RightLeg") rightLeg = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
@@ -1238,7 +1267,7 @@ function loadFighter(
         mixer = new THREE.AnimationMixer(model);
         mixer.clipAction(gltf.animations[0]).play();
       }
-      onLoaded({ root, mixer, rightArm, rightForeArm, rightHand, materials });
+      onLoaded({ root, mixer, rightArm, rightForeArm, rightHand, leftUpLeg, leftLeg, rightUpLeg, rightLeg, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -1407,6 +1436,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerDeathT = -1;
     let pendingResult: "win" | "lose" | null = null;
     let resultRevealT = 0;
+    let playerRunPhase = 0;
+    let botRunPhase = 0;
     // Which side the bot committed to going around each obstacle on — decided
     // once when avoidance first engages and held until it clears, so the
     // choice can't flip-flop frame to frame when the bot ends up nearly
@@ -1462,6 +1493,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           player.root.position.z = clamp(player.root.position.z + moveZ * PLAYER_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
           player.root.rotation.y = Math.atan2(moveX, moveZ);
           resolveObstacleCollisions(player.root.position);
+          playerRunPhase += dt * RUN_CYCLE_SPEED;
+          applyRunCycle(player, playerRunPhase);
+        } else {
+          playerRunPhase = 0;
         }
 
         if (jumpRequested.current) {
@@ -1549,6 +1584,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           activeBot.root.position.x += moveX * BOT_SPEED * dt;
           activeBot.root.position.z += moveZ * BOT_SPEED * dt;
           resolveObstacleCollisions(activeBot.root.position);
+          botRunPhase += dt * RUN_CYCLE_SPEED;
+          applyRunCycle(activeBot, botRunPhase);
+        } else {
+          botRunPhase = 0;
         }
         activeBot.root.rotation.y = Math.atan2(dx, dz);
 
