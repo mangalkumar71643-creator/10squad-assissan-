@@ -811,6 +811,40 @@ function terrainColor(v: number): [number, number, number] {
   return TERRAIN_STOPS[TERRAIN_STOPS.length - 1][1];
 }
 
+// Procedural green grass texture for the arena floor — layered value noise
+// blotches (dark-to-light green patches) plus fine per-pixel speckle for a
+// blade-of-grass feel, tiled across the ground plane.
+function createGrassTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const image = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const patch = valueNoise(x * 0.06, y * 0.06) * 0.7 + valueNoise(x * 0.18, y * 0.18) * 0.3;
+      const speckle = hash2(x * 0.9, y * 0.9) * 0.12;
+      const t = clamp(patch + speckle - 0.06, 0, 1);
+      const r = Math.round(28 + t * 44);
+      const g = Math.round(72 + t * 74);
+      const b = Math.round(36 + t * 40);
+      const i = (y * size + x) * 4;
+      image.data[i] = r;
+      image.data[i + 1] = g;
+      image.data[i + 2] = b;
+      image.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(6, 6);
+  return texture;
+}
+
 // A procedurally-shaded 100x100 grid minimap, drawn on a single canvas
 // (10,000 individual DOM cells would be far too slow) at native 1:1
 // pixel-per-cell resolution, then scaled up with crisp pixelated edges so
@@ -1233,7 +1267,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(ARENA_HALF * 2, ARENA_HALF * 2),
-      new THREE.MeshStandardMaterial({ color: 0x0f2338, roughness: 0.95 }),
+      new THREE.MeshStandardMaterial({ map: createGrassTexture(), roughness: 0.95 }),
     );
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
