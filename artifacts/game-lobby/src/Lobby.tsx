@@ -1126,13 +1126,17 @@ function applyPunchPose(rig: FighterRig, t: number) {
 }
 
 const RUN_PHASE_RATE = 3.4; // phase radians advanced per unit of world speed, so stride frequency tracks actual speed instead of a fixed rate (which is what causes visible foot sliding)
-const RUN_HIP_SWING = 0.7;
-const RUN_KNEE_BEND = 1.25;
-const RUN_ARM_SWING = 0.7;
-const RUN_ELBOW_BASE_BEND = 0.9;
-const RUN_ELBOW_SWING_BEND = 0.4;
-const RUN_SPINE_LEAN = 0.12;
-const SPRINT_SPINE_LEAN = 0.14; // extra lean layered on top once sprint is engaged
+const RUN_HIP_SWING = 0.55;
+const RUN_KNEE_BEND = 1.0;
+// A compact, tucked-in tactical jog (arms held close, not a wide athletic
+// sprint swing) reads more like a combat character than a track sprinter —
+// arm swing is intentionally modest, and the elbows stay bent close to the
+// body throughout rather than snapping straight between strides.
+const RUN_ARM_SWING = 0.3;
+const RUN_ELBOW_BASE_BEND = 1.15;
+const RUN_ELBOW_SWING_BEND = 0.18;
+const RUN_SPINE_LEAN = 0.24; // base forward hunch while moving, not just at a full sprint
+const SPRINT_SPINE_LEAN = 0.1; // extra lean layered on top once sprint is engaged
 
 // Drives a walking/running limb cycle by hand — without this the limbs
 // just keep playing the idle clip's subtle sway while the root glides
