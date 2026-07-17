@@ -1138,9 +1138,8 @@ function applyPunchPose(rig: FighterRig, t: number) {
   if (rig.rightForeArm) rig.rightForeArm.rotation.x -= swing * PUNCH_ELBOW_ANGLE;
 }
 
-const RUN_PHASE_RATE = 3.4; // phase radians advanced per unit of world speed, so stride frequency tracks actual speed instead of a fixed rate (which is what causes visible foot sliding)
-const RUN_HIP_SWING = 0.55;
-const RUN_KNEE_BEND = 1.0;
+const STRIDE_LENGTH = 0.85; // total forward distance a foot covers between plant points, at full intensity — sized to this rig's actual (fairly short) leg reach, not an arbitrary guess
+const RUN_PHASE_RATE = (2 * Math.PI) / STRIDE_LENGTH; // phase radians advanced per unit of world speed — tied directly to stride length so one full phase cycle always covers exactly one stride length of actual travel, which is what rules out foot sliding
 // A compact, tucked-in tactical jog (arms held close, not a wide athletic
 // sprint swing) reads more like a combat character than a track sprinter —
 // arm swing is intentionally modest, and the elbows stay bent close to the
@@ -1150,6 +1149,7 @@ const RUN_ELBOW_BASE_BEND = 1.15;
 const RUN_ELBOW_SWING_BEND = 0.18;
 const RUN_SPINE_LEAN = 0.24; // base forward hunch while moving, not just at a full sprint
 const SPRINT_SPINE_LEAN = 0.1; // extra lean layered on top once sprint is engaged
+const HIP_ROTATION_AMOUNT = 0.07; // transverse pelvic rotation, alternating with each stride like a real gait
 
 const _swingAxisWorld = new THREE.Vector3();
 const _swingAxisLocal = new THREE.Vector3();
@@ -1174,9 +1174,10 @@ function swingLimb(bone: THREE.Object3D | null, facingYaw: number, angle: number
   bone.rotateOnAxis(_swingAxisLocal, angle);
 }
 
-// Drives a walking/running limb cycle by hand — without this the limbs
-// just keep playing the idle clip's subtle sway while the root glides
-// across the ground, which reads as skating rather than running.
+// Drives the arm swing and torso lean by hand — without this they'd just
+// keep playing the idle clip's subtle sway while the root glides across
+// the ground. Legs are handled separately by real 2-bone IK (see
+// applyLegIK below), since arms don't need ground-contact locking.
 // `intensity` is the caller's current speed as a 0..1 fraction of top
 // speed — every swing/bend term scales off it so idle, walk, jog and run
 // are one continuous blend instead of a hard on/off cut, and it's what
@@ -1186,17 +1187,172 @@ function applyRunCycle(rig: FighterRig, phase: number, intensity: number, sprint
   rig.root.updateMatrixWorld(true);
   const facingYaw = rig.root.rotation.y;
   const swing = Math.sin(phase) * intensity;
-  swingLimb(rig.rightUpLeg, facingYaw, -swing * RUN_HIP_SWING);
-  swingLimb(rig.leftUpLeg, facingYaw, swing * RUN_HIP_SWING);
   swingLimb(rig.rightArm, facingYaw, swing * RUN_ARM_SWING);
   swingLimb(rig.leftArm, facingYaw, -swing * RUN_ARM_SWING);
   const rightKnee = Math.max(0, swing);
   const leftKnee = Math.max(0, -swing);
-  swingLimb(rig.rightLeg, facingYaw, -rightKnee * RUN_KNEE_BEND);
-  swingLimb(rig.leftLeg, facingYaw, -leftKnee * RUN_KNEE_BEND);
   swingLimb(rig.rightForeArm, facingYaw, -(intensity * RUN_ELBOW_BASE_BEND + rightKnee * RUN_ELBOW_SWING_BEND));
   swingLimb(rig.leftForeArm, facingYaw, -(intensity * RUN_ELBOW_BASE_BEND + leftKnee * RUN_ELBOW_SWING_BEND));
   if (rig.spine) rig.spine.rotation.x += intensity * RUN_SPINE_LEAN + sprintBlend * SPRINT_SPINE_LEAN;
+  // Transverse pelvic rotation — the hips twist slightly opposite the
+  // swinging leg with each stride in a real gait, a small but noticeable
+  // "hip motion" cue that a static torso lacks.
+  if (rig.hips) rig.hips.rotation.y += swing * HIP_ROTATION_AMOUNT;
+}
+
+const SWING_LIFT_HEIGHT = 0.14; // how high a swinging foot lifts off the ground for clearance, at full intensity
+const PUSH_OFF_FACTOR = 0.9; // how strongly trailing-leg extension late in stance rolls the ankle into a toe-off
+const PUSH_OFF_MAX = 0.6;
+
+// Per-fighter, persists across frames: where each foot last planted (in
+// world space), and whether that foot was in its stance phase last frame
+// (to detect the exact moment of footstrike, which is when a new plant
+// point gets locked in).
+interface LegIKState {
+  rightPlantX: number;
+  rightPlantZ: number;
+  rightStancePrev: boolean;
+  leftPlantX: number;
+  leftPlantZ: number;
+  leftStancePrev: boolean;
+}
+function createLegIKState(): LegIKState {
+  return { rightPlantX: 0, rightPlantZ: 0, rightStancePrev: false, leftPlantX: 0, leftPlantZ: 0, leftStancePrev: false };
+}
+
+const _ikHipWorld = new THREE.Vector3();
+const _ikHipToTarget = new THREE.Vector3();
+const _ikTarget = new THREE.Vector3();
+
+// Real 2-bone IK (hip -> knee -> foot, solved with the law of cosines) so
+// a foot reaches exactly `targetWorld` — the actual mechanism that lets a
+// planted foot stay locked to one world-space point while the body moves
+// over it, rather than a canned swing that just approximates the look.
+// Blends smoothly from whatever pose the idle clip left the bones in up
+// to the full IK result as `intensity` ramps in, so a character easing to
+// a stop doesn't snap between "IK legs" and "idle legs."
+function solveLegIK(
+  upLeg: THREE.Object3D,
+  knee: THREE.Object3D,
+  foot: THREE.Object3D | null,
+  facingYaw: number,
+  upperLen: number,
+  lowerLen: number,
+  bindUpLeg: THREE.Quaternion,
+  bindKnee: THREE.Quaternion,
+  bindFoot: THREE.Quaternion,
+  targetWorld: THREE.Vector3,
+  intensity: number,
+) {
+  const idleUpLeg = upLeg.quaternion.clone();
+  const idleKnee = knee.quaternion.clone();
+  const idleFoot = foot ? foot.quaternion.clone() : null;
+
+  upLeg.getWorldPosition(_ikHipWorld);
+  upLeg.quaternion.copy(bindUpLeg);
+  knee.quaternion.copy(bindKnee);
+  if (foot) foot.quaternion.copy(bindFoot);
+
+  _ikHipToTarget.copy(targetWorld).sub(_ikHipWorld);
+  const maxReach = upperLen + lowerLen - 0.001;
+  const minReach = Math.abs(upperLen - lowerLen) + 0.001;
+  const d = clamp(_ikHipToTarget.length(), minReach, maxReach);
+
+  const hipAngle = Math.acos(clamp((upperLen * upperLen + d * d - lowerLen * lowerLen) / (2 * upperLen * d), -1, 1));
+  const kneeInterior = Math.acos(clamp((upperLen * upperLen + lowerLen * lowerLen - d * d) / (2 * upperLen * lowerLen), -1, 1));
+  const kneeBend = Math.PI - kneeInterior;
+
+  const forwardX = -Math.sin(facingYaw);
+  const forwardZ = -Math.cos(facingYaw);
+  const compForward = _ikHipToTarget.x * forwardX + _ikHipToTarget.z * forwardZ;
+  const compDown = -_ikHipToTarget.y;
+  const tiltAngle = Math.atan2(compForward, compDown);
+
+  swingLimb(upLeg, facingYaw, tiltAngle + hipAngle);
+  upLeg.updateMatrixWorld(true);
+  swingLimb(knee, facingYaw, -kneeBend);
+  if (foot) {
+    knee.updateMatrixWorld(true);
+    // Push-off: as the trailing leg approaches the end of stance (target
+    // increasingly behind the hip, i.e. tiltAngle going negative), roll
+    // the ankle into a toe-off instead of leaving the foot flat.
+    const pushOff = clamp(-tiltAngle * PUSH_OFF_FACTOR, 0, PUSH_OFF_MAX) * intensity;
+    swingLimb(foot, facingYaw, pushOff);
+  }
+
+  const ikUpLeg = upLeg.quaternion.clone();
+  const ikKnee = knee.quaternion.clone();
+  const ikFoot = foot ? foot.quaternion.clone() : null;
+  upLeg.quaternion.copy(idleUpLeg).slerp(ikUpLeg, intensity);
+  knee.quaternion.copy(idleKnee).slerp(ikKnee, intensity);
+  if (foot && ikFoot && idleFoot) foot.quaternion.copy(idleFoot).slerp(ikFoot, intensity);
+}
+
+// Drives both legs with real foot-locked IK: each foot gets a fixed
+// plant point the instant it touches down (stance), which the IK solver
+// holds it to exactly until push-off, so the planted foot cannot slide
+// against the ground no matter how the body moves over it — the swinging
+// foot's target is continuously the next planted spot instead. Stride
+// length is fixed (see STRIDE_LENGTH) and stride *rate* is what scales
+// with speed (via the phase passed in), matching how a real gait speeds
+// up cadence more than step length at moderate speeds.
+function applyLegIK(rig: FighterRig, phase: number, intensity: number, grounded: boolean, state: LegIKState) {
+  if (!rig.rightUpLeg || !rig.rightLeg || !rig.leftUpLeg || !rig.leftLeg || !grounded) return;
+  rig.root.updateMatrixWorld(true);
+  const facingYaw = rig.root.rotation.y;
+  const forwardX = -Math.sin(facingYaw);
+  const forwardZ = -Math.cos(facingYaw);
+  const halfStride = (STRIDE_LENGTH / 2) * clamp(intensity, 0, 1);
+  // `phase` grows without bound (it's driven by cumulative distance
+  // traveled, never reset) — wrap each leg's phase into [0, 2*PI) before
+  // turning it into a 0..1 swing progress fraction, since dividing the
+  // raw unbounded value by PI would only be meaningful during its very
+  // first cycle.
+  const rightPhaseMod = ((phase % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const leftPhaseMod = ((phase + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+
+  const rightStance = Math.sin(phase) < 0;
+  if (rightStance && !state.rightStancePrev) {
+    rig.rightUpLeg.getWorldPosition(_ikHipWorld);
+    state.rightPlantX = _ikHipWorld.x + forwardX * halfStride;
+    state.rightPlantZ = _ikHipWorld.z + forwardZ * halfStride;
+  }
+  state.rightStancePrev = rightStance;
+  if (rightStance) {
+    _ikTarget.set(state.rightPlantX, rig.groundFootY.right, state.rightPlantZ);
+  } else {
+    rig.rightUpLeg.getWorldPosition(_ikHipWorld);
+    const swingP = clamp(rightPhaseMod / Math.PI, 0, 1);
+    // The swing foot sweeps from behind the hip (where it just left the
+    // ground) through directly underneath it and out to ahead of it
+    // (where it's about to plant), rather than jumping straight to a
+    // fixed forward point and just lifting — a real recovery leg tucks in
+    // close (both vertically and horizontally) around mid-swing, which is
+    // also what keeps the knee visibly bending through most of the swing
+    // instead of the leg reaching for a distant target the whole time.
+    const horizOffset = halfStride * (2 * swingP - 1);
+    const lift = SWING_LIFT_HEIGHT * clamp(intensity, 0, 1) * Math.sin(swingP * Math.PI);
+    _ikTarget.set(_ikHipWorld.x + forwardX * horizOffset, rig.groundFootY.right + lift, _ikHipWorld.z + forwardZ * horizOffset);
+  }
+  solveLegIK(rig.rightUpLeg, rig.rightLeg, rig.rightFoot, facingYaw, rig.legLengths.rightUpper, rig.legLengths.rightLower, rig.legBind.rightUpLeg, rig.legBind.rightLeg, rig.legBind.rightFoot, _ikTarget, intensity);
+
+  const leftStance = Math.sin(phase + Math.PI) < 0;
+  if (leftStance && !state.leftStancePrev) {
+    rig.leftUpLeg.getWorldPosition(_ikHipWorld);
+    state.leftPlantX = _ikHipWorld.x + forwardX * halfStride;
+    state.leftPlantZ = _ikHipWorld.z + forwardZ * halfStride;
+  }
+  state.leftStancePrev = leftStance;
+  if (leftStance) {
+    _ikTarget.set(state.leftPlantX, rig.groundFootY.left, state.leftPlantZ);
+  } else {
+    rig.leftUpLeg.getWorldPosition(_ikHipWorld);
+    const swingP = clamp(leftPhaseMod / Math.PI, 0, 1);
+    const horizOffset = halfStride * (2 * swingP - 1);
+    const lift = SWING_LIFT_HEIGHT * clamp(intensity, 0, 1) * Math.sin(swingP * Math.PI);
+    _ikTarget.set(_ikHipWorld.x + forwardX * horizOffset, rig.groundFootY.left + lift, _ikHipWorld.z + forwardZ * horizOffset);
+  }
+  solveLegIK(rig.leftUpLeg, rig.leftLeg, rig.leftFoot, facingYaw, rig.legLengths.leftUpper, rig.legLengths.leftLower, rig.legBind.leftUpLeg, rig.legBind.leftLeg, rig.legBind.leftFoot, _ikTarget, intensity);
 }
 
 const DEATH_FALL_DURATION = 0.6;
@@ -1254,10 +1410,33 @@ interface FighterRig {
   leftForeArm: THREE.Object3D | null;
   leftUpLeg: THREE.Object3D | null;
   leftLeg: THREE.Object3D | null;
+  leftFoot: THREE.Object3D | null;
   rightUpLeg: THREE.Object3D | null;
   rightLeg: THREE.Object3D | null;
+  rightFoot: THREE.Object3D | null;
+  hips: THREE.Object3D | null;
   spine: THREE.Object3D | null;
   materials: THREE.MeshStandardMaterial[];
+  // Real leg-IK inputs, measured once from the bind pose: how long each
+  // leg segment actually is (so the IK solver's reach matches this rig
+  // exactly), and each leg bone's rest orientation (so every IK solve
+  // starts from a known, consistent pose instead of composing on top of
+  // whatever the idle clip happened to leave the bone at).
+  legLengths: { rightUpper: number; rightLower: number; leftUpper: number; leftLower: number };
+  // How far above true ground level each foot *bone* (the ankle joint,
+  // not the sole) sits when planted flat — the model is grounded so the
+  // bottom of the mesh touches y=0, but the foot bone's own origin is
+  // measurably above that, so IK targets need this offset or the solver
+  // thinks the ground is farther away than the leg can actually reach.
+  groundFootY: { right: number; left: number };
+  legBind: {
+    rightUpLeg: THREE.Quaternion;
+    rightLeg: THREE.Quaternion;
+    rightFoot: THREE.Quaternion;
+    leftUpLeg: THREE.Quaternion;
+    leftLeg: THREE.Quaternion;
+    leftFoot: THREE.Quaternion;
+  };
 }
 
 // A simple procedural sword (no sword asset on hand) — blade, crossguard and
@@ -1328,8 +1507,11 @@ function loadFighter(
       let leftForeArm: THREE.Object3D | null = null;
       let leftUpLeg: THREE.Object3D | null = null;
       let leftLeg: THREE.Object3D | null = null;
+      let leftFoot: THREE.Object3D | null = null;
       let rightUpLeg: THREE.Object3D | null = null;
       let rightLeg: THREE.Object3D | null = null;
+      let rightFoot: THREE.Object3D | null = null;
+      let hips: THREE.Object3D | null = null;
       let spine: THREE.Object3D | null = null;
       const materials: THREE.MeshStandardMaterial[] = [];
 
@@ -1341,8 +1523,11 @@ function loadFighter(
         if (o.name === "LeftForeArm") leftForeArm = o;
         if (o.name === "LeftUpLeg") leftUpLeg = o;
         if (o.name === "LeftLeg") leftLeg = o;
+        if (o.name === "LeftFoot") leftFoot = o;
         if (o.name === "RightUpLeg") rightUpLeg = o;
         if (o.name === "RightLeg") rightLeg = o;
+        if (o.name === "RightFoot") rightFoot = o;
+        if (o.name === "Hips") hips = o;
         if (o.name === "Spine01") spine = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
@@ -1358,6 +1543,49 @@ function loadFighter(
         materials.push(mat);
       });
 
+      // Measure each leg's actual segment lengths from the bind pose (in
+      // the same world units as everything else, since `model.scale` is
+      // already applied above) so the IK solver's reach exactly matches
+      // this rig instead of an assumed/guessed proportion, and capture
+      // each leg bone's bind rotation so the IK solve always starts from
+      // a known rest pose.
+      model.updateMatrixWorld(true);
+      const legLengths = { rightUpper: 0.4, rightLower: 0.4, leftUpper: 0.4, leftLower: 0.4 };
+      const groundFootY = { right: 0, left: 0 };
+      const legBind = {
+        rightUpLeg: new THREE.Quaternion(),
+        rightLeg: new THREE.Quaternion(),
+        rightFoot: new THREE.Quaternion(),
+        leftUpLeg: new THREE.Quaternion(),
+        leftLeg: new THREE.Quaternion(),
+        leftFoot: new THREE.Quaternion(),
+      };
+      const hipP = new THREE.Vector3();
+      const kneeP = new THREE.Vector3();
+      const footP = new THREE.Vector3();
+      if (rightUpLeg && rightLeg && rightFoot) {
+        (rightUpLeg as THREE.Object3D).getWorldPosition(hipP);
+        (rightLeg as THREE.Object3D).getWorldPosition(kneeP);
+        (rightFoot as THREE.Object3D).getWorldPosition(footP);
+        legLengths.rightUpper = hipP.distanceTo(kneeP);
+        legLengths.rightLower = kneeP.distanceTo(footP);
+        groundFootY.right = footP.y;
+        legBind.rightUpLeg.copy((rightUpLeg as THREE.Object3D).quaternion);
+        legBind.rightLeg.copy((rightLeg as THREE.Object3D).quaternion);
+        legBind.rightFoot.copy((rightFoot as THREE.Object3D).quaternion);
+      }
+      if (leftUpLeg && leftLeg && leftFoot) {
+        (leftUpLeg as THREE.Object3D).getWorldPosition(hipP);
+        (leftLeg as THREE.Object3D).getWorldPosition(kneeP);
+        (leftFoot as THREE.Object3D).getWorldPosition(footP);
+        legLengths.leftUpper = hipP.distanceTo(kneeP);
+        legLengths.leftLower = kneeP.distanceTo(footP);
+        groundFootY.left = footP.y;
+        legBind.leftUpLeg.copy((leftUpLeg as THREE.Object3D).quaternion);
+        legBind.leftLeg.copy((leftLeg as THREE.Object3D).quaternion);
+        legBind.leftFoot.copy((leftFoot as THREE.Object3D).quaternion);
+      }
+
       const root = new THREE.Group();
       root.add(model);
       scene.add(root);
@@ -1367,7 +1595,7 @@ function loadFighter(
         mixer = new THREE.AnimationMixer(model);
         mixer.clipAction(gltf.animations[0]).play();
       }
-      onLoaded({ root, mixer, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftUpLeg, leftLeg, rightUpLeg, rightLeg, spine, materials });
+      onLoaded({ root, mixer, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftUpLeg, leftLeg, leftFoot, rightUpLeg, rightLeg, rightFoot, hips, spine, materials, legLengths, groundFootY, legBind });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -1553,6 +1781,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let resultRevealT = 0;
     let playerRunPhase = 0;
     let botRunPhase = 0;
+    const playerLegState = createLegIKState();
+    const botLegState = createLegIKState();
     // Which single obstacle the bot is currently steering around, and which
     // side it committed to going around it on — decided once when avoidance
     // first engages on that obstacle and held until the bot moves on to a
@@ -1654,6 +1884,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         const speedFrac = clamp(playerSpeedNow / PLAYER_MAX_SPEED, 0, 1.15);
         playerRunPhase += dt * playerSpeedNow * RUN_PHASE_RATE;
         applyRunCycle(player, playerRunPhase, speedFrac, sprintBlend);
+        applyLegIK(player, playerRunPhase, speedFrac, grounded, playerLegState);
 
         if (jumpRequested.current) {
           jumpRequested.current = false;
@@ -1776,6 +2007,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           resolveObstacleCollisions(activeBot.root.position);
           botRunPhase += dt * BOT_SPEED * RUN_PHASE_RATE;
           applyRunCycle(activeBot, botRunPhase, 1);
+          applyLegIK(activeBot, botRunPhase, 1, true, botLegState);
         } else {
           botRunPhase = 0;
         }
@@ -1822,6 +2054,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             setBotHp(100);
             botCooldown = 0;
             botPunchT = -1;
+            botRunPhase = 0;
+            botLegState.rightStancePrev = false;
+            botLegState.leftStancePrev = false;
             bot1DeathT = 0;
             playerDamage = SWORD_DAMAGE;
             playerAttackRange = SWORD_RANGE;
