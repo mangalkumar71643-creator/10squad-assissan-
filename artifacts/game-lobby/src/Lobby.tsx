@@ -1138,29 +1138,51 @@ const RUN_ELBOW_SWING_BEND = 0.18;
 const RUN_SPINE_LEAN = 0.24; // base forward hunch while moving, not just at a full sprint
 const SPRINT_SPINE_LEAN = 0.1; // extra lean layered on top once sprint is engaged
 
+const _swingAxisWorld = new THREE.Vector3();
+const _swingAxisLocal = new THREE.Vector3();
+const _swingParentQuat = new THREE.Quaternion();
+
+// Rotates a limb bone by `angle` around the character's world-space
+// left/right axis (derived from the fighter's current facing), converted
+// into whatever local space the bone's parent happens to be in. Plain
+// per-axis Euler rotation (rotation.x or rotation.z) assumes the bone's
+// own local axis lines up with the sagittal (forward/back) plane, and on
+// this rig it doesn't quite — the leftover sideways component is small
+// enough to miss in a single-bone displacement probe, but it compounds
+// once hip and knee rotate together every frame, and the visible result
+// is legs that swing side to side instead of front to back. Rotating
+// around a true world axis sidesteps the question of the bone's own
+// orientation entirely.
+function swingLimb(bone: THREE.Object3D | null, facingYaw: number, angle: number) {
+  if (!bone || !bone.parent || angle === 0) return;
+  _swingAxisWorld.set(Math.cos(facingYaw), 0, -Math.sin(facingYaw));
+  bone.parent.getWorldQuaternion(_swingParentQuat).invert();
+  _swingAxisLocal.copy(_swingAxisWorld).applyQuaternion(_swingParentQuat).normalize();
+  bone.rotateOnAxis(_swingAxisLocal, angle);
+}
+
 // Drives a walking/running limb cycle by hand — without this the limbs
 // just keep playing the idle clip's subtle sway while the root glides
-// across the ground, which reads as skating rather than running. Legs and
-// arms both bend on rotation.z (a numeric world-space displacement probe
-// on the hand bone showed rotation.x is actually this rig's sideways axis,
-// not forward/back). `intensity` is the caller's current speed as a 0..1
-// fraction of top speed — every swing/bend term scales off it so idle,
-// walk, jog and run are one continuous blend instead of a hard on/off cut,
-// and it's what keeps a stopped character from standing there with bent
-// running arms. `sprintBlend` layers in extra forward lean once sprint has
-// eased in.
+// across the ground, which reads as skating rather than running.
+// `intensity` is the caller's current speed as a 0..1 fraction of top
+// speed — every swing/bend term scales off it so idle, walk, jog and run
+// are one continuous blend instead of a hard on/off cut, and it's what
+// keeps a stopped character from standing there with bent running arms.
+// `sprintBlend` layers in extra forward lean once sprint has eased in.
 function applyRunCycle(rig: FighterRig, phase: number, intensity: number, sprintBlend = 0) {
+  rig.root.updateMatrixWorld(true);
+  const facingYaw = rig.root.rotation.y;
   const swing = Math.sin(phase) * intensity;
-  if (rig.rightUpLeg) rig.rightUpLeg.rotation.z -= swing * RUN_HIP_SWING;
-  if (rig.leftUpLeg) rig.leftUpLeg.rotation.z += swing * RUN_HIP_SWING;
-  if (rig.rightArm) rig.rightArm.rotation.z += swing * RUN_ARM_SWING;
-  if (rig.leftArm) rig.leftArm.rotation.z -= swing * RUN_ARM_SWING;
+  swingLimb(rig.rightUpLeg, facingYaw, -swing * RUN_HIP_SWING);
+  swingLimb(rig.leftUpLeg, facingYaw, swing * RUN_HIP_SWING);
+  swingLimb(rig.rightArm, facingYaw, swing * RUN_ARM_SWING);
+  swingLimb(rig.leftArm, facingYaw, -swing * RUN_ARM_SWING);
   const rightKnee = Math.max(0, swing);
   const leftKnee = Math.max(0, -swing);
-  if (rig.rightLeg) rig.rightLeg.rotation.z -= rightKnee * RUN_KNEE_BEND;
-  if (rig.leftLeg) rig.leftLeg.rotation.z -= leftKnee * RUN_KNEE_BEND;
-  if (rig.rightForeArm) rig.rightForeArm.rotation.z -= intensity * RUN_ELBOW_BASE_BEND + rightKnee * RUN_ELBOW_SWING_BEND;
-  if (rig.leftForeArm) rig.leftForeArm.rotation.z -= intensity * RUN_ELBOW_BASE_BEND + leftKnee * RUN_ELBOW_SWING_BEND;
+  swingLimb(rig.rightLeg, facingYaw, -rightKnee * RUN_KNEE_BEND);
+  swingLimb(rig.leftLeg, facingYaw, -leftKnee * RUN_KNEE_BEND);
+  swingLimb(rig.rightForeArm, facingYaw, -(intensity * RUN_ELBOW_BASE_BEND + rightKnee * RUN_ELBOW_SWING_BEND));
+  swingLimb(rig.leftForeArm, facingYaw, -(intensity * RUN_ELBOW_BASE_BEND + leftKnee * RUN_ELBOW_SWING_BEND));
   if (rig.spine) rig.spine.rotation.x += intensity * RUN_SPINE_LEAN + sprintBlend * SPRINT_SPINE_LEAN;
 }
 
