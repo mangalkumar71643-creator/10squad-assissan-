@@ -12,10 +12,11 @@ import { useState } from "react";
 // screen). There's no character roster backend wired into this rebuilt
 // frontend yet, so tapping it opens a placeholder panel.
 
-// Precisely traced against the source artwork (1920x1080) at 4x zoom with
-// a pixel grid overlay, so the hit-area matches the visible crystal card
-// exactly instead of a loose rectangle around it.
-const CHAR_BOX = { left: 515, top: 615, right: 712, bottom: 880 };
+// Bounding box measured directly against the source artwork (1920x1080)
+// by cropping candidate edges as plain photos and checking the fit
+// (rather than eyeballing a drawn overlay) — each edge sits right at the
+// card's silhouette with only a hair of margin, not the button itself.
+const CHAR_BOX = { left: 520, top: 618, right: 700, bottom: 862 };
 const CHAR_BTN = {
   left: (CHAR_BOX.left / 1920) * 100,
   top: (CHAR_BOX.top / 1080) * 100,
