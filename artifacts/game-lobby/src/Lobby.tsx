@@ -1147,8 +1147,8 @@ const RUN_PHASE_RATE = (2 * Math.PI) / STRIDE_LENGTH; // phase radians advanced 
 const RUN_ARM_SWING = 0.3;
 const RUN_ELBOW_BASE_BEND = 1.15;
 const RUN_ELBOW_SWING_BEND = 0.18;
-const RUN_SPINE_LEAN = 0.24; // base forward hunch while moving, not just at a full sprint
-const SPRINT_SPINE_LEAN = 0.1; // extra lean layered on top once sprint is engaged
+const RUN_SPINE_LEAN = 0.4; // base forward hunch while moving, not just at a full sprint
+const SPRINT_SPINE_LEAN = 0.18; // extra lean layered on top once sprint is engaged
 const HIP_ROTATION_AMOUNT = 0.07; // transverse pelvic rotation, alternating with each stride like a real gait
 
 const _swingAxisWorld = new THREE.Vector3();
