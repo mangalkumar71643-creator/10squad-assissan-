@@ -814,7 +814,7 @@ function terrainColor(v: number): [number, number, number] {
 // Procedural green grass texture for the arena floor — layered value noise
 // blotches (dark-to-light green patches) plus fine per-pixel speckle for a
 // blade-of-grass feel, tiled across the ground plane.
-function createGrassTexture(): THREE.CanvasTexture {
+function createGrassTexture(repeatCount: number): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -841,7 +841,7 @@ function createGrassTexture(): THREE.CanvasTexture {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(48, 48); // matches the 80x80 arena so each grass tile stays the same size as before
+  texture.repeat.set(repeatCount, repeatCount);
   return texture;
 }
 
@@ -1060,7 +1060,19 @@ function MapSelectionPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-const ARENA_HALF = 40; // 80x80 arena, centered on the origin
+const ARENA_HALF = 80; // 160x160 arena, centered on the origin
+// Everything else that depends on the arena's size — grass tile density,
+// grid line density, fog distance, the sky sphere and the camera's far
+// clip plane — is derived from ARENA_HALF below instead of hand-tuned
+// constants, so resizing the arena again later is a one-line change
+// instead of a multi-spot retune.
+const GRASS_TILE_SIZE = 1.667; // world units per grass texture tile, kept constant regardless of arena size
+const GRASS_REPEAT = (ARENA_HALF * 2) / GRASS_TILE_SIZE;
+const GRID_DIVISIONS = ARENA_HALF * 2; // 1 world unit per grid cell
+const FOG_NEAR = ARENA_HALF - 5;
+const FOG_FAR = ARENA_HALF * 2.5;
+const SKY_RADIUS = Math.max(350, ARENA_HALF * 4); // stays comfortably beyond the fog and the arena's own far corners
+const CAMERA_FAR = SKY_RADIUS + 50;
 // The player's target ground speed is a continuous function of how far the
 // joystick is pushed (see PLAYER_MAX_SPEED below) rather than a fixed
 // constant — full tilt sustained past SPRINT_ENGAGE_MAG additionally ramps
@@ -1665,14 +1677,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // CSS gradient), which reads as floating in open space with the ground
     // just cutting off into a void, rather than standing outdoors under a
     // sky that wraps all the way around.
-    const skyGeo = new THREE.SphereGeometry(350, 24, 16);
+    const skyGeo = new THREE.SphereGeometry(SKY_RADIUS, 24, 16);
     const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ map: createSkyTexture(), side: THREE.BackSide, fog: false }));
     scene.add(sky);
-    scene.fog = new THREE.Fog(0x2f5678, 35, 100);
+    scene.fog = new THREE.Fog(0x2f5678, FOG_NEAR, FOG_FAR);
     // Third-person chase camera (Free Fire / PUBG Mobile style): positioned
     // behind and above the player, following their facing direction, rather
     // than a fixed top-down view.
-    const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 400);
+    const camera = new THREE.PerspectiveCamera(58, 1, 0.1, CAMERA_FAR);
     const CAM_DISTANCE = 4.2;
     const CAM_HEIGHT = 2.4;
     const CAM_LOOK_HEIGHT = 1.1;
@@ -1691,11 +1703,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(ARENA_HALF * 2, ARENA_HALF * 2),
-      new THREE.MeshStandardMaterial({ map: createGrassTexture(), roughness: 0.95 }),
+      new THREE.MeshStandardMaterial({ map: createGrassTexture(GRASS_REPEAT), roughness: 0.95 }),
     );
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
-    scene.add(new THREE.GridHelper(ARENA_HALF * 2, 80, 0x6be2ff, 0x1c4560));
+    scene.add(new THREE.GridHelper(ARENA_HALF * 2, GRID_DIVISIONS, 0x6be2ff, 0x1c4560));
 
     // A thin cover wall through the middle of the arena.
     const wall = new THREE.Mesh(
