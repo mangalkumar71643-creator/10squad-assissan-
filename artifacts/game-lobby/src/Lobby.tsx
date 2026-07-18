@@ -845,6 +845,36 @@ function createGrassTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+// A simple vertical-gradient sky, painted onto a canvas and wrapped around
+// a big inward-facing sphere — without this the scene has no background
+// at all (the canvas is alpha-transparent, so it just shows the page's
+// near-black CSS background through it), which reads as floating in open
+// space rather than standing outdoors, especially now that the arena is
+// big enough for its edges to be visible in the distance.
+function createSkyTexture(): THREE.CanvasTexture {
+  const width = 4;
+  const height = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+  // A sphere's equator (v=0.5) is what a roughly-horizontal camera actually
+  // sees, so the lit "horizon glow" band needs to sit there, not near the
+  // bottom of the gradient — the very bottom of the sphere is hidden below
+  // the ground plane and never visible anyway.
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, "#050a14"); // zenith — near-black, matching the arena's night tone
+  gradient.addColorStop(0.38, "#0d1f34");
+  gradient.addColorStop(0.52, "#2f5678"); // lit horizon band, where the camera actually looks
+  gradient.addColorStop(0.62, "#5f8aa3");
+  gradient.addColorStop(1, "#5f8aa3");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 // A procedurally-shaded 100x100 grid minimap, drawn on a single canvas
 // (10,000 individual DOM cells would be far too slow) at native 1:1
 // pixel-per-cell resolution, then scaled up with crisp pixelated edges so
@@ -1630,10 +1660,19 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let disposed = false;
 
     const scene = new THREE.Scene();
+    // A sky sphere plus matching fog — without these the canvas has no
+    // background at all (it's alpha-transparent over the page's near-black
+    // CSS gradient), which reads as floating in open space with the ground
+    // just cutting off into a void, rather than standing outdoors under a
+    // sky that wraps all the way around.
+    const skyGeo = new THREE.SphereGeometry(350, 24, 16);
+    const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ map: createSkyTexture(), side: THREE.BackSide, fog: false }));
+    scene.add(sky);
+    scene.fog = new THREE.Fog(0x2f5678, 35, 100);
     // Third-person chase camera (Free Fire / PUBG Mobile style): positioned
     // behind and above the player, following their facing direction, rather
     // than a fixed top-down view.
-    const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 100);
+    const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 400);
     const CAM_DISTANCE = 4.2;
     const CAM_HEIGHT = 2.4;
     const CAM_LOOK_HEIGHT = 1.1;
