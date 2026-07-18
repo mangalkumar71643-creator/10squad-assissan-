@@ -1393,13 +1393,6 @@ function dampAngle(current: number, target: number, rate: number, dt: number) {
   return current + diff * (1 - Math.exp(-rate * dt));
 }
 
-// Wraps an angle (e.g. a one-frame rotation delta) into (-pi, pi] so a
-// turn-rate computed from it doesn't spike when rotation.y crosses the
-// wraparound point.
-function wrapAngle(a: number) {
-  return ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-}
-
 interface FighterRig {
   root: THREE.Object3D;
   mixer: THREE.AnimationMixer | null;
@@ -1645,12 +1638,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const CAM_HEIGHT = 2.4;
     const CAM_LOOK_HEIGHT = 1.1;
     const CAM_DAMP_RATE = 7; // per-second follow damping, frame-rate independent
-    const CAM_ACCEL_LAG = 0.09; // slows the follow down further while the player's speed is changing quickly
-    const CAM_MIN_DAMP_FRAC = 0.4; // floor on how much the accel lag can slow the follow by
-    const HEAD_BOB_AMOUNT = 0.045; // vertical camera bob at full running intensity
-    const CAM_TILT_RATE = 0.16; // how much camera roll per unit of player turn rate
-    const CAM_TILT_MAX = 0.09; // clamp on the roll angle (radians)
-    const CAM_TILT_DAMP = 9; // per-second smoothing on the roll itself
     camera.position.set(0, CAM_HEIGHT, CAM_DISTANCE + 3);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -1766,9 +1753,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerVelZ = 0;
     let sprintBlend = 0;
     let playerSpeedNow = 0;
-    let prevSpeed = 0;
-    let prevPlayerYaw = 0;
-    let camRoll = 0;
     let ended = false;
     let phaseLocal: "bot1" | "bot2" = "bot1";
     let playerDamage = PLAYER_DAMAGE;
@@ -2097,32 +2081,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           CAM_HEIGHT + player.root.position.y,
           player.root.position.z - Math.cos(facing) * CAM_DISTANCE,
         );
-        const accelMag = Math.abs(playerSpeedNow - prevSpeed) / Math.max(dt, 0.001);
-        const dampFrac = clamp(1 - accelMag * CAM_ACCEL_LAG, CAM_MIN_DAMP_FRAC, 1);
-        camera.position.lerp(camTargetPos, 1 - Math.exp(-CAM_DAMP_RATE * dampFrac * dt));
-
-        // Subtle head bob synced to the same phase driving the legs (two
-        // bob cycles per stride, matching each footfall), scaled by actual
-        // speed so it's absent at a standstill and most pronounced at a
-        // full sprint. Applied after the follow lerp so it stays crisp
-        // instead of being smoothed away by the follow damping.
-        const speedFracNow = clamp(playerSpeedNow / PLAYER_MAX_SPEED, 0, 1);
-        camera.position.y += Math.cos(playerRunPhase * 2) * HEAD_BOB_AMOUNT * speedFracNow;
+        // The follow used to add a head bob synced to the running phase
+        // and a slight roll while turning, for a more cinematic feel —
+        // but on a small phone screen that reads as the whole view
+        // shaking rather than adding life, so the camera now just tracks
+        // the player's position and facing with nothing layered on top:
+        // fully stable regardless of how fast the player is moving.
+        camera.position.lerp(camTargetPos, 1 - Math.exp(-CAM_DAMP_RATE * dt));
 
         camLookAt.set(player.root.position.x, CAM_LOOK_HEIGHT + player.root.position.y, player.root.position.z);
         camera.lookAt(camLookAt);
-
-        // A small camera roll while turning quickly — banking into the
-        // turn — smoothed on top of the raw turn rate so it doesn't
-        // jitter frame to frame. Applied after lookAt() since lookAt()
-        // sets the camera's orientation outright.
-        const turnRate = wrapAngle(player.root.rotation.y - prevPlayerYaw) / Math.max(dt, 0.0001);
-        const targetRoll = clamp(-turnRate * CAM_TILT_RATE, -CAM_TILT_MAX, CAM_TILT_MAX);
-        camRoll = approach(camRoll, targetRoll, CAM_TILT_DAMP, dt);
-        camera.rotateZ(camRoll);
-
-        prevSpeed = playerSpeedNow;
-        prevPlayerYaw = player.root.rotation.y;
       }
 
       renderer.render(scene, camera);
