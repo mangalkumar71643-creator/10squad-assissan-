@@ -841,7 +841,7 @@ function createGrassTexture(): THREE.CanvasTexture {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(12, 12); // matches the doubled 20x20 arena so each grass tile stays the same size as before
+  texture.repeat.set(24, 24); // matches the 40x40 arena so each grass tile stays the same size as before
   return texture;
 }
 
@@ -1030,7 +1030,7 @@ function MapSelectionPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-const ARENA_HALF = 10; // 20x20 arena, centered on the origin
+const ARENA_HALF = 20; // 40x40 arena, centered on the origin
 // The player's target ground speed is a continuous function of how far the
 // joystick is pushed (see PLAYER_MAX_SPEED below) rather than a fixed
 // constant — full tilt sustained past SPRINT_ENGAGE_MAG additionally ramps
@@ -1656,7 +1656,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     );
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
-    scene.add(new THREE.GridHelper(ARENA_HALF * 2, 20, 0x6be2ff, 0x1c4560));
+    scene.add(new THREE.GridHelper(ARENA_HALF * 2, 40, 0x6be2ff, 0x1c4560));
 
     // A thin cover wall through the middle of the arena.
     const wall = new THREE.Mesh(
