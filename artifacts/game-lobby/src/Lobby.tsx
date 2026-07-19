@@ -1088,71 +1088,6 @@ const PLAYER_TURN_RATE = 11; // per-second damping rate turning to face the move
 const BOT_SPEED = 1.9;
 const ATTACK_RANGE = 1.3;
 const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
-const WALL_HEIGHT = 2.2;
-const WALL_LENGTH = 3.6;
-const WALL_THICKNESS = 0.28;
-const HOUSE_SIZE = 2.4;
-const HOUSE_WALL_HEIGHT = 1.8;
-const HOUSE_ROOF_HEIGHT = 1.15;
-const HOUSE_POS = { x: -3.1, z: 1.3 };
-const HOUSE_WALL_THICKNESS = 0.2;
-const HOUSE_DOOR_WIDTH = 1.0; // gap left in the front wall so the house is actually enterable
-const HOUSE_DOOR_PAD = 0.08; // tighter collision pad right at the doorway than a fighter's usual body pad, so the opening doesn't get collision-blocked from both sides
-const HOUSE_FRONT_SEG_WIDTH = (HOUSE_SIZE - HOUSE_DOOR_WIDTH) / 2;
-const HOUSE_FRONT_SEG_OFFSET_X = HOUSE_DOOR_WIDTH / 2 + HOUSE_FRONT_SEG_WIDTH / 2;
-const FIGHTER_PAD = 0.35; // padded out by the fighters' body radius
-
-interface Obstacle {
-  x: number;
-  z: number;
-  halfX: number;
-  halfZ: number;
-  pad: number;
-}
-
-const OBSTACLES: Obstacle[] = [
-  { x: 0, z: 0, halfX: WALL_LENGTH / 2, halfZ: WALL_THICKNESS / 2, pad: FIGHTER_PAD },
-  // The house is walled on three sides plus two short segments flanking a
-  // gap in the front wall — an actual doorway to walk through, rather than
-  // one solid block covering the whole footprint.
-  { x: HOUSE_POS.x, z: HOUSE_POS.z - HOUSE_SIZE / 2 + HOUSE_WALL_THICKNESS / 2, halfX: HOUSE_SIZE / 2, halfZ: HOUSE_WALL_THICKNESS / 2, pad: FIGHTER_PAD }, // back
-  { x: HOUSE_POS.x - HOUSE_SIZE / 2 + HOUSE_WALL_THICKNESS / 2, z: HOUSE_POS.z, halfX: HOUSE_WALL_THICKNESS / 2, halfZ: HOUSE_SIZE / 2, pad: FIGHTER_PAD }, // left
-  { x: HOUSE_POS.x + HOUSE_SIZE / 2 - HOUSE_WALL_THICKNESS / 2, z: HOUSE_POS.z, halfX: HOUSE_WALL_THICKNESS / 2, halfZ: HOUSE_SIZE / 2, pad: FIGHTER_PAD }, // right
-  { x: HOUSE_POS.x - HOUSE_FRONT_SEG_OFFSET_X, z: HOUSE_POS.z + HOUSE_SIZE / 2 - HOUSE_WALL_THICKNESS / 2, halfX: HOUSE_FRONT_SEG_WIDTH / 2, halfZ: HOUSE_WALL_THICKNESS / 2, pad: HOUSE_DOOR_PAD }, // front-left
-  { x: HOUSE_POS.x + HOUSE_FRONT_SEG_OFFSET_X, z: HOUSE_POS.z + HOUSE_SIZE / 2 - HOUSE_WALL_THICKNESS / 2, halfX: HOUSE_FRONT_SEG_WIDTH / 2, halfZ: HOUSE_WALL_THICKNESS / 2, pad: HOUSE_DOOR_PAD }, // front-right
-];
-
-// Pushes a fighter's x/z position out of any obstacle's footprint, kicking
-// it out along whichever axis has the least overlap.
-function resolveObstacleCollisions(pos: { x: number; z: number }) {
-  for (const ob of OBSTACLES) {
-    const halfX = ob.halfX + ob.pad;
-    const halfZ = ob.halfZ + ob.pad;
-    const dx = pos.x - ob.x;
-    const dz = pos.z - ob.z;
-    if (Math.abs(dx) < halfX && Math.abs(dz) < halfZ) {
-      const penX = halfX - Math.abs(dx);
-      const penZ = halfZ - Math.abs(dz);
-      if (penX < penZ) {
-        pos.x = ob.x + halfX * (dx < 0 ? -1 : 1);
-      } else {
-        pos.z = ob.z + halfZ * (dz < 0 ? -1 : 1);
-      }
-    }
-  }
-}
-
-// Vector from the nearest point on an obstacle's (padded) rectangle to the
-// given x/z position — used to steer bots around elongated obstacles by
-// actual surface distance instead of a circle around the center, which
-// fits a long thin wall poorly.
-function awayFromObstacle(x: number, z: number, ob: Obstacle, pad: number): { x: number; z: number; dist: number } {
-  const localX = clamp(x - ob.x, -ob.halfX - pad, ob.halfX + pad);
-  const localZ = clamp(z - ob.z, -ob.halfZ - pad, ob.halfZ + pad);
-  const awayX = x - (ob.x + localX);
-  const awayZ = z - (ob.z + localZ);
-  return { x: awayX, z: awayZ, dist: Math.hypot(awayX, awayZ) };
-}
 const PLAYER_DAMAGE = 14;
 const BOT_DAMAGE = 10;
 const PLAYER_ATTACK_COOLDOWN = 0.55;
@@ -1462,49 +1397,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     scene.add(ground);
     scene.add(new THREE.GridHelper(ARENA_HALF * 2, GRID_DIVISIONS, 0x6be2ff, 0x1c4560));
 
-    // A thin cover wall through the middle of the arena.
-    const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(WALL_LENGTH, WALL_HEIGHT, WALL_THICKNESS),
-      new THREE.MeshStandardMaterial({ color: 0x3a4a5c, roughness: 0.6, metalness: 0.3, emissive: 0x1c4560, emissiveIntensity: 0.4 }),
-    );
-    wall.position.set(0, WALL_HEIGHT / 2, 0);
-    scene.add(wall);
-    const wallEdges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(wall.geometry),
-      new THREE.LineBasicMaterial({ color: 0x6be2ff }),
-    );
-    wallEdges.position.copy(wall.position);
-    scene.add(wallEdges);
-
-    // A small house off to the side — three solid wall sides, two short
-    // segments flanking a gap in the front wall for an actual doorway, and
-    // a 4-sided pyramid roof over the top of it all.
-    const house = new THREE.Group();
-    const houseWallMat = new THREE.MeshStandardMaterial({ color: 0xc9a876, roughness: 0.85 });
-    const houseWallEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
-    const addHouseWall = (localX: number, localZ: number, sizeX: number, sizeZ: number) => {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(sizeX, HOUSE_WALL_HEIGHT, sizeZ), houseWallMat);
-      wallMesh.position.set(localX, HOUSE_WALL_HEIGHT / 2, localZ);
-      house.add(wallMesh);
-      const wallEdgesMesh = new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), houseWallEdgeMat);
-      wallEdgesMesh.position.copy(wallMesh.position);
-      house.add(wallEdgesMesh);
-    };
-    addHouseWall(0, -HOUSE_SIZE / 2 + HOUSE_WALL_THICKNESS / 2, HOUSE_SIZE, HOUSE_WALL_THICKNESS); // back
-    addHouseWall(-HOUSE_SIZE / 2 + HOUSE_WALL_THICKNESS / 2, 0, HOUSE_WALL_THICKNESS, HOUSE_SIZE); // left
-    addHouseWall(HOUSE_SIZE / 2 - HOUSE_WALL_THICKNESS / 2, 0, HOUSE_WALL_THICKNESS, HOUSE_SIZE); // right
-    addHouseWall(-HOUSE_FRONT_SEG_OFFSET_X, HOUSE_SIZE / 2 - HOUSE_WALL_THICKNESS / 2, HOUSE_FRONT_SEG_WIDTH, HOUSE_WALL_THICKNESS); // front-left
-    addHouseWall(HOUSE_FRONT_SEG_OFFSET_X, HOUSE_SIZE / 2 - HOUSE_WALL_THICKNESS / 2, HOUSE_FRONT_SEG_WIDTH, HOUSE_WALL_THICKNESS); // front-right
-    const houseRoof = new THREE.Mesh(
-      new THREE.ConeGeometry((HOUSE_SIZE / 2) * Math.SQRT2 * 1.08, HOUSE_ROOF_HEIGHT, 4),
-      new THREE.MeshStandardMaterial({ color: 0x8b4a3a, roughness: 0.7 }),
-    );
-    houseRoof.rotation.y = Math.PI / 4;
-    houseRoof.position.y = HOUSE_WALL_HEIGHT + HOUSE_ROOF_HEIGHT / 2;
-    house.add(houseRoof);
-    house.position.set(HOUSE_POS.x, 0, HOUSE_POS.z);
-    scene.add(house);
-
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
     let bot2: FighterRig | null = null;
@@ -1565,15 +1457,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerDeathT = -1;
     let pendingResult: "win" | "lose" | null = null;
     let resultRevealT = 0;
-    // Which single obstacle the bot is currently steering around, and which
-    // side it committed to going around it on — decided once when avoidance
-    // first engages on that obstacle and held until the bot moves on to a
-    // different one (or clears entirely), so the choice can't flip-flop
-    // frame to frame when the bot ends up nearly dead-on in line with the
-    // obstacle and the player (a near-zero signal that's noisy enough to
-    // flip sign every frame otherwise).
-    let avoidObstacleIndex = -1;
-    let avoidSide = 0;
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
 
@@ -1657,7 +1540,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
         player.root.position.x = clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         player.root.position.z = clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-        resolveObstacleCollisions(player.root.position);
 
         playerSpeedNow = Math.hypot(playerVelX, playerVelZ);
         // Face the direction actually being moved in (not the raw stick
@@ -1691,91 +1573,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
 
         if (dist > ATTACK_RANGE * 0.85) {
-          let moveX = dx / dist;
-          let moveZ = dz / dist;
-          // Steer around whichever single obstacle is currently closest,
-          // rather than blending in every obstacle within range at once —
-          // the closer the bot's nearest point on that obstacle's surface
-          // gets, the more its seek-the-player direction blends into a
-          // tangent that curves around it. Measuring from the actual
-          // surface (not the obstacle's center) matters for the long thin
-          // wall, where a center-based radius would trigger avoidance far
-          // too early along its length. Blending every nearby obstacle
-          // simultaneously (instead of just the nearest) let two obstacles'
-          // margins that overlap near a corner — e.g. the center wall's end
-          // and the house's near edge — fight each other and shove the bot
-          // further off course instead of sliding it cleanly around either
-          // one.
-          const AVOID_MARGIN = 1.0;
-          let nearestIndex = -1;
-          let nearestAway = { x: 0, z: 0, dist: Infinity };
-          OBSTACLES.forEach((ob, obIndex) => {
-            const away = awayFromObstacle(activeBot.root.position.x, activeBot.root.position.z, ob, ob.pad);
-            if (away.dist < AVOID_MARGIN && away.dist < nearestAway.dist) {
-              nearestIndex = obIndex;
-              nearestAway = away;
-            }
-          });
-          if (nearestIndex !== avoidObstacleIndex) {
-            // Switched to a different obstacle (or none) — the side choice
-            // for whatever's nearest now has to be decided fresh.
-            avoidObstacleIndex = nearestIndex;
-            avoidSide = 0;
-          }
-          if (nearestIndex >= 0) {
-            const away = nearestAway;
-            const toObX = away.dist > 0.0001 ? -away.x / away.dist : 0;
-            const toObZ = away.dist > 0.0001 ? -away.z / away.dist : 1;
-            const tangentAX = -toObZ;
-            const tangentAZ = toObX;
-            const tangentBX = toObZ;
-            const tangentBZ = -toObX;
-            if (avoidSide === 0) {
-              // Decide which side to go around only once, right as
-              // avoidance engages, and hold that choice — recomputing it
-              // every frame from the seek direction flip-flops once the
-              // bot is nearly dead-on in line with the obstacle and the
-              // player, where that signal is too close to zero to be
-              // stable, stalling the bot in place instead of sliding it
-              // around to clear the obstacle.
-              if (nearestIndex === 0) {
-                // The center wall runs most of the width of the arena, so
-                // once a bot commits to a side it slides most of the way
-                // across the wall's length before clearing either end,
-                // regardless of where it approached from. The house sits
-                // close enough to the wall's west end that going around
-                // that side walks the bot straight into the house's own
-                // avoidance zone right as it clears the wall — and since
-                // the house has corners of its own, that can repeat and
-                // send the bot on a long detour instead of a clean curve
-                // back to the player. There's nothing on the east side, so
-                // always take it rather than picking by seek direction
-                // (which is an exact tie for a dead-on approach anyway,
-                // since bot and player spawn on the same x).
-                avoidSide = tangentAX > tangentBX ? 1 : -1;
-              } else {
-                const dotA = tangentAX * moveX + tangentAZ * moveZ;
-                const dotB = tangentBX * moveX + tangentBZ * moveZ;
-                avoidSide = dotA > dotB ? 1 : -1;
-              }
-            }
-            const tangentX = avoidSide === 1 ? tangentAX : tangentBX;
-            const tangentZ = avoidSide === 1 ? tangentAZ : tangentBZ;
-            // Close to the surface, commit fully to the tangent instead of
-            // blending in the seek direction — blending lets the pull back
-            // toward the player cancel out the sideways push exactly at
-            // some equilibrium point, stalling the bot in place against a
-            // long flat wall instead of sliding it along to the end.
-            const avoidWeight = clamp((1 - away.dist / AVOID_MARGIN) * 1.6, 0, 1);
-            moveX = moveX * (1 - avoidWeight) + tangentX * avoidWeight;
-            moveZ = moveZ * (1 - avoidWeight) + tangentZ * avoidWeight;
-            const moveLen = Math.hypot(moveX, moveZ) || 1;
-            moveX /= moveLen;
-            moveZ /= moveLen;
-          }
+          const moveX = dx / dist;
+          const moveZ = dz / dist;
           activeBot.root.position.x = clamp(activeBot.root.position.x + moveX * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
           activeBot.root.position.z = clamp(activeBot.root.position.z + moveZ * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-          resolveObstacleCollisions(activeBot.root.position);
           updateLocomotionAnim(activeBot, 1, BOT_SPEED);
         } else {
           updateLocomotionAnim(activeBot, 0, 0);
