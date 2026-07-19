@@ -1380,6 +1380,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const joystickKnobRef = useRef<HTMLDivElement>(null);
   const joystickVec = useRef({ x: 0, y: 0 });
   const attackRequested = useRef(false);
+  // Manual sprint toggle: tapping RUN forces full sprint on regardless of
+  // how far the joystick is pushed, instead of requiring it held near max.
+  const runToggled = useRef(false);
+  const [runActive, setRunActive] = useState(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
@@ -1601,10 +1605,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         const jv = joystickVec.current;
         const joyMag = Math.min(1, Math.hypot(jv.x, jv.y));
 
-        // Sprint eases in once the stick is held past SPRINT_ENGAGE_MAG and
-        // eases back out the instant it isn't, rather than snapping a
-        // speed multiplier on or off.
-        const wantSprint = joyMag > SPRINT_ENGAGE_MAG;
+        // Sprint eases in once the stick is held past SPRINT_ENGAGE_MAG (or
+        // the RUN button is toggled on) and eases back out the instant
+        // neither is true, rather than snapping a speed multiplier on or off.
+        const wantSprint = runToggled.current || joyMag > SPRINT_ENGAGE_MAG;
         sprintBlend = approach(sprintBlend, wantSprint ? 1 : 0, SPRINT_BLEND_RATE, dt);
 
         // Movement is relative to where the camera is currently looking
@@ -2117,6 +2121,35 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }}
       >
         ATTACK
+      </button>
+
+      {/* Run toggle button */}
+      <button
+        onPointerDown={(e) => {
+          e.preventDefault();
+          runToggled.current = !runToggled.current;
+          setRunActive(runToggled.current);
+        }}
+        aria-label="Run"
+        style={{
+          position: "absolute",
+          right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+          bottom: "9%",
+          width: "clamp(56px, 10vw, 76px)",
+          height: "clamp(56px, 10vw, 76px)",
+          borderRadius: "50%",
+          background: runActive ? "radial-gradient(circle, #baffb0, #3fd85a)" : "radial-gradient(circle, #8fe89a, #2f8f45)",
+          border: runActive ? "2px solid rgba(220,255,220,0.95)" : "2px solid rgba(210,255,210,0.7)",
+          boxShadow: runActive ? "0 0 26px rgba(90,255,120,0.85)" : "0 0 14px rgba(90,255,120,0.4)",
+          color: "#f0fff2",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          letterSpacing: "0.05em",
+          fontSize: "clamp(11px, 1.7vw, 14px)",
+          cursor: "pointer",
+        }}
+      >
+        RUN
       </button>
 
       {result !== "playing" && (
