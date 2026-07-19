@@ -1627,9 +1627,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // to start the character moving on its own, not just raise the
         // speed cap for whenever the stick happens to be pushed. Touching
         // the stick while RUN is on still steers normally.
+        // Pushing the stick straight up (jv.y negative) works out to
+        // -camForward once run through rawX/rawZ above (jv.y's sign flips
+        // it), so "forward" to match that same convention is -camForward,
+        // not camForward directly.
         const runningInPlace = runToggled.current && joyMag <= 0.0001;
-        const dirX = joyMag > 0.0001 ? rawX / joyMag : runningInPlace ? camForwardX : 0;
-        const dirZ = joyMag > 0.0001 ? rawZ / joyMag : runningInPlace ? camForwardZ : 0;
+        const dirX = joyMag > 0.0001 ? rawX / joyMag : runningInPlace ? -camForwardX : 0;
+        const dirZ = joyMag > 0.0001 ? rawZ / joyMag : runningInPlace ? -camForwardZ : 0;
         const effectiveMag = runningInPlace ? 1 : joyMag;
 
         // How far the stick is pushed sets the target speed continuously —
