@@ -1384,9 +1384,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const joystickBaseRef = useRef<HTMLDivElement>(null);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
   // buttons) orbits the camera around the player, independent of movement.
+  // Horizontal drag turns cameraYaw; vertical drag adds to cameraPitch,
+  // which orbits the camera up/down around the player on top of its
+  // default over-the-shoulder angle (see CAM_PITCH_MIN/MAX below).
   const cameraYaw = useRef(Math.PI);
+  const cameraPitch = useRef(0);
   const lookTouchId = useRef<number | null>(null);
   const lookLastX = useRef(0);
+  const lookLastY = useRef(0);
 
   const [playerHp, setPlayerHp] = useState(100);
   const [botHp, setBotHp] = useState(100);
@@ -1421,6 +1426,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const CAM_HEIGHT = 2.4;
     const CAM_LOOK_HEIGHT = 1.1;
     const CAM_DAMP_RATE = 7; // per-second follow damping, frame-rate independent
+    // The camera orbits the look-at point on a sphere of this radius —
+    // derived from the original fixed CAM_DISTANCE/CAM_HEIGHT so pitch 0
+    // (no vertical drag yet) reproduces the exact same default view as
+    // before, with up/down drag then orbiting away from that angle.
+    const CAM_ORBIT_RADIUS = Math.hypot(CAM_DISTANCE, CAM_HEIGHT - CAM_LOOK_HEIGHT);
+    const CAM_BASE_PITCH = Math.atan2(CAM_HEIGHT - CAM_LOOK_HEIGHT, CAM_DISTANCE);
+    const CAM_PITCH_MIN = -0.15; // near-level, looking slightly down at most
+    const CAM_PITCH_MAX = 1.3; // steep overhead angle, short of straight down
     camera.position.set(0, CAM_HEIGHT, CAM_DISTANCE + 3);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -1845,10 +1858,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // quickly — accelerating off the mark or braking to a stop — which
         // reads as a slight, natural lag instead of a rigid, glued-on rig.
         const facing = cameraYaw.current;
+        const pitch = clamp(CAM_BASE_PITCH + cameraPitch.current, CAM_PITCH_MIN, CAM_PITCH_MAX);
+        const orbitHoriz = CAM_ORBIT_RADIUS * Math.cos(pitch);
+        const orbitVert = CAM_ORBIT_RADIUS * Math.sin(pitch);
         camTargetPos.set(
-          player.root.position.x - Math.sin(facing) * CAM_DISTANCE,
-          CAM_HEIGHT + player.root.position.y,
-          player.root.position.z - Math.cos(facing) * CAM_DISTANCE,
+          player.root.position.x - Math.sin(facing) * orbitHoriz,
+          CAM_LOOK_HEIGHT + player.root.position.y + orbitVert,
+          player.root.position.z - Math.cos(facing) * orbitHoriz,
         );
         // The follow used to add a head bob synced to the running phase
         // and a slight roll while turning, for a more cinematic feel —
@@ -1905,12 +1921,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     lookTouchId.current = e.pointerId;
     lookLastX.current = e.clientX;
+    lookLastY.current = e.clientY;
   };
   const handleLookMove = (e: React.PointerEvent) => {
     if (lookTouchId.current !== e.pointerId) return;
     const dx = e.clientX - lookLastX.current;
+    const dy = e.clientY - lookLastY.current;
     lookLastX.current = e.clientX;
+    lookLastY.current = e.clientY;
     cameraYaw.current -= dx * LOOK_SENSITIVITY_BASE * lookSensitivity;
+    // Dragging up (dy negative) looks up, so subtract dy rather than add it.
+    cameraPitch.current = clamp(cameraPitch.current - dy * LOOK_SENSITIVITY_BASE * lookSensitivity, -1.6, 1.6);
   };
 
   const changeSensitivity = (value: number) => {
