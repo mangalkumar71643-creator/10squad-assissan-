@@ -1622,13 +1622,20 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         const camRightZ = -Math.sin(cameraYaw.current);
         const rawX = jv.x * camRightX + jv.y * camForwardX;
         const rawZ = jv.x * camRightZ + jv.y * camForwardZ;
-        const dirX = joyMag > 0.0001 ? rawX / joyMag : 0;
-        const dirZ = joyMag > 0.0001 ? rawZ / joyMag : 0;
+        // With the RUN toggle on and the stick untouched, run straight
+        // ahead (camera-forward) instead of standing still — RUN is meant
+        // to start the character moving on its own, not just raise the
+        // speed cap for whenever the stick happens to be pushed. Touching
+        // the stick while RUN is on still steers normally.
+        const runningInPlace = runToggled.current && joyMag <= 0.0001;
+        const dirX = joyMag > 0.0001 ? rawX / joyMag : runningInPlace ? camForwardX : 0;
+        const dirZ = joyMag > 0.0001 ? rawZ / joyMag : runningInPlace ? camForwardZ : 0;
+        const effectiveMag = runningInPlace ? 1 : joyMag;
 
         // How far the stick is pushed sets the target speed continuously —
         // a light tap walks, a full push runs, and holding full tilt ramps
         // sprint in on top — so there's no discrete walk/jog/run jump.
-        const targetSpeed = joyMag * PLAYER_MAX_SPEED * (1 + PLAYER_SPRINT_BONUS * sprintBlend);
+        const targetSpeed = effectiveMag * PLAYER_MAX_SPEED * (1 + PLAYER_SPRINT_BONUS * sprintBlend);
         const targetVelX = dirX * targetSpeed;
         const targetVelZ = dirZ * targetSpeed;
         const curVelLen = Math.hypot(playerVelX, playerVelZ);
