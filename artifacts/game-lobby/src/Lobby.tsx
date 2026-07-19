@@ -1425,10 +1425,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // Third-person chase camera (Free Fire / PUBG Mobile style): positioned
     // behind and above the player, following their facing direction, rather
     // than a fixed top-down view.
-    const camera = new THREE.PerspectiveCamera(58, 1, 0.1, CAMERA_FAR);
-    const CAM_DISTANCE = 4.2;
-    const CAM_HEIGHT = 2.4;
-    const CAM_LOOK_HEIGHT = 1.1;
+    // Close, tight framing (Free Fire / PUBG Mobile style) instead of a
+    // distant, wide-angle view — camera sits just behind the shoulder and
+    // a narrower FOV keeps the character filling most of the screen
+    // height rather than looking small and far away.
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, CAMERA_FAR);
+    const CAM_DISTANCE = 2.1;
+    const CAM_HEIGHT = 1.55;
+    const CAM_LOOK_HEIGHT = 1.25;
     const CAM_DAMP_RATE = 7; // per-second follow damping, frame-rate independent
     // The camera orbits the look-at point on a sphere of this radius —
     // derived from the original fixed CAM_DISTANCE/CAM_HEIGHT so pitch 0
