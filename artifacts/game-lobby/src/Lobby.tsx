@@ -1157,8 +1157,6 @@ const PLAYER_DAMAGE = 14;
 const BOT_DAMAGE = 10;
 const PLAYER_ATTACK_COOLDOWN = 0.55;
 const BOT_ATTACK_COOLDOWN = 1.3;
-const JUMP_VELOCITY = 4.6;
-const GRAVITY = 13;
 const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
@@ -1382,7 +1380,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const joystickKnobRef = useRef<HTMLDivElement>(null);
   const joystickVec = useRef({ x: 0, y: 0 });
   const attackRequested = useRef(false);
-  const jumpRequested = useRef(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
@@ -1543,8 +1540,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let botCooldown = 0;
     let playerPunchT = -1;
     let botPunchT = -1;
-    let playerVelY = 0;
-    let grounded = true;
     // Smoothed horizontal ground velocity — movement eases toward the
     // joystick-derived target instead of snapping to it, which is what
     // gives the accel/decel and the turning its weight.
@@ -1659,23 +1654,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // continuously off actual speed so there's no hard on/off cut.
         const speedFrac = clamp(playerSpeedNow / PLAYER_MAX_SPEED, 0, 1.15);
         updateLocomotionAnim(player, speedFrac, playerSpeedNow);
-
-        if (jumpRequested.current) {
-          jumpRequested.current = false;
-          if (grounded) {
-            playerVelY = JUMP_VELOCITY;
-            grounded = false;
-          }
-        }
-        if (!grounded) {
-          playerVelY -= GRAVITY * dt;
-          player.root.position.y = Math.max(0, player.root.position.y + playerVelY * dt);
-          if (player.root.position.y <= 0) {
-            player.root.position.y = 0;
-            playerVelY = 0;
-            grounded = true;
-          }
-        }
 
         let dx = player.root.position.x - activeBot.root.position.x;
         let dz = player.root.position.z - activeBot.root.position.z;
@@ -2139,34 +2117,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }}
       >
         ATTACK
-      </button>
-
-      {/* Jump button */}
-      <button
-        onPointerDown={(e) => {
-          e.preventDefault();
-          jumpRequested.current = true;
-        }}
-        aria-label="Jump"
-        style={{
-          position: "absolute",
-          right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-          bottom: "9%",
-          width: "clamp(56px, 10vw, 76px)",
-          height: "clamp(56px, 10vw, 76px)",
-          borderRadius: "50%",
-          background: "radial-gradient(circle, #7fd8ff, #2b8fd8)",
-          border: "2px solid rgba(210,240,255,0.85)",
-          boxShadow: "0 0 20px rgba(80,180,255,0.55)",
-          color: "#f0faff",
-          fontFamily: "'Rajdhani', sans-serif",
-          fontWeight: 700,
-          letterSpacing: "0.05em",
-          fontSize: "clamp(11px, 1.7vw, 14px)",
-          cursor: "pointer",
-        }}
-      >
-        JUMP
       </button>
 
       {result !== "playing" && (
