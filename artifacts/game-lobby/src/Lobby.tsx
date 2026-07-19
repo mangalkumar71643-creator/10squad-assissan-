@@ -1352,7 +1352,10 @@ function loadFighter(
       let runAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
-        const idleClip = gltf.animations.find((c) => c.name.includes("Idle")) ?? gltf.animations[0];
+        // "Idle2" is a real motion-captured breathing idle (retargeted from
+        // a Mixamo clip) — prefer it over the rig's own baked-in idle when
+        // present, since it's the one meant to actually ship.
+        const idleClip = gltf.animations.find((c) => c.name === "Idle2") ?? gltf.animations.find((c) => c.name.includes("Idle")) ?? gltf.animations[0];
         idleAction = mixer.clipAction(idleClip);
         idleAction.play();
         const runClip = gltf.animations.find((c) => c.name === "Running");
