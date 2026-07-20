@@ -815,8 +815,12 @@ function terrainColor(v: number): [number, number, number] {
 // plating (layered value noise for subtle wear patches, fine speckle for
 // grain) with beveled panel seams and a glowing cyan tactical-grid accent
 // through each tile, echoing a holographic floor overlay.
-function createFloorTexture(repeatCount: number): THREE.CanvasTexture {
-  const size = 256;
+function createFloorTexture(repeatCount: number, maxAnisotropy: number): THREE.CanvasTexture {
+  // 1024px source (up from an earlier 256px pass) so panel seams and the
+  // grain stay crisp instead of blurring/pixelating once the camera sits
+  // this close to the ground — a low-res canvas was the main thing making
+  // this look cheap up close, more than the actual art direction.
+  const size = 1024;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -824,8 +828,8 @@ function createFloorTexture(repeatCount: number): THREE.CanvasTexture {
   const image = ctx.createImageData(size, size);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const patch = valueNoise(x * 0.05, y * 0.05) * 0.6 + valueNoise(x * 0.15, y * 0.15) * 0.4;
-      const speckle = hash2(x * 0.8, y * 0.8) * 0.1;
+      const patch = valueNoise(x * 0.02, y * 0.02) * 0.6 + valueNoise(x * 0.06, y * 0.06) * 0.4;
+      const speckle = hash2(x * 0.4, y * 0.4) * 0.1;
       const t = clamp(patch + speckle - 0.05, 0, 1);
       const r = Math.round(34 + t * 26);
       const g = Math.round(40 + t * 30);
@@ -839,13 +843,14 @@ function createFloorTexture(repeatCount: number): THREE.CanvasTexture {
   }
   ctx.putImageData(image, 0, 0);
 
-  // Beveled panel seams — a dark line with a lighter highlight offset one
-  // pixel over, suggesting welded metal plating rather than a flat color.
+  // Beveled panel seams — a dark line with a lighter highlight offset a
+  // couple pixels over, suggesting welded metal plating rather than a
+  // flat color.
   const panels = 4;
   const step = size / panels;
   for (let i = 1; i < panels; i++) {
     ctx.strokeStyle = "rgba(8,12,18,0.7)";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 6;
     ctx.beginPath();
     ctx.moveTo(i * step, 0);
     ctx.lineTo(i * step, size);
@@ -853,21 +858,21 @@ function createFloorTexture(repeatCount: number): THREE.CanvasTexture {
     ctx.lineTo(size, i * step);
     ctx.stroke();
     ctx.strokeStyle = "rgba(90,110,130,0.25)";
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(i * step + 1, 0);
-    ctx.lineTo(i * step + 1, size);
-    ctx.moveTo(0, i * step + 1);
-    ctx.lineTo(size, i * step + 1);
+    ctx.moveTo(i * step + 3, 0);
+    ctx.lineTo(i * step + 3, size);
+    ctx.moveTo(0, i * step + 3);
+    ctx.lineTo(size, i * step + 3);
     ctx.stroke();
   }
 
   // Glowing cyan tactical-grid accent through the tile center.
   ctx.save();
   ctx.shadowColor = "#6be2ff";
-  ctx.shadowBlur = 10;
+  ctx.shadowBlur = 36;
   ctx.strokeStyle = "rgba(107,226,255,0.55)";
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 5;
   ctx.beginPath();
   ctx.moveTo(size / 2, 0);
   ctx.lineTo(size / 2, size);
@@ -881,6 +886,11 @@ function createFloorTexture(repeatCount: number): THREE.CanvasTexture {
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(repeatCount, repeatCount);
+  // Without this a ground plane viewed at the shallow grazing angle a
+  // close chase camera sees goes visibly blurry/muddy at any distance,
+  // regardless of source resolution — anisotropic filtering is what
+  // actually fixes that.
+  texture.anisotropy = maxAnisotropy;
   return texture;
 }
 
@@ -1430,7 +1440,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(ARENA_HALF * 2, ARENA_HALF * 2),
-      new THREE.MeshStandardMaterial({ map: createFloorTexture(FLOOR_REPEAT), roughness: 0.6, metalness: 0.35 }),
+      new THREE.MeshStandardMaterial({ map: createFloorTexture(FLOOR_REPEAT, renderer.capabilities.getMaxAnisotropy()), roughness: 0.6, metalness: 0.35 }),
     );
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
