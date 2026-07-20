@@ -1638,6 +1638,24 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     screen.rotation.y = Math.PI;
     scene.add(screen);
 
+    // Ceiling slab sealing the room, with embedded cyan light-strip panels
+    // matching the reference image's overhead detailing.
+    const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x232a32, roughness: 0.6, metalness: 0.35, side: THREE.DoubleSide });
+    const ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM_SIZE, ROOM_WALL_THICKNESS, ROOM_SIZE), ceilingMat);
+    ceiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM_POS.z);
+    scene.add(ceiling);
+    ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(ceiling.geometry), roomEdgeMat));
+
+    const lightStripMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3 });
+    const addCeilingStrip = (x: number, z: number, sizeX: number, sizeZ: number) => {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.08, sizeZ), lightStripMat);
+      strip.position.set(x, ROOM_WALL_HEIGHT - 0.06, z);
+      scene.add(strip);
+    };
+    addCeilingStrip(ROOM_POS.x, ROOM_POS.z - 10, 6, 0.4);
+    addCeilingStrip(ROOM_POS.x, ROOM_POS.z, 6, 0.4);
+    addCeilingStrip(ROOM_POS.x, ROOM_POS.z + 10, 6, 0.4);
+
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
     let bot2: FighterRig | null = null;
