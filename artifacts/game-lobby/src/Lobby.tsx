@@ -811,10 +811,11 @@ function terrainColor(v: number): [number, number, number] {
   return TERRAIN_STOPS[TERRAIN_STOPS.length - 1][1];
 }
 
-// Procedural green grass texture for the arena floor — layered value noise
-// blotches (dark-to-light green patches) plus fine per-pixel speckle for a
-// blade-of-grass feel, tiled across the ground plane.
-function createGrassTexture(repeatCount: number): THREE.CanvasTexture {
+// Procedural sci-fi metal floor texture for the arena — dark blue-grey
+// plating (layered value noise for subtle wear patches, fine speckle for
+// grain) with beveled panel seams and a glowing cyan tactical-grid accent
+// through each tile, echoing a holographic floor overlay.
+function createFloorTexture(repeatCount: number): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -823,12 +824,12 @@ function createGrassTexture(repeatCount: number): THREE.CanvasTexture {
   const image = ctx.createImageData(size, size);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const patch = valueNoise(x * 0.06, y * 0.06) * 0.7 + valueNoise(x * 0.18, y * 0.18) * 0.3;
-      const speckle = hash2(x * 0.9, y * 0.9) * 0.12;
-      const t = clamp(patch + speckle - 0.06, 0, 1);
-      const r = Math.round(28 + t * 44);
-      const g = Math.round(72 + t * 74);
-      const b = Math.round(36 + t * 40);
+      const patch = valueNoise(x * 0.05, y * 0.05) * 0.6 + valueNoise(x * 0.15, y * 0.15) * 0.4;
+      const speckle = hash2(x * 0.8, y * 0.8) * 0.1;
+      const t = clamp(patch + speckle - 0.05, 0, 1);
+      const r = Math.round(34 + t * 26);
+      const g = Math.round(40 + t * 30);
+      const b = Math.round(50 + t * 36);
       const i = (y * size + x) * 4;
       image.data[i] = r;
       image.data[i + 1] = g;
@@ -837,6 +838,44 @@ function createGrassTexture(repeatCount: number): THREE.CanvasTexture {
     }
   }
   ctx.putImageData(image, 0, 0);
+
+  // Beveled panel seams — a dark line with a lighter highlight offset one
+  // pixel over, suggesting welded metal plating rather than a flat color.
+  const panels = 4;
+  const step = size / panels;
+  for (let i = 1; i < panels; i++) {
+    ctx.strokeStyle = "rgba(8,12,18,0.7)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(i * step, 0);
+    ctx.lineTo(i * step, size);
+    ctx.moveTo(0, i * step);
+    ctx.lineTo(size, i * step);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(90,110,130,0.25)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(i * step + 1, 0);
+    ctx.lineTo(i * step + 1, size);
+    ctx.moveTo(0, i * step + 1);
+    ctx.lineTo(size, i * step + 1);
+    ctx.stroke();
+  }
+
+  // Glowing cyan tactical-grid accent through the tile center.
+  ctx.save();
+  ctx.shadowColor = "#6be2ff";
+  ctx.shadowBlur = 10;
+  ctx.strokeStyle = "rgba(107,226,255,0.55)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(size / 2, 0);
+  ctx.lineTo(size / 2, size);
+  ctx.moveTo(0, size / 2);
+  ctx.lineTo(size, size / 2);
+  ctx.stroke();
+  ctx.restore();
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
@@ -1061,13 +1100,13 @@ function MapSelectionPanel({ onClose }: { onClose: () => void }) {
 }
 
 const ARENA_HALF = 320; // 640x640 arena, centered on the origin
-// Everything else that depends on the arena's size — grass tile density,
+// Everything else that depends on the arena's size — floor tile density,
 // grid line density, fog distance, the sky sphere and the camera's far
 // clip plane — is derived from ARENA_HALF below instead of hand-tuned
 // constants, so resizing the arena again later is a one-line change
 // instead of a multi-spot retune.
-const GRASS_TILE_SIZE = 1.667; // world units per grass texture tile, kept constant regardless of arena size
-const GRASS_REPEAT = (ARENA_HALF * 2) / GRASS_TILE_SIZE;
+const FLOOR_TILE_SIZE = 1.667; // world units per floor texture tile, kept constant regardless of arena size
+const FLOOR_REPEAT = (ARENA_HALF * 2) / FLOOR_TILE_SIZE;
 const GRID_DIVISIONS = ARENA_HALF * 2; // 1 world unit per grid cell
 const FOG_NEAR = ARENA_HALF - 5;
 const FOG_FAR = ARENA_HALF * 2.5;
@@ -1391,7 +1430,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(ARENA_HALF * 2, ARENA_HALF * 2),
-      new THREE.MeshStandardMaterial({ map: createGrassTexture(GRASS_REPEAT), roughness: 0.95 }),
+      new THREE.MeshStandardMaterial({ map: createFloorTexture(FLOOR_REPEAT), roughness: 0.6, metalness: 0.35 }),
     );
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
