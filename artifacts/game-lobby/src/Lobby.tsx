@@ -894,6 +894,66 @@ function createFloorTexture(repeatCount: number, maxAnisotropy: number): THREE.C
   return texture;
 }
 
+// A dark recessed vent grate — thin light bars over a near-black base,
+// dropped flat into the floor in the middle of the sci-fi room.
+function createGrateTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#05080c";
+  ctx.fillRect(0, 0, size, size);
+  const bars = 9;
+  const barGap = size / bars;
+  ctx.strokeStyle = "rgba(120,150,170,0.8)";
+  ctx.lineWidth = 5;
+  for (let i = 0; i < bars; i++) {
+    const y = barGap * i + barGap / 2;
+    ctx.beginPath();
+    ctx.moveTo(size * 0.08, y);
+    ctx.lineTo(size * 0.92, y);
+    ctx.stroke();
+  }
+  ctx.save();
+  ctx.shadowColor = "#6be2ff";
+  ctx.shadowBlur = 18;
+  ctx.strokeStyle = "rgba(107,226,255,0.5)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(size * 0.05, size * 0.05, size * 0.9, size * 0.9);
+  ctx.restore();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+// Diagonal yellow/black hazard stripes for the floor decal at a doorway
+// threshold.
+function createHazardStripeTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#12100a";
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = "#e8c23a";
+  const stripeWidth = size / 4;
+  ctx.save();
+  ctx.translate(size / 2, size / 2);
+  ctx.rotate(Math.PI / 4);
+  ctx.translate(-size, -size);
+  for (let x = -size; x < size * 2; x += stripeWidth * 2) {
+    ctx.fillRect(x, -size, stripeWidth, size * 4);
+  }
+  ctx.restore();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
 // A simple vertical-gradient sky, painted onto a canvas and wrapped around
 // a big inward-facing sphere — without this the scene has no background
 // at all (the canvas is alpha-transparent, so it just shows the page's
@@ -1137,6 +1197,63 @@ const PLAYER_TURN_RATE = 11; // per-second damping rate turning to face the move
 const BOT_SPEED = 1.9;
 const ATTACK_RANGE = 1.3;
 const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
+
+// A sci-fi outpost room off to the side of the arena — four walls around a
+// 40x40 footprint, each with its own door gap (one "entrance" side, three
+// "exit" sides, all functionally identical openings), dressed with crates,
+// a floor grate, hazard stripes and a wall screen to match the reference
+// sci-fi interior. Placed well away from the default spawn points so it
+// doesn't interfere with the immediate spawn-adjacent fight.
+const ROOM_SIZE = 40;
+const ROOM_WALL_HEIGHT = 5;
+const ROOM_WALL_THICKNESS = 0.6;
+const ROOM_DOOR_WIDTH = 5;
+const ROOM_POS = { x: 60, z: -50 };
+const ROOM_SEG_WIDTH = (ROOM_SIZE - ROOM_DOOR_WIDTH) / 2;
+const ROOM_SEG_OFFSET = ROOM_DOOR_WIDTH / 2 + ROOM_SEG_WIDTH / 2;
+const ROOM_PAD = 0.4; // padded out by a fighter's body radius
+
+interface Obstacle {
+  x: number;
+  z: number;
+  halfX: number;
+  halfZ: number;
+  pad: number;
+}
+
+// Two wall segments per side (north/south run along x, east/west run along
+// z), flanking a door-width gap at the room's center on that side.
+const OBSTACLES: Obstacle[] = [
+  { x: ROOM_POS.x - ROOM_SEG_OFFSET, z: ROOM_POS.z - ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-west
+  { x: ROOM_POS.x + ROOM_SEG_OFFSET, z: ROOM_POS.z - ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-east
+  { x: ROOM_POS.x - ROOM_SEG_OFFSET, z: ROOM_POS.z + ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-west
+  { x: ROOM_POS.x + ROOM_SEG_OFFSET, z: ROOM_POS.z + ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-east
+  { x: ROOM_POS.x - ROOM_SIZE / 2, z: ROOM_POS.z - ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // west-north
+  { x: ROOM_POS.x - ROOM_SIZE / 2, z: ROOM_POS.z + ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // west-south
+  { x: ROOM_POS.x + ROOM_SIZE / 2, z: ROOM_POS.z - ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // east-north
+  { x: ROOM_POS.x + ROOM_SIZE / 2, z: ROOM_POS.z + ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // east-south
+];
+
+// Pushes a fighter's x/z position out of any obstacle's footprint, kicking
+// it out along whichever axis has the least overlap.
+function resolveObstacleCollisions(pos: { x: number; z: number }) {
+  for (const ob of OBSTACLES) {
+    const halfX = ob.halfX + ob.pad;
+    const halfZ = ob.halfZ + ob.pad;
+    const dx = pos.x - ob.x;
+    const dz = pos.z - ob.z;
+    if (Math.abs(dx) < halfX && Math.abs(dz) < halfZ) {
+      const penX = halfX - Math.abs(dx);
+      const penZ = halfZ - Math.abs(dz);
+      if (penX < penZ) {
+        pos.x = ob.x + halfX * (dx < 0 ? -1 : 1);
+      } else {
+        pos.z = ob.z + halfZ * (dz < 0 ? -1 : 1);
+      }
+    }
+  }
+}
+
 const PLAYER_DAMAGE = 14;
 const BOT_DAMAGE = 10;
 const PLAYER_ATTACK_COOLDOWN = 0.55;
@@ -1446,6 +1563,81 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     scene.add(ground);
     scene.add(new THREE.GridHelper(ARENA_HALF * 2, GRID_DIVISIONS, 0x6be2ff, 0x1c4560));
 
+    // Sci-fi outpost room — the wall segments exactly match the OBSTACLES
+    // rects above (built straight from that array, so visuals and
+    // collision can never drift apart), plus crates, a floor grate, a
+    // hazard-stripe decal and a wall screen for detail.
+    const roomWallMat = new THREE.MeshStandardMaterial({ color: 0x2a323c, roughness: 0.55, metalness: 0.4 });
+    const roomEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
+    for (const ob of OBSTACLES) {
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
+      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
+      scene.add(wallMesh);
+      const wallEdges = new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat);
+      wallMesh.add(wallEdges);
+    }
+
+    // Glowing red door-frame lintel over each of the 4 openings.
+    const doorGlowMat = new THREE.MeshStandardMaterial({ color: 0xff3355, emissive: 0xff3355, emissiveIntensity: 1.4, roughness: 0.4 });
+    const addDoorGlow = (x: number, z: number, sizeX: number, sizeZ: number) => {
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.15, sizeZ), doorGlowMat);
+      glow.position.set(x, ROOM_WALL_HEIGHT - 0.3, z);
+      scene.add(glow);
+    };
+    addDoorGlow(ROOM_POS.x, ROOM_POS.z - ROOM_SIZE / 2, ROOM_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // north (entrance)
+    addDoorGlow(ROOM_POS.x, ROOM_POS.z + ROOM_SIZE / 2, ROOM_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // south (exit)
+    addDoorGlow(ROOM_POS.x - ROOM_SIZE / 2, ROOM_POS.z, ROOM_WALL_THICKNESS + 0.05, ROOM_DOOR_WIDTH); // west (exit)
+    addDoorGlow(ROOM_POS.x + ROOM_SIZE / 2, ROOM_POS.z, ROOM_WALL_THICKNESS + 0.05, ROOM_DOOR_WIDTH); // east (exit)
+
+    // A few storage crates with a cross-braced accent on their front face.
+    const crateMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.7, metalness: 0.3 });
+    const crateEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
+    const crateAccentMat = new THREE.MeshStandardMaterial({ color: 0xd8402c, emissive: 0xd8402c, emissiveIntensity: 0.5, roughness: 0.5 });
+    const addCrate = (x: number, z: number, size: number, rotY: number) => {
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), crateMat);
+      crate.position.set(x, size / 2, z);
+      crate.rotation.y = rotY;
+      scene.add(crate);
+      crate.add(new THREE.LineSegments(new THREE.EdgesGeometry(crate.geometry), crateEdgeMat));
+      const braceA = new THREE.Mesh(new THREE.BoxGeometry(size * 1.02, size * 0.12, size * 0.06), crateAccentMat);
+      braceA.rotation.z = Math.PI / 4;
+      braceA.position.set(0, 0, size / 2 + 0.03);
+      const braceB = new THREE.Mesh(new THREE.BoxGeometry(size * 1.02, size * 0.12, size * 0.06), crateAccentMat);
+      braceB.rotation.z = -Math.PI / 4;
+      braceB.position.set(0, 0, size / 2 + 0.03);
+      crate.add(braceA, braceB);
+    };
+    addCrate(ROOM_POS.x - 12, ROOM_POS.z - 12, 2.6, 0.3);
+    addCrate(ROOM_POS.x + 13, ROOM_POS.z - 10, 2.2, -0.4);
+    addCrate(ROOM_POS.x + 10, ROOM_POS.z + 13, 2.4, 0.8);
+
+    // A recessed vent grate flush with the floor in the room's center.
+    const grate = new THREE.Mesh(
+      new THREE.PlaneGeometry(4, 4),
+      new THREE.MeshStandardMaterial({ map: createGrateTexture(), roughness: 0.5, metalness: 0.5 }),
+    );
+    grate.rotation.x = -Math.PI / 2;
+    grate.position.set(ROOM_POS.x, 0.02, ROOM_POS.z);
+    scene.add(grate);
+
+    // Hazard-stripe floor decal at the entrance threshold.
+    const hazard = new THREE.Mesh(
+      new THREE.PlaneGeometry(ROOM_DOOR_WIDTH, 2),
+      new THREE.MeshStandardMaterial({ map: createHazardStripeTexture(), roughness: 0.8 }),
+    );
+    hazard.rotation.x = -Math.PI / 2;
+    hazard.position.set(ROOM_POS.x, 0.015, ROOM_POS.z - ROOM_SIZE / 2 + 1);
+    scene.add(hazard);
+
+    // A glowing wall screen mounted on the interior face of the south wall.
+    const screen = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.4, 1.6),
+      new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6be2ff, emissiveIntensity: 0.9, roughness: 0.3 }),
+    );
+    screen.position.set(ROOM_POS.x - ROOM_SEG_OFFSET, 2.6, ROOM_POS.z + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2 - 0.02);
+    screen.rotation.y = Math.PI;
+    scene.add(screen);
+
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
     let bot2: FighterRig | null = null;
@@ -1589,6 +1781,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
         player.root.position.x = clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         player.root.position.z = clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+        resolveObstacleCollisions(player.root.position);
 
         playerSpeedNow = Math.hypot(playerVelX, playerVelZ);
         // Face the direction actually being moved in (not the raw stick
@@ -1626,6 +1819,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           const moveZ = dz / dist;
           activeBot.root.position.x = clamp(activeBot.root.position.x + moveX * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
           activeBot.root.position.z = clamp(activeBot.root.position.z + moveZ * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+          resolveObstacleCollisions(activeBot.root.position);
           updateLocomotionAnim(activeBot, 1, BOT_SPEED);
         } else {
           updateLocomotionAnim(activeBot, 0, 0);
