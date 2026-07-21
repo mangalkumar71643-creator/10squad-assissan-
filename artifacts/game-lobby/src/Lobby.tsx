@@ -1338,6 +1338,40 @@ const CORRIDOR4_WALLS: Obstacle[] = [
   { x: ROOM4_POS.x + CORRIDOR_SIDE_OFFSET, z: CORRIDOR4_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR4_LENGTH / 2, pad: ROOM_PAD }, // east
 ];
 
+// ROOM6 — a larger 40x30 (width x depth) room built directly in front of
+// ROOM5_POS, i.e. continuing further along the same north direction ROOM5
+// branched off in. Unlike the other rooms it isn't square, so its wall
+// segments are computed independently per axis rather than reusing
+// roomWallObstacles(), but it keeps the same 4-door layout and materials.
+const ROOM6_WIDTH = 40;
+const ROOM6_DEPTH = 30;
+const ROOM6_DOOR_WIDTH = ROOM_DOOR_WIDTH;
+const ROOM6_POS = { x: ROOM5_POS.x, z: ROOM5_POS.z - (ROOM_SIZE / 2 + 40 + ROOM6_DEPTH / 2) };
+const ROOM6_SEG_WIDTH_X = (ROOM6_WIDTH - ROOM6_DOOR_WIDTH) / 2;
+const ROOM6_SEG_OFFSET_X = ROOM6_DOOR_WIDTH / 2 + ROOM6_SEG_WIDTH_X / 2;
+const ROOM6_SEG_WIDTH_Z = (ROOM6_DEPTH - ROOM6_DOOR_WIDTH) / 2;
+const ROOM6_SEG_OFFSET_Z = ROOM6_DOOR_WIDTH / 2 + ROOM6_SEG_WIDTH_Z / 2;
+const ROOM6_WALLS: Obstacle[] = [
+  { x: ROOM6_POS.x - ROOM6_SEG_OFFSET_X, z: ROOM6_POS.z - ROOM6_DEPTH / 2, halfX: ROOM6_SEG_WIDTH_X / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-west
+  { x: ROOM6_POS.x + ROOM6_SEG_OFFSET_X, z: ROOM6_POS.z - ROOM6_DEPTH / 2, halfX: ROOM6_SEG_WIDTH_X / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-east
+  { x: ROOM6_POS.x - ROOM6_SEG_OFFSET_X, z: ROOM6_POS.z + ROOM6_DEPTH / 2, halfX: ROOM6_SEG_WIDTH_X / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-west
+  { x: ROOM6_POS.x + ROOM6_SEG_OFFSET_X, z: ROOM6_POS.z + ROOM6_DEPTH / 2, halfX: ROOM6_SEG_WIDTH_X / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-east
+  { x: ROOM6_POS.x - ROOM6_WIDTH / 2, z: ROOM6_POS.z - ROOM6_SEG_OFFSET_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM6_SEG_WIDTH_Z / 2, pad: ROOM_PAD }, // west-north
+  { x: ROOM6_POS.x - ROOM6_WIDTH / 2, z: ROOM6_POS.z + ROOM6_SEG_OFFSET_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM6_SEG_WIDTH_Z / 2, pad: ROOM_PAD }, // west-south
+  { x: ROOM6_POS.x + ROOM6_WIDTH / 2, z: ROOM6_POS.z - ROOM6_SEG_OFFSET_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM6_SEG_WIDTH_Z / 2, pad: ROOM_PAD }, // east-north
+  { x: ROOM6_POS.x + ROOM6_WIDTH / 2, z: ROOM6_POS.z + ROOM6_SEG_OFFSET_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM6_SEG_WIDTH_Z / 2, pad: ROOM_PAD }, // east-south
+];
+
+// Fifth corridor joining ROOM5_POS's north door to ROOM6_POS's south door.
+const CORRIDOR5_Z_NEAR = ROOM5_POS.z - ROOM_SIZE / 2;
+const CORRIDOR5_Z_FAR = ROOM6_POS.z + ROOM6_DEPTH / 2;
+const CORRIDOR5_LENGTH = CORRIDOR5_Z_NEAR - CORRIDOR5_Z_FAR;
+const CORRIDOR5_CENTER_Z = (CORRIDOR5_Z_NEAR + CORRIDOR5_Z_FAR) / 2;
+const CORRIDOR5_WALLS: Obstacle[] = [
+  { x: ROOM5_POS.x - CORRIDOR_SIDE_OFFSET, z: CORRIDOR5_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR5_LENGTH / 2, pad: ROOM_PAD }, // west
+  { x: ROOM5_POS.x + CORRIDOR_SIDE_OFFSET, z: CORRIDOR5_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR5_LENGTH / 2, pad: ROOM_PAD }, // east
+];
+
 const OBSTACLES: Obstacle[] = [
   ...ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]),
   ...MIDROOM_WALLS,
@@ -1345,6 +1379,8 @@ const OBSTACLES: Obstacle[] = [
   ...CORRIDOR2_WALLS,
   ...CORRIDOR3_WALLS,
   ...CORRIDOR4_WALLS,
+  ...ROOM6_WALLS,
+  ...CORRIDOR5_WALLS,
 ];
 
 // Pushes a fighter's x/z position out of any obstacle's footprint, kicking
@@ -1883,6 +1919,51 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     };
     addCorridor4Strip(CORRIDOR4_CENTER_Z - CORRIDOR4_LENGTH / 4);
     addCorridor4Strip(CORRIDOR4_CENTER_Z + CORRIDOR4_LENGTH / 4);
+
+    // Fifth corridor — joins ROOM5_POS to the larger ROOM6_POS ahead of it.
+    for (const ob of CORRIDOR5_WALLS) {
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
+      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
+      scene.add(wallMesh);
+      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+    }
+    const corridor5Ceiling = new THREE.Mesh(
+      new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR5_LENGTH),
+      ceilingMat,
+    );
+    corridor5Ceiling.position.set(ROOM5_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR5_CENTER_Z);
+    scene.add(corridor5Ceiling);
+    corridor5Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridor5Ceiling.geometry), roomEdgeMat));
+    const addCorridor5Strip = (z: number) => {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
+      strip.position.set(ROOM5_POS.x, ROOM_WALL_HEIGHT - 0.06, z);
+      scene.add(strip);
+    };
+    addCorridor5Strip(CORRIDOR5_CENTER_Z - CORRIDOR5_LENGTH / 4);
+    addCorridor5Strip(CORRIDOR5_CENTER_Z + CORRIDOR5_LENGTH / 4);
+
+    // ROOM6 — the larger 40x30 room, built from ROOM6_WALLS directly (not
+    // buildRoom(), since it isn't square) plus door glows on all 4 sides
+    // and a matching ceiling.
+    for (const ob of ROOM6_WALLS) {
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
+      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
+      scene.add(wallMesh);
+      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+    }
+    const addRoom6DoorGlow = (x: number, z: number, sizeX: number, sizeZ: number) => {
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.15, sizeZ), doorGlowMat);
+      glow.position.set(x, ROOM_WALL_HEIGHT - 0.3, z);
+      scene.add(glow);
+    };
+    addRoom6DoorGlow(ROOM6_POS.x, ROOM6_POS.z - ROOM6_DEPTH / 2, ROOM6_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // north
+    addRoom6DoorGlow(ROOM6_POS.x, ROOM6_POS.z + ROOM6_DEPTH / 2, ROOM6_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // south
+    addRoom6DoorGlow(ROOM6_POS.x - ROOM6_WIDTH / 2, ROOM6_POS.z, ROOM_WALL_THICKNESS + 0.05, ROOM6_DOOR_WIDTH); // west
+    addRoom6DoorGlow(ROOM6_POS.x + ROOM6_WIDTH / 2, ROOM6_POS.z, ROOM_WALL_THICKNESS + 0.05, ROOM6_DOOR_WIDTH); // east
+    const room6Ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM6_WIDTH, ROOM_WALL_THICKNESS, ROOM6_DEPTH), ceilingMat);
+    room6Ceiling.position.set(ROOM6_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM6_POS.z);
+    scene.add(room6Ceiling);
+    room6Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(room6Ceiling.geometry), roomEdgeMat));
 
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
