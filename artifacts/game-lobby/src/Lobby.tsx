@@ -1372,6 +1372,23 @@ const CORRIDOR5_WALLS: Obstacle[] = [
   { x: ROOM5_POS.x + CORRIDOR_SIDE_OFFSET, z: CORRIDOR5_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR5_LENGTH / 2, pad: ROOM_PAD }, // east
 ];
 
+// Extra crates scattered through the spots that don't already have any —
+// the midroom, every corridor, and ROOM6 (rooms 1-5 already get their own
+// via roomCrateObstacles). Each is offset to one side of its walkway so
+// there's still room to pass, not a full blockage.
+const EXTRA_CRATES: Obstacle[] = [
+  { x: 61.5, z: MIDROOM_POS.z + 1.5, halfX: 0.5, halfZ: 0.5, pad: ROOM_PAD }, // midroom
+  { x: 59, z: CORRIDOR_NEAR_CENTER_Z, halfX: 0.5, halfZ: 0.5, pad: ROOM_PAD }, // corridor near segment (room1<->midroom)
+  { x: 61, z: CORRIDOR_FAR_CENTER_Z, halfX: 0.5, halfZ: 0.5, pad: ROOM_PAD }, // corridor far segment (midroom<->room2)
+  { x: 59, z: CORRIDOR2_CENTER_Z, halfX: 0.5, halfZ: 0.5, pad: ROOM_PAD }, // corridor2 (room2<->room3)
+  { x: CORRIDOR3_CENTER_X, z: ROOM3_POS.z - 1, halfX: 0.5, halfZ: 0.5, pad: ROOM_PAD }, // corridor3 (room3<->room4, east-west)
+  { x: ROOM4_POS.x + 1, z: CORRIDOR4_CENTER_Z, halfX: 0.5, halfZ: 0.5, pad: ROOM_PAD }, // corridor4 (room4<->room5)
+  { x: ROOM5_POS.x - 1, z: CORRIDOR5_CENTER_Z, halfX: 0.5, halfZ: 0.5, pad: ROOM_PAD }, // corridor5 (room5<->room6)
+  { x: ROOM6_POS.x - 12, z: ROOM6_POS.z - 8, halfX: 1, halfZ: 1, pad: ROOM_PAD }, // room6
+  { x: ROOM6_POS.x + 10, z: ROOM6_POS.z + 5, halfX: 1, halfZ: 1, pad: ROOM_PAD }, // room6
+  { x: ROOM6_POS.x, z: ROOM6_POS.z + 10, halfX: 1, halfZ: 1, pad: ROOM_PAD }, // room6
+];
+
 const OBSTACLES: Obstacle[] = [
   ...ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]),
   ...MIDROOM_WALLS,
@@ -1381,6 +1398,7 @@ const OBSTACLES: Obstacle[] = [
   ...CORRIDOR4_WALLS,
   ...ROOM6_WALLS,
   ...CORRIDOR5_WALLS,
+  ...EXTRA_CRATES,
 ];
 
 // Pushes a fighter's x/z position out of any obstacle's footprint, kicking
@@ -1964,6 +1982,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     room6Ceiling.position.set(ROOM6_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM6_POS.z);
     scene.add(room6Ceiling);
     room6Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(room6Ceiling.geometry), roomEdgeMat));
+
+    // Simple crate visuals matching EXTRA_CRATES above (one per corridor and
+    // midroom, three scattered through the much bigger ROOM6).
+    for (const ob of EXTRA_CRATES) {
+      const size = ob.halfX * 2;
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), crateMat);
+      crate.position.set(ob.x, size / 2, ob.z);
+      scene.add(crate);
+      crate.add(new THREE.LineSegments(new THREE.EdgesGeometry(crate.geometry), crateEdgeMat));
+    }
 
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
