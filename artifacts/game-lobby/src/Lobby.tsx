@@ -1464,34 +1464,10 @@ const TRACER_DURATION = 0.08;
 const BOT2_TINT = 0xffb703;
 const BOT2_SPAWN = { x: 3.4, z: -3.2 };
 
-// The right arm/forearm are driven by the rig's real mocap clips (Idle2,
-// Running), which keep moving them through their own captured range of
-// motion — so a gun parented to the hand with a single fixed local
-// rotation looked right in whatever frame it was tuned against and wrong
-// everywhere else (hanging at the character's side during idle, aimed
-// backwards mid-stride). Locking the right arm/forearm to this fixed
-// "rifle carry" pose every frame, overriding whatever the mocap clip set
-// that bone to, keeps the gun's orientation relative to the hand constant
-// regardless of animation state — only the left arm still swings with
-// locomotion.
-const GUN_CARRY_SHOULDER_X = -0.25;
-const GUN_CARRY_SHOULDER_Z = 0.15;
-const GUN_CARRY_ELBOW_X = -0.8;
-
-function applyGunCarryPose(rig: FighterRig) {
-  if (rig.rightArm) {
-    rig.rightArm.rotation.x = GUN_CARRY_SHOULDER_X;
-    rig.rightArm.rotation.z = GUN_CARRY_SHOULDER_Z;
-  }
-  if (rig.rightForeArm) {
-    rig.rightForeArm.rotation.x = GUN_CARRY_ELBOW_X;
-  }
-}
-
-// Kicks a fighter's right arm back and up (carry-pose-relative, layered on
-// top of applyGunCarryPose's fixed hold) to sell a rifle's recoil — there's
-// no fire clip baked into the rig, so this drives the arm bones directly,
-// same approach as the old punch pose it replaces.
+// Kicks a fighter's right arm back and up (layered on top of whatever the
+// RifleIdle/Running clip posed that frame) to sell a rifle's recoil —
+// there's no dedicated fire clip baked into the rig, so this drives the arm
+// bones directly, same approach as the old punch pose it replaces.
 function applyFirePose(rig: FighterRig, t: number) {
   const kick = Math.sin(clamp(t / RECOIL_DURATION, 0, 1) * Math.PI);
   if (rig.rightArm) rig.rightArm.rotation.x -= kick * RECOIL_SHOULDER_ANGLE;
@@ -1580,8 +1556,8 @@ interface FighterRig {
 // full sword-length) — an AK47 held one-handed needs to be much shorter and
 // tilted down off the hand's resting axis instead of standing straight out
 // like a blade, or it reads as an oversized plank rather than a rifle.
-const GUN_SCALE = 0.42;
-const GUN_PITCH = 1.5; // radians, tips the muzzle down toward a forward carry angle
+const GUN_SCALE = 0.75;
+const GUN_PITCH = 1.2; // radians, tips the muzzle down toward a forward carry angle matching the RifleIdle clip's hand pose
 
 // A simple procedural AK47 (no rifle asset on hand) — receiver, barrel,
 // front sight, wood stock, angled magazine and grip built from basic
@@ -1711,10 +1687,19 @@ function loadFighter(
       let runAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
-        // "Idle2" is a real motion-captured breathing idle (retargeted from
-        // a Mixamo clip) — prefer it over the rig's own baked-in idle when
-        // present, since it's the one meant to actually ship.
-        const idleClip = gltf.animations.find((c) => c.name === "Idle2") ?? gltf.animations.find((c) => c.name.includes("Idle")) ?? gltf.animations[0];
+        // "RifleIdle" is a real motion-captured rifle-hold idle (retargeted
+        // from a Mixamo clip the same way Idle2/Running were), and poses
+        // the whole upper body — both arms, spine, everything — to
+        // naturally cradle a held rifle. It replaces "Idle2" as the
+        // default now that every fighter carries a gun from spawn, since a
+        // fixed two-bone rotation offset on top of the old plain-idle clip
+        // could never look right across every animation frame the way a
+        // dedicated captured pose does.
+        const idleClip =
+          gltf.animations.find((c) => c.name === "RifleIdle") ??
+          gltf.animations.find((c) => c.name === "Idle2") ??
+          gltf.animations.find((c) => c.name.includes("Idle")) ??
+          gltf.animations[0];
         idleAction = mixer.clipAction(idleClip);
         idleAction.play();
         const runClip = gltf.animations.find((c) => c.name === "Running");
@@ -2212,11 +2197,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       player?.mixer?.update(dt);
       bot1?.mixer?.update(dt);
       bot2?.mixer?.update(dt);
-      // Locked every frame, after the mocap mixers run, so the carry pose
-      // always wins over whatever the idle/run clip set the right arm to.
-      if (player) applyGunCarryPose(player);
-      if (bot1) applyGunCarryPose(bot1);
-      if (bot2) applyGunCarryPose(bot2);
 
       if (bot1 && bot1DeathT >= 0) {
         applyDeathPose(bot1, bot1DeathT);
