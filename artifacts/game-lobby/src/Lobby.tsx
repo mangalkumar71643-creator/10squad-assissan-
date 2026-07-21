@@ -1464,10 +1464,49 @@ const TRACER_DURATION = 0.08;
 const BOT2_TINT = 0xffb703;
 const BOT2_SPAWN = { x: 3.4, z: -3.2 };
 
-// Kicks a fighter's right arm back and up (layered on top of whatever the
-// RifleIdle/Running clip posed that frame) to sell a rifle's recoil —
-// there's no dedicated fire clip baked into the rig, so this drives the arm
-// bones directly, same approach as the old punch pose it replaces.
+// The RifleIdle clip poses the right arm/forearm correctly, but "Running"
+// is a plain mocap locomotion clip with a completely different, much
+// wider arm swing (it was never meant to hold anything) — crossfading
+// into it while moving swings the gun through that same wide arc. Pinning
+// the arm bones' own LOCAL rotation to a fixed value doesn't fully fix
+// this either, because their parents up the chain (Hips, Spine...) also
+// carry a big, legitimate motion of their own during Running (a real
+// sprint lean) — freezing those parents too (tried first) fixed the arm
+// but broke the legs, which are siblings of the spine under Hips and were
+// animated assuming that same Hips motion as their baseline.
+//
+// The actual fix: leave every other bone (hips, spine, legs) completely
+// alone — running still looks correct — and instead force just the arm
+// and forearm's WORLD orientation (relative to `root`, so it still turns
+// with the character) to match the pose RifleIdle wants, by computing
+// each frame what LOCAL rotation is needed to cancel out whatever their
+// current parent bone (already animated by the idle/run blend) is doing.
+// The target orientations are captured once at load time directly off
+// the RifleIdle clip rather than hand-guessed numbers.
+const tickQuatA = new THREE.Quaternion();
+const tickQuatB = new THREE.Quaternion();
+
+function applyGunArmPose(rig: FighterRig) {
+  if (!rig.rightArm || !rig.rightForeArm || !rig.armRestQuat || !rig.forearmRestQuat) return;
+  if (!rig.rightArm.parent || !rig.rightForeArm.parent) return;
+  rig.root.updateMatrixWorld(true);
+  const rootQuat = rig.root.getWorldQuaternion(tickQuatA).clone();
+
+  const desiredArmWorld = rootQuat.clone().multiply(rig.armRestQuat);
+  const armParentQuat = rig.rightArm.parent.getWorldQuaternion(tickQuatB);
+  rig.rightArm.quaternion.copy(armParentQuat.invert().multiply(desiredArmWorld));
+  rig.rightArm.updateMatrixWorld(true);
+
+  const desiredForearmWorld = rootQuat.multiply(rig.forearmRestQuat);
+  const forearmParentQuat = rig.rightForeArm.parent.getWorldQuaternion(tickQuatB);
+  rig.rightForeArm.quaternion.copy(forearmParentQuat.invert().multiply(desiredForearmWorld));
+  rig.rightForeArm.updateMatrixWorld(true);
+}
+
+// Kicks a fighter's right arm back and up (layered on top of the locked
+// gun-hold pose) to sell a rifle's recoil — there's no dedicated fire clip
+// baked into the rig, so this drives the arm bones directly, same approach
+// as the old punch pose it replaces.
 function applyFirePose(rig: FighterRig, t: number) {
   const kick = Math.sin(clamp(t / RECOIL_DURATION, 0, 1) * Math.PI);
   if (rig.rightArm) rig.rightArm.rotation.x -= kick * RECOIL_SHOULDER_ANGLE;
@@ -1547,6 +1586,11 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  // The gun-hold arm pose, captured once at load time (from the RifleIdle
+  // clip) as a quaternion relative to `root` rather than a fixed local
+  // Euler angle — see applyGunArmPose for why.
+  armRestQuat: THREE.Quaternion | null;
+  forearmRestQuat: THREE.Quaternion | null;
   materials: THREE.MeshStandardMaterial[];
   gunMuzzle: THREE.Object3D | null;
   gunFlash: THREE.Mesh | null;
@@ -1719,7 +1763,25 @@ function loadFighter(
         gunMuzzle = gun.muzzle;
         gunFlash = gun.flash;
       }
-      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, materials, gunMuzzle, gunFlash });
+
+      // Capture the arm/forearm's orientation from the RifleIdle pose
+      // (idleAction is the only weighted action at this point) as a
+      // quaternion relative to `root`, so applyGunArmPose can hold the gun
+      // steady in the hand every frame regardless of what Idle/Running end
+      // up blending in on the bones between root and the arm.
+      let armRestQuat: THREE.Quaternion | null = null;
+      let forearmRestQuat: THREE.Quaternion | null = null;
+      if (mixer !== null && rightArm !== null && rightForeArm !== null) {
+        const armBone: THREE.Object3D = rightArm;
+        const forearmBone: THREE.Object3D = rightForeArm;
+        mixer.update(0);
+        root.updateMatrixWorld(true);
+        const rootQuatInv = root.getWorldQuaternion(new THREE.Quaternion()).invert();
+        armRestQuat = rootQuatInv.clone().multiply(armBone.getWorldQuaternion(new THREE.Quaternion()));
+        forearmRestQuat = rootQuatInv.multiply(forearmBone.getWorldQuaternion(new THREE.Quaternion()));
+      }
+
+      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, armRestQuat, forearmRestQuat, materials, gunMuzzle, gunFlash });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -2197,6 +2259,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       player?.mixer?.update(dt);
       bot1?.mixer?.update(dt);
       bot2?.mixer?.update(dt);
+      // Locked every frame, after the mixers run, so the gun-hold pose
+      // always wins over whatever Running's arm swing set that frame.
+      if (player) applyGunArmPose(player);
+      if (bot1) applyGunArmPose(bot1);
+      if (bot2) applyGunArmPose(bot2);
 
       if (bot1 && bot1DeathT >= 0) {
         applyDeathPose(bot1, bot1DeathT);
