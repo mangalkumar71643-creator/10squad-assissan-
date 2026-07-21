@@ -1169,7 +1169,7 @@ function MapSelectionPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-const ARENA_HALF = 320; // 640x640 arena, centered on the origin
+const ARENA_HALF = 350; // 700x700 arena, centered on the origin
 // Everything else that depends on the arena's size — floor tile density,
 // grid line density, fog distance, the sky sphere and the camera's far
 // clip plane — is derived from ARENA_HALF below instead of hand-tuned
