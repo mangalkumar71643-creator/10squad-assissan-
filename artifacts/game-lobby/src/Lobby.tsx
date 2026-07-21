@@ -1212,7 +1212,8 @@ const ROOM_POS = { x: 60, z: -50 };
 const ROOM2_POS = { x: 60, z: -150 }; // a second, identical room 100 units north of the first
 const ROOM3_POS = { x: 60, z: -200 }; // a third, identical room 50 units north of the second
 const ROOM4_POS = { x: ROOM3_POS.x + 50, z: ROOM3_POS.z }; // a fourth room, 50 units east of the third (off the main line)
-const ROOM_POSITIONS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS];
+const ROOM5_POS = { x: ROOM4_POS.x, z: ROOM4_POS.z - 50 }; // a fifth room, 50 units north of the fourth (branching again, not a straight extension of corridor3)
+const ROOM_POSITIONS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS];
 const ROOM_SEG_WIDTH = (ROOM_SIZE - ROOM_DOOR_WIDTH) / 2;
 const ROOM_SEG_OFFSET = ROOM_DOOR_WIDTH / 2 + ROOM_SEG_WIDTH / 2;
 const ROOM_PAD = 0.4; // padded out by a fighter's body radius
@@ -1325,12 +1326,25 @@ const CORRIDOR3_WALLS: Obstacle[] = [
   { x: CORRIDOR3_CENTER_X, z: ROOM3_POS.z + CORRIDOR_SIDE_OFFSET, halfX: CORRIDOR3_LENGTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south
 ];
 
+// A fourth corridor, back to running north-south, joining ROOM4_POS's north
+// wall to ROOM5_POS's south wall — ROOM5_POS branches off again instead of
+// continuing straight along corridor3's east-west line.
+const CORRIDOR4_Z_NEAR = ROOM4_POS.z - ROOM_SIZE / 2;
+const CORRIDOR4_Z_FAR = ROOM5_POS.z + ROOM_SIZE / 2;
+const CORRIDOR4_LENGTH = CORRIDOR4_Z_NEAR - CORRIDOR4_Z_FAR;
+const CORRIDOR4_CENTER_Z = (CORRIDOR4_Z_NEAR + CORRIDOR4_Z_FAR) / 2;
+const CORRIDOR4_WALLS: Obstacle[] = [
+  { x: ROOM4_POS.x - CORRIDOR_SIDE_OFFSET, z: CORRIDOR4_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR4_LENGTH / 2, pad: ROOM_PAD }, // west
+  { x: ROOM4_POS.x + CORRIDOR_SIDE_OFFSET, z: CORRIDOR4_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR4_LENGTH / 2, pad: ROOM_PAD }, // east
+];
+
 const OBSTACLES: Obstacle[] = [
   ...ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]),
   ...MIDROOM_WALLS,
   ...CORRIDOR_WALLS,
   ...CORRIDOR2_WALLS,
   ...CORRIDOR3_WALLS,
+  ...CORRIDOR4_WALLS,
 ];
 
 // Pushes a fighter's x/z position out of any obstacle's footprint, kicking
@@ -1847,6 +1861,28 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     };
     addCorridor3Strip(CORRIDOR3_CENTER_X - CORRIDOR3_LENGTH / 4);
     addCorridor3Strip(CORRIDOR3_CENTER_X + CORRIDOR3_LENGTH / 4);
+
+    // Fourth corridor — north-south again, joining ROOM4_POS to ROOM5_POS.
+    for (const ob of CORRIDOR4_WALLS) {
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
+      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
+      scene.add(wallMesh);
+      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+    }
+    const corridor4Ceiling = new THREE.Mesh(
+      new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR4_LENGTH),
+      ceilingMat,
+    );
+    corridor4Ceiling.position.set(ROOM4_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR4_CENTER_Z);
+    scene.add(corridor4Ceiling);
+    corridor4Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridor4Ceiling.geometry), roomEdgeMat));
+    const addCorridor4Strip = (z: number) => {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
+      strip.position.set(ROOM4_POS.x, ROOM_WALL_HEIGHT - 0.06, z);
+      scene.add(strip);
+    };
+    addCorridor4Strip(CORRIDOR4_CENTER_Z - CORRIDOR4_LENGTH / 4);
+    addCorridor4Strip(CORRIDOR4_CENTER_Z + CORRIDOR4_LENGTH / 4);
 
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
