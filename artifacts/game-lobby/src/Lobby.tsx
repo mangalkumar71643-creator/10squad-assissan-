@@ -1464,10 +1464,34 @@ const TRACER_DURATION = 0.08;
 const BOT2_TINT = 0xffb703;
 const BOT2_SPAWN = { x: 3.4, z: -3.2 };
 
-// Kicks a fighter's right arm back and up (bind-pose-relative, layered on
-// top of whatever the idle clip set that frame) to sell a rifle's recoil —
-// there's no fire clip baked into the rig, so this drives the arm bones
-// directly, same approach as the old punch pose it replaces.
+// The right arm/forearm are driven by the rig's real mocap clips (Idle2,
+// Running), which keep moving them through their own captured range of
+// motion — so a gun parented to the hand with a single fixed local
+// rotation looked right in whatever frame it was tuned against and wrong
+// everywhere else (hanging at the character's side during idle, aimed
+// backwards mid-stride). Locking the right arm/forearm to this fixed
+// "rifle carry" pose every frame, overriding whatever the mocap clip set
+// that bone to, keeps the gun's orientation relative to the hand constant
+// regardless of animation state — only the left arm still swings with
+// locomotion.
+const GUN_CARRY_SHOULDER_X = -0.25;
+const GUN_CARRY_SHOULDER_Z = 0.15;
+const GUN_CARRY_ELBOW_X = -0.8;
+
+function applyGunCarryPose(rig: FighterRig) {
+  if (rig.rightArm) {
+    rig.rightArm.rotation.x = GUN_CARRY_SHOULDER_X;
+    rig.rightArm.rotation.z = GUN_CARRY_SHOULDER_Z;
+  }
+  if (rig.rightForeArm) {
+    rig.rightForeArm.rotation.x = GUN_CARRY_ELBOW_X;
+  }
+}
+
+// Kicks a fighter's right arm back and up (carry-pose-relative, layered on
+// top of applyGunCarryPose's fixed hold) to sell a rifle's recoil — there's
+// no fire clip baked into the rig, so this drives the arm bones directly,
+// same approach as the old punch pose it replaces.
 function applyFirePose(rig: FighterRig, t: number) {
   const kick = Math.sin(clamp(t / RECOIL_DURATION, 0, 1) * Math.PI);
   if (rig.rightArm) rig.rightArm.rotation.x -= kick * RECOIL_SHOULDER_ANGLE;
@@ -2188,6 +2212,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       player?.mixer?.update(dt);
       bot1?.mixer?.update(dt);
       bot2?.mixer?.update(dt);
+      // Locked every frame, after the mocap mixers run, so the carry pose
+      // always wins over whatever the idle/run clip set the right arm to.
+      if (player) applyGunCarryPose(player);
+      if (bot1) applyGunCarryPose(bot1);
+      if (bot2) applyGunCarryPose(bot2);
 
       if (bot1 && bot1DeathT >= 0) {
         applyDeathPose(bot1, bot1DeathT);
