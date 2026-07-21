@@ -1252,8 +1252,9 @@ function roomCrateObstacles(pos: { x: number; z: number }): Obstacle[] {
 // A covered corridor connecting the two rooms' facing doors — walled on
 // both sides and roofed to match, so the two rooms read as one connected
 // outpost. Runs from ROOM_POS's north (entrance) wall to ROOM2_POS's south
-// (exit) wall, the same width as the doors it joins.
-const CORRIDOR_WIDTH = ROOM_DOOR_WIDTH;
+// (exit) wall. Wider than the ROOM_DOOR_WIDTH door gap it passes through,
+// so it necks down at each end rather than being a uniform width.
+const CORRIDOR_WIDTH = 3.5;
 const CORRIDOR_Z_NEAR = ROOM_POS.z - ROOM_SIZE / 2;
 const CORRIDOR_Z_FAR = ROOM2_POS.z + ROOM_SIZE / 2;
 const CORRIDOR_LENGTH = CORRIDOR_Z_NEAR - CORRIDOR_Z_FAR;
