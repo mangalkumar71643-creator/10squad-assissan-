@@ -1235,9 +1235,9 @@ const OBSTACLES: Obstacle[] = [
   // Storage crates (mirrors the addCrate(...) calls below) — axis-aligned
   // half-extents padded out to cover each crate's rotated footprint so a
   // fighter can't walk straight through the decoration.
-  { x: ROOM_POS.x - 3, z: ROOM_POS.z - 3, halfX: 0.82, halfZ: 0.82, pad: ROOM_PAD }, // crate 1
-  { x: ROOM_POS.x + 3.25, z: ROOM_POS.z - 2.5, halfX: 0.73, halfZ: 0.73, pad: ROOM_PAD }, // crate 2
-  { x: ROOM_POS.x + 2.5, z: ROOM_POS.z + 3.25, halfX: 0.85, halfZ: 0.85, pad: ROOM_PAD }, // crate 3
+  { x: ROOM_POS.x - 2.5, z: ROOM_POS.z - 2.5, halfX: 0.8, halfZ: 1.12, pad: ROOM_PAD }, // crate 1
+  { x: ROOM_POS.x + 2.75, z: ROOM_POS.z - 2, halfX: 0.86, halfZ: 1.13, pad: ROOM_PAD }, // crate 2
+  { x: ROOM_POS.x + 2, z: ROOM_POS.z + 2.75, halfX: 1.08, halfZ: 1.07, pad: ROOM_PAD }, // crate 3
 ];
 
 // Pushes a fighter's x/z position out of any obstacle's footprint, kicking
@@ -1599,23 +1599,25 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const crateMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.7, metalness: 0.3 });
     const crateEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
     const crateAccentMat = new THREE.MeshStandardMaterial({ color: 0xd8402c, emissive: 0xd8402c, emissiveIntensity: 0.5, roughness: 0.5 });
-    const addCrate = (x: number, z: number, size: number, rotY: number) => {
-      const crate = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), crateMat);
-      crate.position.set(x, size / 2, z);
+    const addCrate = (x: number, z: number, width: number, depth: number, height: number, rotY: number) => {
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), crateMat);
+      crate.position.set(x, height / 2, z);
       crate.rotation.y = rotY;
       scene.add(crate);
       crate.add(new THREE.LineSegments(new THREE.EdgesGeometry(crate.geometry), crateEdgeMat));
-      const braceA = new THREE.Mesh(new THREE.BoxGeometry(size * 1.02, size * 0.12, size * 0.06), crateAccentMat);
-      braceA.rotation.z = Math.PI / 4;
-      braceA.position.set(0, 0, size / 2 + 0.03);
-      const braceB = new THREE.Mesh(new THREE.BoxGeometry(size * 1.02, size * 0.12, size * 0.06), crateAccentMat);
-      braceB.rotation.z = -Math.PI / 4;
-      braceB.position.set(0, 0, size / 2 + 0.03);
+      const diagLen = Math.hypot(width, height) * 1.02;
+      const diagAngle = Math.atan2(height, width);
+      const braceA = new THREE.Mesh(new THREE.BoxGeometry(diagLen, height * 0.12, 0.06), crateAccentMat);
+      braceA.rotation.z = diagAngle;
+      braceA.position.set(0, 0, depth / 2 + 0.03);
+      const braceB = new THREE.Mesh(new THREE.BoxGeometry(diagLen, height * 0.12, 0.06), crateAccentMat);
+      braceB.rotation.z = -diagAngle;
+      braceB.position.set(0, 0, depth / 2 + 0.03);
       crate.add(braceA, braceB);
     };
-    addCrate(ROOM_POS.x - 3, ROOM_POS.z - 3, 1.3, 0.3);
-    addCrate(ROOM_POS.x + 3.25, ROOM_POS.z - 2.5, 1.1, -0.4);
-    addCrate(ROOM_POS.x + 2.5, ROOM_POS.z + 3.25, 1.2, 0.8);
+    addCrate(ROOM_POS.x - 2.5, ROOM_POS.z - 2.5, 1, 2, 1.5, 0.3);
+    addCrate(ROOM_POS.x + 2.75, ROOM_POS.z - 2, 1, 2, 1.5, -0.4);
+    addCrate(ROOM_POS.x + 2, ROOM_POS.z + 2.75, 1, 2, 1.5, 0.8);
 
     // A recessed vent grate flush with the floor in the room's center.
     const grate = new THREE.Mesh(
