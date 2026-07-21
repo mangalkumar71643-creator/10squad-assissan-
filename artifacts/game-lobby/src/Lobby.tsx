@@ -1257,15 +1257,53 @@ function roomCrateObstacles(pos: { x: number; z: number }): Obstacle[] {
 const CORRIDOR_WIDTH = 3.5;
 const CORRIDOR_Z_NEAR = ROOM_POS.z - ROOM_SIZE / 2;
 const CORRIDOR_Z_FAR = ROOM2_POS.z + ROOM_SIZE / 2;
-const CORRIDOR_LENGTH = CORRIDOR_Z_NEAR - CORRIDOR_Z_FAR;
 const CORRIDOR_CENTER_Z = (CORRIDOR_Z_NEAR + CORRIDOR_Z_FAR) / 2;
 const CORRIDOR_SIDE_OFFSET = CORRIDOR_WIDTH / 2 + ROOM_WALL_THICKNESS / 2;
-const CORRIDOR_WALLS: Obstacle[] = [
-  { x: ROOM_POS.x - CORRIDOR_SIDE_OFFSET, z: CORRIDOR_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR_LENGTH / 2, pad: ROOM_PAD }, // west
-  { x: ROOM_POS.x + CORRIDOR_SIDE_OFFSET, z: CORRIDOR_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR_LENGTH / 2, pad: ROOM_PAD }, // east
+
+// A small 6x6 outpost built directly into the middle of the corridor, with
+// only a single door — on the wall facing ROOM_POS — so it splits the
+// corridor into two dead-end segments, one of which leads through the door
+// into this room.
+const MIDROOM_SIZE = 6;
+const MIDROOM_POS = { x: ROOM_POS.x, z: CORRIDOR_CENTER_Z };
+const MIDROOM_DOOR_WIDTH = ROOM_DOOR_WIDTH;
+const MIDROOM_SEG_WIDTH = (MIDROOM_SIZE - MIDROOM_DOOR_WIDTH) / 2;
+const MIDROOM_SEG_OFFSET = MIDROOM_DOOR_WIDTH / 2 + MIDROOM_SEG_WIDTH / 2;
+const MIDROOM_SOUTH_Z = MIDROOM_POS.z + MIDROOM_SIZE / 2; // door side, facing ROOM_POS
+const MIDROOM_NORTH_Z = MIDROOM_POS.z - MIDROOM_SIZE / 2; // solid, facing ROOM2_POS
+const MIDROOM_WALLS: Obstacle[] = [
+  { x: MIDROOM_POS.x - MIDROOM_SEG_OFFSET, z: MIDROOM_SOUTH_Z, halfX: MIDROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-west (door side)
+  { x: MIDROOM_POS.x + MIDROOM_SEG_OFFSET, z: MIDROOM_SOUTH_Z, halfX: MIDROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-east (door side)
+  { x: MIDROOM_POS.x, z: MIDROOM_NORTH_Z, halfX: MIDROOM_SIZE / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north — solid
+  { x: MIDROOM_POS.x - MIDROOM_SIZE / 2, z: MIDROOM_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: MIDROOM_SIZE / 2, pad: ROOM_PAD }, // west — solid
+  { x: MIDROOM_POS.x + MIDROOM_SIZE / 2, z: MIDROOM_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: MIDROOM_SIZE / 2, pad: ROOM_PAD }, // east — solid
 ];
 
-const OBSTACLES: Obstacle[] = [...ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]), ...CORRIDOR_WALLS];
+// The corridor is split into two segments by MIDROOM sitting in the middle:
+// one running from ROOM_POS to the midroom's doored south wall, the other
+// from ROOM2_POS to the midroom's solid north wall (a dead end).
+const CORRIDOR_NEAR_Z1 = MIDROOM_SOUTH_Z + ROOM_WALL_THICKNESS / 2; // outer face of midroom's south wall
+const CORRIDOR_NEAR_Z2 = CORRIDOR_Z_NEAR;
+const CORRIDOR_NEAR_LENGTH = CORRIDOR_NEAR_Z2 - CORRIDOR_NEAR_Z1;
+const CORRIDOR_NEAR_CENTER_Z = (CORRIDOR_NEAR_Z1 + CORRIDOR_NEAR_Z2) / 2;
+const CORRIDOR_FAR_Z1 = CORRIDOR_Z_FAR;
+const CORRIDOR_FAR_Z2 = MIDROOM_NORTH_Z - ROOM_WALL_THICKNESS / 2; // outer face of midroom's north wall
+const CORRIDOR_FAR_LENGTH = CORRIDOR_FAR_Z2 - CORRIDOR_FAR_Z1;
+const CORRIDOR_FAR_CENTER_Z = (CORRIDOR_FAR_Z1 + CORRIDOR_FAR_Z2) / 2;
+const CORRIDOR_SEGMENTS = [
+  { length: CORRIDOR_NEAR_LENGTH, centerZ: CORRIDOR_NEAR_CENTER_Z },
+  { length: CORRIDOR_FAR_LENGTH, centerZ: CORRIDOR_FAR_CENTER_Z },
+];
+const CORRIDOR_WALLS: Obstacle[] = CORRIDOR_SEGMENTS.flatMap((seg) => [
+  { x: ROOM_POS.x - CORRIDOR_SIDE_OFFSET, z: seg.centerZ, halfX: ROOM_WALL_THICKNESS / 2, halfZ: seg.length / 2, pad: ROOM_PAD }, // west
+  { x: ROOM_POS.x + CORRIDOR_SIDE_OFFSET, z: seg.centerZ, halfX: ROOM_WALL_THICKNESS / 2, halfZ: seg.length / 2, pad: ROOM_PAD }, // east
+]);
+
+const OBSTACLES: Obstacle[] = [
+  ...ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]),
+  ...MIDROOM_WALLS,
+  ...CORRIDOR_WALLS,
+];
 
 // Pushes a fighter's x/z position out of any obstacle's footprint, kicking
 // it out along whichever axis has the least overlap.
@@ -1698,27 +1736,45 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     // Covered corridor joining the two rooms' facing doors — same wall/
     // ceiling materials as the rooms so it reads as one connected structure.
+    // Built in two segments since MIDROOM sits in the middle of it.
     for (const ob of CORRIDOR_WALLS) {
       const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
       wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
       scene.add(wallMesh);
       wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
     }
-    const corridorCeiling = new THREE.Mesh(
-      new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR_LENGTH),
-      ceilingMat,
-    );
-    corridorCeiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR_CENTER_Z);
-    scene.add(corridorCeiling);
-    corridorCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridorCeiling.geometry), roomEdgeMat));
     const addCorridorStrip = (z: number) => {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
       strip.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT - 0.06, z);
       scene.add(strip);
     };
-    addCorridorStrip(CORRIDOR_CENTER_Z - CORRIDOR_LENGTH / 4);
-    addCorridorStrip(CORRIDOR_CENTER_Z);
-    addCorridorStrip(CORRIDOR_CENTER_Z + CORRIDOR_LENGTH / 4);
+    for (const seg of CORRIDOR_SEGMENTS) {
+      const segCeiling = new THREE.Mesh(
+        new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, seg.length),
+        ceilingMat,
+      );
+      segCeiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, seg.centerZ);
+      scene.add(segCeiling);
+      segCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(segCeiling.geometry), roomEdgeMat));
+      addCorridorStrip(seg.centerZ - seg.length / 4);
+      addCorridorStrip(seg.centerZ + seg.length / 4);
+    }
+
+    // MIDROOM — a small single-door outpost built into the middle of the
+    // corridor (see MIDROOM_WALLS above for its wall layout).
+    for (const ob of MIDROOM_WALLS) {
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
+      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
+      scene.add(wallMesh);
+      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+    }
+    const midDoorGlow = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_DOOR_WIDTH, 0.15, ROOM_WALL_THICKNESS + 0.05), doorGlowMat);
+    midDoorGlow.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT - 0.3, MIDROOM_SOUTH_Z);
+    scene.add(midDoorGlow);
+    const midCeiling = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_SIZE, ROOM_WALL_THICKNESS, MIDROOM_SIZE), ceilingMat);
+    midCeiling.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, MIDROOM_POS.z);
+    scene.add(midCeiling);
+    midCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(midCeiling.geometry), roomEdgeMat));
 
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
