@@ -1342,24 +1342,23 @@ const CORRIDOR4_WALLS: Obstacle[] = [
 // ROOM5_POS, i.e. continuing further along the same north direction ROOM5
 // branched off in. Unlike the other rooms it isn't square, so its wall
 // segments are computed independently per axis rather than reusing
-// roomWallObstacles(), but it keeps the same 4-door layout and materials.
+// roomWallObstacles(). Only one door (south, back to ROOM5_POS) remains —
+// see ROOM6_WALLS below.
 const ROOM6_WIDTH = 40;
 const ROOM6_DEPTH = 30;
 const ROOM6_DOOR_WIDTH = ROOM_DOOR_WIDTH;
 const ROOM6_POS = { x: ROOM5_POS.x, z: ROOM5_POS.z - (ROOM_SIZE / 2 + 40 + ROOM6_DEPTH / 2) };
 const ROOM6_SEG_WIDTH_X = (ROOM6_WIDTH - ROOM6_DOOR_WIDTH) / 2;
 const ROOM6_SEG_OFFSET_X = ROOM6_DOOR_WIDTH / 2 + ROOM6_SEG_WIDTH_X / 2;
-const ROOM6_SEG_WIDTH_Z = (ROOM6_DEPTH - ROOM6_DOOR_WIDTH) / 2;
-const ROOM6_SEG_OFFSET_Z = ROOM6_DOOR_WIDTH / 2 + ROOM6_SEG_WIDTH_Z / 2;
+// Only the south wall keeps its door (the one linking back to ROOM5_POS via
+// CORRIDOR5_WALLS) — north, east and west are sealed solid since they led
+// nowhere but open exterior.
 const ROOM6_WALLS: Obstacle[] = [
-  { x: ROOM6_POS.x - ROOM6_SEG_OFFSET_X, z: ROOM6_POS.z - ROOM6_DEPTH / 2, halfX: ROOM6_SEG_WIDTH_X / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-west
-  { x: ROOM6_POS.x + ROOM6_SEG_OFFSET_X, z: ROOM6_POS.z - ROOM6_DEPTH / 2, halfX: ROOM6_SEG_WIDTH_X / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-east
-  { x: ROOM6_POS.x - ROOM6_SEG_OFFSET_X, z: ROOM6_POS.z + ROOM6_DEPTH / 2, halfX: ROOM6_SEG_WIDTH_X / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-west
-  { x: ROOM6_POS.x + ROOM6_SEG_OFFSET_X, z: ROOM6_POS.z + ROOM6_DEPTH / 2, halfX: ROOM6_SEG_WIDTH_X / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-east
-  { x: ROOM6_POS.x - ROOM6_WIDTH / 2, z: ROOM6_POS.z - ROOM6_SEG_OFFSET_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM6_SEG_WIDTH_Z / 2, pad: ROOM_PAD }, // west-north
-  { x: ROOM6_POS.x - ROOM6_WIDTH / 2, z: ROOM6_POS.z + ROOM6_SEG_OFFSET_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM6_SEG_WIDTH_Z / 2, pad: ROOM_PAD }, // west-south
-  { x: ROOM6_POS.x + ROOM6_WIDTH / 2, z: ROOM6_POS.z - ROOM6_SEG_OFFSET_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM6_SEG_WIDTH_Z / 2, pad: ROOM_PAD }, // east-north
-  { x: ROOM6_POS.x + ROOM6_WIDTH / 2, z: ROOM6_POS.z + ROOM6_SEG_OFFSET_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM6_SEG_WIDTH_Z / 2, pad: ROOM_PAD }, // east-south
+  { x: ROOM6_POS.x, z: ROOM6_POS.z - ROOM6_DEPTH / 2, halfX: ROOM6_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north — solid
+  { x: ROOM6_POS.x - ROOM6_SEG_OFFSET_X, z: ROOM6_POS.z + ROOM6_DEPTH / 2, halfX: ROOM6_SEG_WIDTH_X / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-west (door side)
+  { x: ROOM6_POS.x + ROOM6_SEG_OFFSET_X, z: ROOM6_POS.z + ROOM6_DEPTH / 2, halfX: ROOM6_SEG_WIDTH_X / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-east (door side)
+  { x: ROOM6_POS.x - ROOM6_WIDTH / 2, z: ROOM6_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM6_DEPTH / 2, pad: ROOM_PAD }, // west — solid
+  { x: ROOM6_POS.x + ROOM6_WIDTH / 2, z: ROOM6_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM6_DEPTH / 2, pad: ROOM_PAD }, // east — solid
 ];
 
 // Fifth corridor joining ROOM5_POS's north door to ROOM6_POS's south door.
@@ -1974,10 +1973,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       glow.position.set(x, ROOM_WALL_HEIGHT - 0.3, z);
       scene.add(glow);
     };
-    addRoom6DoorGlow(ROOM6_POS.x, ROOM6_POS.z - ROOM6_DEPTH / 2, ROOM6_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // north
-    addRoom6DoorGlow(ROOM6_POS.x, ROOM6_POS.z + ROOM6_DEPTH / 2, ROOM6_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // south
-    addRoom6DoorGlow(ROOM6_POS.x - ROOM6_WIDTH / 2, ROOM6_POS.z, ROOM_WALL_THICKNESS + 0.05, ROOM6_DOOR_WIDTH); // west
-    addRoom6DoorGlow(ROOM6_POS.x + ROOM6_WIDTH / 2, ROOM6_POS.z, ROOM_WALL_THICKNESS + 0.05, ROOM6_DOOR_WIDTH); // east
+    addRoom6DoorGlow(ROOM6_POS.x, ROOM6_POS.z + ROOM6_DEPTH / 2, ROOM6_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // south — the only remaining door
     const room6Ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM6_WIDTH, ROOM_WALL_THICKNESS, ROOM6_DEPTH), ceilingMat);
     room6Ceiling.position.set(ROOM6_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM6_POS.z);
     scene.add(room6Ceiling);
