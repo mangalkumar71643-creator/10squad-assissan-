@@ -1232,6 +1232,12 @@ const OBSTACLES: Obstacle[] = [
   { x: ROOM_POS.x - ROOM_SIZE / 2, z: ROOM_POS.z + ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // west-south
   { x: ROOM_POS.x + ROOM_SIZE / 2, z: ROOM_POS.z - ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // east-north
   { x: ROOM_POS.x + ROOM_SIZE / 2, z: ROOM_POS.z + ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // east-south
+  // Storage crates (mirrors the addCrate(...) calls below) — axis-aligned
+  // half-extents padded out to cover each crate's rotated footprint so a
+  // fighter can't walk straight through the decoration.
+  { x: ROOM_POS.x - 3, z: ROOM_POS.z - 3, halfX: 0.82, halfZ: 0.82, pad: ROOM_PAD }, // crate 1
+  { x: ROOM_POS.x + 3.25, z: ROOM_POS.z - 2.5, halfX: 0.73, halfZ: 0.73, pad: ROOM_PAD }, // crate 2
+  { x: ROOM_POS.x + 2.5, z: ROOM_POS.z + 3.25, halfX: 0.85, halfZ: 0.85, pad: ROOM_PAD }, // crate 3
 ];
 
 // Pushes a fighter's x/z position out of any obstacle's footprint, kicking
