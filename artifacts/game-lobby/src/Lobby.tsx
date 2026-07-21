@@ -1205,9 +1205,9 @@ const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters 
 // sci-fi interior. Placed well away from the default spawn points so it
 // doesn't interfere with the immediate spawn-adjacent fight.
 const ROOM_SIZE = 10;
-const ROOM_WALL_HEIGHT = 5;
+const ROOM_WALL_HEIGHT = 2.5;
 const ROOM_WALL_THICKNESS = 0.6;
-const ROOM_DOOR_WIDTH = 5;
+const ROOM_DOOR_WIDTH = 3;
 const ROOM_POS = { x: 60, z: -50 };
 const ROOM_SEG_WIDTH = (ROOM_SIZE - ROOM_DOOR_WIDTH) / 2;
 const ROOM_SEG_OFFSET = ROOM_DOOR_WIDTH / 2 + ROOM_SEG_WIDTH / 2;
@@ -1631,10 +1631,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     // A glowing wall screen mounted on the interior face of the south wall.
     const screen = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.4, 1.6),
+      new THREE.PlaneGeometry(1.2, 0.8),
       new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6be2ff, emissiveIntensity: 0.9, roughness: 0.3 }),
     );
-    screen.position.set(ROOM_POS.x - ROOM_SEG_OFFSET, 2.6, ROOM_POS.z + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2 - 0.02);
+    screen.position.set(ROOM_POS.x - ROOM_SEG_OFFSET, ROOM_WALL_HEIGHT * 0.52, ROOM_POS.z + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2 - 0.02);
     screen.rotation.y = Math.PI;
     scene.add(screen);
 
