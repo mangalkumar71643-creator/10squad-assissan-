@@ -1204,7 +1204,7 @@ const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters 
 // a floor grate, hazard stripes and a wall screen to match the reference
 // sci-fi interior. Placed well away from the default spawn points so it
 // doesn't interfere with the immediate spawn-adjacent fight.
-const ROOM_SIZE = 20;
+const ROOM_SIZE = 10;
 const ROOM_WALL_HEIGHT = 5;
 const ROOM_WALL_THICKNESS = 0.6;
 const ROOM_DOOR_WIDTH = 5;
@@ -1607,9 +1607,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       braceB.position.set(0, 0, size / 2 + 0.03);
       crate.add(braceA, braceB);
     };
-    addCrate(ROOM_POS.x - 6, ROOM_POS.z - 6, 2.6, 0.3);
-    addCrate(ROOM_POS.x + 6.5, ROOM_POS.z - 5, 2.2, -0.4);
-    addCrate(ROOM_POS.x + 5, ROOM_POS.z + 6.5, 2.4, 0.8);
+    addCrate(ROOM_POS.x - 3, ROOM_POS.z - 3, 1.3, 0.3);
+    addCrate(ROOM_POS.x + 3.25, ROOM_POS.z - 2.5, 1.1, -0.4);
+    addCrate(ROOM_POS.x + 2.5, ROOM_POS.z + 3.25, 1.2, 0.8);
 
     // A recessed vent grate flush with the floor in the room's center.
     const grate = new THREE.Mesh(
@@ -1652,9 +1652,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       strip.position.set(x, ROOM_WALL_HEIGHT - 0.06, z);
       scene.add(strip);
     };
-    addCeilingStrip(ROOM_POS.x, ROOM_POS.z - 5, 3, 0.4);
-    addCeilingStrip(ROOM_POS.x, ROOM_POS.z, 3, 0.4);
-    addCeilingStrip(ROOM_POS.x, ROOM_POS.z + 5, 3, 0.4);
+    addCeilingStrip(ROOM_POS.x, ROOM_POS.z - 2.5, 1.5, 0.3);
+    addCeilingStrip(ROOM_POS.x, ROOM_POS.z, 1.5, 0.3);
+    addCeilingStrip(ROOM_POS.x, ROOM_POS.z + 2.5, 1.5, 0.3);
 
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
