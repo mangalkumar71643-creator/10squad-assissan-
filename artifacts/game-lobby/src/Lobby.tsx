@@ -1249,7 +1249,22 @@ function roomCrateObstacles(pos: { x: number; z: number }): Obstacle[] {
   ];
 }
 
-const OBSTACLES: Obstacle[] = ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]);
+// A covered corridor connecting the two rooms' facing doors — walled on
+// both sides and roofed to match, so the two rooms read as one connected
+// outpost. Runs from ROOM_POS's north (entrance) wall to ROOM2_POS's south
+// (exit) wall, the same width as the doors it joins.
+const CORRIDOR_WIDTH = ROOM_DOOR_WIDTH;
+const CORRIDOR_Z_NEAR = ROOM_POS.z - ROOM_SIZE / 2;
+const CORRIDOR_Z_FAR = ROOM2_POS.z + ROOM_SIZE / 2;
+const CORRIDOR_LENGTH = CORRIDOR_Z_NEAR - CORRIDOR_Z_FAR;
+const CORRIDOR_CENTER_Z = (CORRIDOR_Z_NEAR + CORRIDOR_Z_FAR) / 2;
+const CORRIDOR_SIDE_OFFSET = CORRIDOR_WIDTH / 2 + ROOM_WALL_THICKNESS / 2;
+const CORRIDOR_WALLS: Obstacle[] = [
+  { x: ROOM_POS.x - CORRIDOR_SIDE_OFFSET, z: CORRIDOR_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR_LENGTH / 2, pad: ROOM_PAD }, // west
+  { x: ROOM_POS.x + CORRIDOR_SIDE_OFFSET, z: CORRIDOR_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR_LENGTH / 2, pad: ROOM_PAD }, // east
+];
+
+const OBSTACLES: Obstacle[] = [...ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]), ...CORRIDOR_WALLS];
 
 // Pushes a fighter's x/z position out of any obstacle's footprint, kicking
 // it out along whichever axis has the least overlap.
@@ -1679,6 +1694,30 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     for (const pos of ROOM_POSITIONS) {
       buildRoom(pos);
     }
+
+    // Covered corridor joining the two rooms' facing doors — same wall/
+    // ceiling materials as the rooms so it reads as one connected structure.
+    for (const ob of CORRIDOR_WALLS) {
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
+      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
+      scene.add(wallMesh);
+      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+    }
+    const corridorCeiling = new THREE.Mesh(
+      new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR_LENGTH),
+      ceilingMat,
+    );
+    corridorCeiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR_CENTER_Z);
+    scene.add(corridorCeiling);
+    corridorCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridorCeiling.geometry), roomEdgeMat));
+    const addCorridorStrip = (z: number) => {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
+      strip.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT - 0.06, z);
+      scene.add(strip);
+    };
+    addCorridorStrip(CORRIDOR_CENTER_Z - CORRIDOR_LENGTH / 4);
+    addCorridorStrip(CORRIDOR_CENTER_Z);
+    addCorridorStrip(CORRIDOR_CENTER_Z + CORRIDOR_LENGTH / 4);
 
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
