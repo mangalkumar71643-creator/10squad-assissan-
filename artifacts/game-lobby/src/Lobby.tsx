@@ -1209,6 +1209,8 @@ const ROOM_WALL_HEIGHT = 2.5;
 const ROOM_WALL_THICKNESS = 0.6;
 const ROOM_DOOR_WIDTH = 2;
 const ROOM_POS = { x: 60, z: -50 };
+const ROOM2_POS = { x: 60, z: -150 }; // a second, identical room 100 units north of the first
+const ROOM_POSITIONS = [ROOM_POS, ROOM2_POS];
 const ROOM_SEG_WIDTH = (ROOM_SIZE - ROOM_DOOR_WIDTH) / 2;
 const ROOM_SEG_OFFSET = ROOM_DOOR_WIDTH / 2 + ROOM_SEG_WIDTH / 2;
 const ROOM_PAD = 0.4; // padded out by a fighter's body radius
@@ -1223,22 +1225,31 @@ interface Obstacle {
 
 // Two wall segments per side (north/south run along x, east/west run along
 // z), flanking a door-width gap at the room's center on that side.
-const OBSTACLES: Obstacle[] = [
-  { x: ROOM_POS.x - ROOM_SEG_OFFSET, z: ROOM_POS.z - ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-west
-  { x: ROOM_POS.x + ROOM_SEG_OFFSET, z: ROOM_POS.z - ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-east
-  { x: ROOM_POS.x - ROOM_SEG_OFFSET, z: ROOM_POS.z + ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-west
-  { x: ROOM_POS.x + ROOM_SEG_OFFSET, z: ROOM_POS.z + ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-east
-  { x: ROOM_POS.x - ROOM_SIZE / 2, z: ROOM_POS.z - ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // west-north
-  { x: ROOM_POS.x - ROOM_SIZE / 2, z: ROOM_POS.z + ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // west-south
-  { x: ROOM_POS.x + ROOM_SIZE / 2, z: ROOM_POS.z - ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // east-north
-  { x: ROOM_POS.x + ROOM_SIZE / 2, z: ROOM_POS.z + ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // east-south
-  // Storage crates (mirrors the addCrate(...) calls below) — axis-aligned
-  // half-extents padded out to cover each crate's rotated footprint so a
-  // fighter can't walk straight through the decoration.
-  { x: ROOM_POS.x - 2.5, z: ROOM_POS.z - 2.5, halfX: 0.8, halfZ: 1.12, pad: ROOM_PAD }, // crate 1
-  { x: ROOM_POS.x + 2.75, z: ROOM_POS.z - 2, halfX: 0.86, halfZ: 1.13, pad: ROOM_PAD }, // crate 2
-  { x: ROOM_POS.x + 2, z: ROOM_POS.z + 2.75, halfX: 1.08, halfZ: 1.07, pad: ROOM_PAD }, // crate 3
-];
+function roomWallObstacles(pos: { x: number; z: number }): Obstacle[] {
+  return [
+    { x: pos.x - ROOM_SEG_OFFSET, z: pos.z - ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-west
+    { x: pos.x + ROOM_SEG_OFFSET, z: pos.z - ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-east
+    { x: pos.x - ROOM_SEG_OFFSET, z: pos.z + ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-west
+    { x: pos.x + ROOM_SEG_OFFSET, z: pos.z + ROOM_SIZE / 2, halfX: ROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-east
+    { x: pos.x - ROOM_SIZE / 2, z: pos.z - ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // west-north
+    { x: pos.x - ROOM_SIZE / 2, z: pos.z + ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // west-south
+    { x: pos.x + ROOM_SIZE / 2, z: pos.z - ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // east-north
+    { x: pos.x + ROOM_SIZE / 2, z: pos.z + ROOM_SEG_OFFSET, halfX: ROOM_WALL_THICKNESS / 2, halfZ: ROOM_SEG_WIDTH / 2, pad: ROOM_PAD }, // east-south
+  ];
+}
+
+// Storage crates (mirrors the addCrate(...) calls below) — axis-aligned
+// half-extents padded out to cover each crate's rotated footprint so a
+// fighter can't walk straight through the decoration.
+function roomCrateObstacles(pos: { x: number; z: number }): Obstacle[] {
+  return [
+    { x: pos.x - 2.5, z: pos.z - 2.5, halfX: 0.8, halfZ: 1.12, pad: ROOM_PAD }, // crate 1
+    { x: pos.x + 2.75, z: pos.z - 2, halfX: 0.86, halfZ: 1.13, pad: ROOM_PAD }, // crate 2
+    { x: pos.x + 2, z: pos.z + 2.75, halfX: 1.08, halfZ: 1.07, pad: ROOM_PAD }, // crate 3
+  ];
+}
+
+const OBSTACLES: Obstacle[] = ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]);
 
 // Pushes a fighter's x/z position out of any obstacle's footprint, kicking
 // it out along whichever axis has the least overlap.
@@ -1575,94 +1586,99 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // hazard-stripe decal and a wall screen for detail.
     const roomWallMat = new THREE.MeshStandardMaterial({ color: 0x2a323c, roughness: 0.55, metalness: 0.4 });
     const roomEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
-    for (const ob of OBSTACLES) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      const wallEdges = new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat);
-      wallMesh.add(wallEdges);
-    }
-
-    // Glowing red door-frame lintel over each of the 4 openings.
     const doorGlowMat = new THREE.MeshStandardMaterial({ color: 0xff3355, emissive: 0xff3355, emissiveIntensity: 1.4, roughness: 0.4 });
-    const addDoorGlow = (x: number, z: number, sizeX: number, sizeZ: number) => {
-      const glow = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.15, sizeZ), doorGlowMat);
-      glow.position.set(x, ROOM_WALL_HEIGHT - 0.3, z);
-      scene.add(glow);
-    };
-    addDoorGlow(ROOM_POS.x, ROOM_POS.z - ROOM_SIZE / 2, ROOM_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // north (entrance)
-    addDoorGlow(ROOM_POS.x, ROOM_POS.z + ROOM_SIZE / 2, ROOM_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // south (exit)
-    addDoorGlow(ROOM_POS.x - ROOM_SIZE / 2, ROOM_POS.z, ROOM_WALL_THICKNESS + 0.05, ROOM_DOOR_WIDTH); // west (exit)
-    addDoorGlow(ROOM_POS.x + ROOM_SIZE / 2, ROOM_POS.z, ROOM_WALL_THICKNESS + 0.05, ROOM_DOOR_WIDTH); // east (exit)
-
-    // A few storage crates with a cross-braced accent on their front face.
     const crateMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.7, metalness: 0.3 });
     const crateEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
     const crateAccentMat = new THREE.MeshStandardMaterial({ color: 0xd8402c, emissive: 0xd8402c, emissiveIntensity: 0.5, roughness: 0.5 });
-    const addCrate = (x: number, z: number, width: number, depth: number, height: number, rotY: number) => {
-      const crate = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), crateMat);
-      crate.position.set(x, height / 2, z);
-      crate.rotation.y = rotY;
-      scene.add(crate);
-      crate.add(new THREE.LineSegments(new THREE.EdgesGeometry(crate.geometry), crateEdgeMat));
-      const diagLen = Math.hypot(width, height) * 1.02;
-      const diagAngle = Math.atan2(height, width);
-      const braceA = new THREE.Mesh(new THREE.BoxGeometry(diagLen, height * 0.12, 0.06), crateAccentMat);
-      braceA.rotation.z = diagAngle;
-      braceA.position.set(0, 0, depth / 2 + 0.03);
-      const braceB = new THREE.Mesh(new THREE.BoxGeometry(diagLen, height * 0.12, 0.06), crateAccentMat);
-      braceB.rotation.z = -diagAngle;
-      braceB.position.set(0, 0, depth / 2 + 0.03);
-      crate.add(braceA, braceB);
-    };
-    addCrate(ROOM_POS.x - 2.5, ROOM_POS.z - 2.5, 1, 2, 1.5, 0.3);
-    addCrate(ROOM_POS.x + 2.75, ROOM_POS.z - 2, 1, 2, 1.5, -0.4);
-    addCrate(ROOM_POS.x + 2, ROOM_POS.z + 2.75, 1, 2, 1.5, 0.8);
-
-    // A recessed vent grate flush with the floor in the room's center.
-    const grate = new THREE.Mesh(
-      new THREE.PlaneGeometry(4, 4),
-      new THREE.MeshStandardMaterial({ map: createGrateTexture(), roughness: 0.5, metalness: 0.5 }),
-    );
-    grate.rotation.x = -Math.PI / 2;
-    grate.position.set(ROOM_POS.x, 0.02, ROOM_POS.z);
-    scene.add(grate);
-
-    // Hazard-stripe floor decal at the entrance threshold.
-    const hazard = new THREE.Mesh(
-      new THREE.PlaneGeometry(ROOM_DOOR_WIDTH, 2),
-      new THREE.MeshStandardMaterial({ map: createHazardStripeTexture(), roughness: 0.8 }),
-    );
-    hazard.rotation.x = -Math.PI / 2;
-    hazard.position.set(ROOM_POS.x, 0.015, ROOM_POS.z - ROOM_SIZE / 2 + 1);
-    scene.add(hazard);
-
-    // A glowing wall screen mounted on the interior face of the south wall.
-    const screen = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.2, 0.8),
-      new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6be2ff, emissiveIntensity: 0.9, roughness: 0.3 }),
-    );
-    screen.position.set(ROOM_POS.x - ROOM_SEG_OFFSET, ROOM_WALL_HEIGHT * 0.52, ROOM_POS.z + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2 - 0.02);
-    screen.rotation.y = Math.PI;
-    scene.add(screen);
-
-    // Ceiling slab sealing the room, with embedded cyan light-strip panels
-    // matching the reference image's overhead detailing.
+    const grateMat = new THREE.MeshStandardMaterial({ map: createGrateTexture(), roughness: 0.5, metalness: 0.5 });
+    const hazardMat = new THREE.MeshStandardMaterial({ map: createHazardStripeTexture(), roughness: 0.8 });
+    const screenMat = new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6be2ff, emissiveIntensity: 0.9, roughness: 0.3 });
     const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x232a32, roughness: 0.6, metalness: 0.35, side: THREE.DoubleSide });
-    const ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM_SIZE, ROOM_WALL_THICKNESS, ROOM_SIZE), ceilingMat);
-    ceiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM_POS.z);
-    scene.add(ceiling);
-    ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(ceiling.geometry), roomEdgeMat));
-
     const lightStripMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3 });
-    const addCeilingStrip = (x: number, z: number, sizeX: number, sizeZ: number) => {
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.08, sizeZ), lightStripMat);
-      strip.position.set(x, ROOM_WALL_HEIGHT - 0.06, z);
-      scene.add(strip);
+
+    // Builds one full sci-fi outpost room (walls, door glows, crates, floor
+    // grate, hazard stripe, wall screen, ceiling) at the given position —
+    // called once per entry in ROOM_POSITIONS so every room stays visually
+    // and structurally identical.
+    const buildRoom = (pos: { x: number; z: number }) => {
+      for (const ob of roomWallObstacles(pos)) {
+        const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
+        wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
+        scene.add(wallMesh);
+        const wallEdges = new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat);
+        wallMesh.add(wallEdges);
+      }
+
+      // Glowing red door-frame lintel over each of the 4 openings.
+      const addDoorGlow = (x: number, z: number, sizeX: number, sizeZ: number) => {
+        const glow = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.15, sizeZ), doorGlowMat);
+        glow.position.set(x, ROOM_WALL_HEIGHT - 0.3, z);
+        scene.add(glow);
+      };
+      addDoorGlow(pos.x, pos.z - ROOM_SIZE / 2, ROOM_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // north (entrance)
+      addDoorGlow(pos.x, pos.z + ROOM_SIZE / 2, ROOM_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // south (exit)
+      addDoorGlow(pos.x - ROOM_SIZE / 2, pos.z, ROOM_WALL_THICKNESS + 0.05, ROOM_DOOR_WIDTH); // west (exit)
+      addDoorGlow(pos.x + ROOM_SIZE / 2, pos.z, ROOM_WALL_THICKNESS + 0.05, ROOM_DOOR_WIDTH); // east (exit)
+
+      // A few storage crates with a cross-braced accent on their front face.
+      const addCrate = (x: number, z: number, width: number, depth: number, height: number, rotY: number) => {
+        const crate = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), crateMat);
+        crate.position.set(x, height / 2, z);
+        crate.rotation.y = rotY;
+        scene.add(crate);
+        crate.add(new THREE.LineSegments(new THREE.EdgesGeometry(crate.geometry), crateEdgeMat));
+        const diagLen = Math.hypot(width, height) * 1.02;
+        const diagAngle = Math.atan2(height, width);
+        const braceA = new THREE.Mesh(new THREE.BoxGeometry(diagLen, height * 0.12, 0.06), crateAccentMat);
+        braceA.rotation.z = diagAngle;
+        braceA.position.set(0, 0, depth / 2 + 0.03);
+        const braceB = new THREE.Mesh(new THREE.BoxGeometry(diagLen, height * 0.12, 0.06), crateAccentMat);
+        braceB.rotation.z = -diagAngle;
+        braceB.position.set(0, 0, depth / 2 + 0.03);
+        crate.add(braceA, braceB);
+      };
+      addCrate(pos.x - 2.5, pos.z - 2.5, 1, 2, 1.5, 0.3);
+      addCrate(pos.x + 2.75, pos.z - 2, 1, 2, 1.5, -0.4);
+      addCrate(pos.x + 2, pos.z + 2.75, 1, 2, 1.5, 0.8);
+
+      // A recessed vent grate flush with the floor in the room's center.
+      const grate = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), grateMat);
+      grate.rotation.x = -Math.PI / 2;
+      grate.position.set(pos.x, 0.02, pos.z);
+      scene.add(grate);
+
+      // Hazard-stripe floor decal at the entrance threshold.
+      const hazard = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_DOOR_WIDTH, 2), hazardMat);
+      hazard.rotation.x = -Math.PI / 2;
+      hazard.position.set(pos.x, 0.015, pos.z - ROOM_SIZE / 2 + 1);
+      scene.add(hazard);
+
+      // A glowing wall screen mounted on the interior face of the south wall.
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.8), screenMat);
+      screen.position.set(pos.x - ROOM_SEG_OFFSET, ROOM_WALL_HEIGHT * 0.52, pos.z + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2 - 0.02);
+      screen.rotation.y = Math.PI;
+      scene.add(screen);
+
+      // Ceiling slab sealing the room, with embedded cyan light-strip panels
+      // matching the reference image's overhead detailing.
+      const ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM_SIZE, ROOM_WALL_THICKNESS, ROOM_SIZE), ceilingMat);
+      ceiling.position.set(pos.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, pos.z);
+      scene.add(ceiling);
+      ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(ceiling.geometry), roomEdgeMat));
+
+      const addCeilingStrip = (x: number, z: number, sizeX: number, sizeZ: number) => {
+        const strip = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.08, sizeZ), lightStripMat);
+        strip.position.set(x, ROOM_WALL_HEIGHT - 0.06, z);
+        scene.add(strip);
+      };
+      addCeilingStrip(pos.x, pos.z - 2.5, 1.5, 0.3);
+      addCeilingStrip(pos.x, pos.z, 1.5, 0.3);
+      addCeilingStrip(pos.x, pos.z + 2.5, 1.5, 0.3);
     };
-    addCeilingStrip(ROOM_POS.x, ROOM_POS.z - 2.5, 1.5, 0.3);
-    addCeilingStrip(ROOM_POS.x, ROOM_POS.z, 1.5, 0.3);
-    addCeilingStrip(ROOM_POS.x, ROOM_POS.z + 2.5, 1.5, 0.3);
+
+    for (const pos of ROOM_POSITIONS) {
+      buildRoom(pos);
+    }
 
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
