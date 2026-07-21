@@ -1210,7 +1210,8 @@ const ROOM_WALL_THICKNESS = 0.6;
 const ROOM_DOOR_WIDTH = 2;
 const ROOM_POS = { x: 60, z: -50 };
 const ROOM2_POS = { x: 60, z: -150 }; // a second, identical room 100 units north of the first
-const ROOM_POSITIONS = [ROOM_POS, ROOM2_POS];
+const ROOM3_POS = { x: 60, z: -200 }; // a third, identical room 50 units north of the second
+const ROOM_POSITIONS = [ROOM_POS, ROOM2_POS, ROOM3_POS];
 const ROOM_SEG_WIDTH = (ROOM_SIZE - ROOM_DOOR_WIDTH) / 2;
 const ROOM_SEG_OFFSET = ROOM_DOOR_WIDTH / 2 + ROOM_SEG_WIDTH / 2;
 const ROOM_PAD = 0.4; // padded out by a fighter's body radius
@@ -1299,10 +1300,22 @@ const CORRIDOR_WALLS: Obstacle[] = CORRIDOR_SEGMENTS.flatMap((seg) => [
   { x: ROOM_POS.x + CORRIDOR_SIDE_OFFSET, z: seg.centerZ, halfX: ROOM_WALL_THICKNESS / 2, halfZ: seg.length / 2, pad: ROOM_PAD }, // east
 ]);
 
+// A second, plain corridor (no mid-house this time) connecting ROOM2_POS's
+// entrance wall to ROOM3_POS's exit wall.
+const CORRIDOR2_Z_NEAR = ROOM2_POS.z - ROOM_SIZE / 2;
+const CORRIDOR2_Z_FAR = ROOM3_POS.z + ROOM_SIZE / 2;
+const CORRIDOR2_LENGTH = CORRIDOR2_Z_NEAR - CORRIDOR2_Z_FAR;
+const CORRIDOR2_CENTER_Z = (CORRIDOR2_Z_NEAR + CORRIDOR2_Z_FAR) / 2;
+const CORRIDOR2_WALLS: Obstacle[] = [
+  { x: ROOM_POS.x - CORRIDOR_SIDE_OFFSET, z: CORRIDOR2_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR2_LENGTH / 2, pad: ROOM_PAD }, // west
+  { x: ROOM_POS.x + CORRIDOR_SIDE_OFFSET, z: CORRIDOR2_CENTER_Z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: CORRIDOR2_LENGTH / 2, pad: ROOM_PAD }, // east
+];
+
 const OBSTACLES: Obstacle[] = [
   ...ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]),
   ...MIDROOM_WALLS,
   ...CORRIDOR_WALLS,
+  ...CORRIDOR2_WALLS,
 ];
 
 // Pushes a fighter's x/z position out of any obstacle's footprint, kicking
@@ -1775,6 +1788,24 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     midCeiling.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, MIDROOM_POS.z);
     scene.add(midCeiling);
     midCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(midCeiling.geometry), roomEdgeMat));
+
+    // Second corridor — a plain walled/roofed passage (no mid-house) joining
+    // ROOM2_POS to ROOM3_POS.
+    for (const ob of CORRIDOR2_WALLS) {
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
+      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
+      scene.add(wallMesh);
+      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+    }
+    const corridor2Ceiling = new THREE.Mesh(
+      new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR2_LENGTH),
+      ceilingMat,
+    );
+    corridor2Ceiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR2_CENTER_Z);
+    scene.add(corridor2Ceiling);
+    corridor2Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridor2Ceiling.geometry), roomEdgeMat));
+    addCorridorStrip(CORRIDOR2_CENTER_Z - CORRIDOR2_LENGTH / 4);
+    addCorridorStrip(CORRIDOR2_CENTER_Z + CORRIDOR2_LENGTH / 4);
 
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
