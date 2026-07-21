@@ -1400,6 +1400,34 @@ const OBSTACLES: Obstacle[] = [
   ...EXTRA_CRATES,
 ];
 
+// Every door opening in the map, catalogued so a sliding gate can be built
+// for each one — closed by default, sliding apart automatically as a
+// fighter approaches. `axis` is the direction the two panels slide apart:
+// "x" for gaps in a wall that runs along x (north/south walls), "z" for
+// gaps in a wall that runs along z (east/west walls).
+interface Door {
+  x: number;
+  z: number;
+  width: number;
+  axis: "x" | "z";
+}
+
+function roomDoors(pos: { x: number; z: number }): Door[] {
+  return [
+    { x: pos.x, z: pos.z - ROOM_SIZE / 2, width: ROOM_DOOR_WIDTH, axis: "x" }, // north
+    { x: pos.x, z: pos.z + ROOM_SIZE / 2, width: ROOM_DOOR_WIDTH, axis: "x" }, // south
+    { x: pos.x - ROOM_SIZE / 2, z: pos.z, width: ROOM_DOOR_WIDTH, axis: "z" }, // west
+    { x: pos.x + ROOM_SIZE / 2, z: pos.z, width: ROOM_DOOR_WIDTH, axis: "z" }, // east
+  ];
+}
+
+const DOORS: Door[] = [
+  ...ROOM_POSITIONS.flatMap(roomDoors),
+  { x: ROOM6_POS.x, z: ROOM6_POS.z + ROOM6_DEPTH / 2, width: ROOM6_DOOR_WIDTH, axis: "x" }, // room6's one remaining door
+  { x: MIDROOM_POS.x, z: MIDROOM_SOUTH_Z, width: MIDROOM_DOOR_WIDTH, axis: "x" },
+  { x: MIDROOM_POS.x, z: MIDROOM_NORTH_Z, width: MIDROOM_DOOR_WIDTH, axis: "x" },
+];
+
 // Pushes a fighter's x/z position out of any obstacle's footprint, kicking
 // it out along whichever axis has the least overlap.
 function resolveObstacleCollisions(pos: { x: number; z: number }) {
@@ -1989,6 +2017,42 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       crate.add(new THREE.LineSegments(new THREE.EdgesGeometry(crate.geometry), crateEdgeMat));
     }
 
+    // Sliding gates — one pair of panels per door, closed by default and
+    // sliding apart automatically as the player gets close (see the gate
+    // update loop further down, in the per-frame tick).
+    const gateMat = new THREE.MeshStandardMaterial({ color: 0x30383f, roughness: 0.5, metalness: 0.5 });
+    const gateEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
+    const GATE_PANEL_HEIGHT = ROOM_WALL_HEIGHT - 0.4;
+    const GATE_THICKNESS = ROOM_WALL_THICKNESS * 0.9;
+    const GATE_OPEN_RADIUS = 3.5;
+    const GATE_SLIDE_RATE = 4;
+    const gates = DOORS.map((door) => {
+      const panelWidth = door.width / 2;
+      const geo =
+        door.axis === "x"
+          ? new THREE.BoxGeometry(panelWidth, GATE_PANEL_HEIGHT, GATE_THICKNESS)
+          : new THREE.BoxGeometry(GATE_THICKNESS, GATE_PANEL_HEIGHT, panelWidth);
+      const panelA = new THREE.Mesh(geo, gateMat);
+      const panelB = new THREE.Mesh(geo, gateMat);
+      panelA.position.y = GATE_PANEL_HEIGHT / 2;
+      panelB.position.y = GATE_PANEL_HEIGHT / 2;
+      panelA.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), gateEdgeMat));
+      panelB.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), gateEdgeMat));
+      scene.add(panelA, panelB);
+      return { door, panelA, panelB, panelWidth, openAmount: 0 };
+    });
+    const updateGatePanels = (g: (typeof gates)[number]) => {
+      const slide = g.panelWidth * g.openAmount;
+      if (g.door.axis === "x") {
+        g.panelA.position.set(g.door.x - g.panelWidth / 2 - slide, GATE_PANEL_HEIGHT / 2, g.door.z);
+        g.panelB.position.set(g.door.x + g.panelWidth / 2 + slide, GATE_PANEL_HEIGHT / 2, g.door.z);
+      } else {
+        g.panelA.position.set(g.door.x, GATE_PANEL_HEIGHT / 2, g.door.z - g.panelWidth / 2 - slide);
+        g.panelB.position.set(g.door.x, GATE_PANEL_HEIGHT / 2, g.door.z + g.panelWidth / 2 + slide);
+      }
+    };
+    gates.forEach(updateGatePanels); // start fully closed
+
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
     let bot2: FighterRig | null = null;
@@ -2133,6 +2197,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         player.root.position.x = clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         player.root.position.z = clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         resolveObstacleCollisions(player.root.position);
+
+        // Slide each gate open as the player nears its door, closed again
+        // once they've moved away.
+        for (const g of gates) {
+          const gateDx = player.root.position.x - g.door.x;
+          const gateDz = player.root.position.z - g.door.z;
+          const gateTarget = Math.hypot(gateDx, gateDz) < GATE_OPEN_RADIUS ? 1 : 0;
+          g.openAmount = approach(g.openAmount, gateTarget, GATE_SLIDE_RATE, dt);
+          updateGatePanels(g);
+        }
 
         playerSpeedNow = Math.hypot(playerVelX, playerVelZ);
         // Face the direction actually being moved in (not the raw stick
