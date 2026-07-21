@@ -1262,20 +1262,20 @@ const CORRIDOR_CENTER_Z = (CORRIDOR_Z_NEAR + CORRIDOR_Z_FAR) / 2;
 const CORRIDOR_SIDE_OFFSET = CORRIDOR_WIDTH / 2 + ROOM_WALL_THICKNESS / 2;
 
 // A small 6x6 outpost built directly into the middle of the corridor, with
-// only a single door — on the wall facing ROOM_POS — so it splits the
-// corridor into two dead-end segments, one of which leads through the door
-// into this room.
+// a door on each of the two walls facing the corridor (ROOM_POS's side and
+// ROOM2_POS's side) so all three rooms connect through one continuous path.
 const MIDROOM_SIZE = 6;
 const MIDROOM_POS = { x: ROOM_POS.x, z: CORRIDOR_CENTER_Z };
 const MIDROOM_DOOR_WIDTH = ROOM_DOOR_WIDTH;
 const MIDROOM_SEG_WIDTH = (MIDROOM_SIZE - MIDROOM_DOOR_WIDTH) / 2;
 const MIDROOM_SEG_OFFSET = MIDROOM_DOOR_WIDTH / 2 + MIDROOM_SEG_WIDTH / 2;
 const MIDROOM_SOUTH_Z = MIDROOM_POS.z + MIDROOM_SIZE / 2; // door side, facing ROOM_POS
-const MIDROOM_NORTH_Z = MIDROOM_POS.z - MIDROOM_SIZE / 2; // solid, facing ROOM2_POS
+const MIDROOM_NORTH_Z = MIDROOM_POS.z - MIDROOM_SIZE / 2; // door side, facing ROOM2_POS
 const MIDROOM_WALLS: Obstacle[] = [
   { x: MIDROOM_POS.x - MIDROOM_SEG_OFFSET, z: MIDROOM_SOUTH_Z, halfX: MIDROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-west (door side)
   { x: MIDROOM_POS.x + MIDROOM_SEG_OFFSET, z: MIDROOM_SOUTH_Z, halfX: MIDROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south-east (door side)
-  { x: MIDROOM_POS.x, z: MIDROOM_NORTH_Z, halfX: MIDROOM_SIZE / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north — solid
+  { x: MIDROOM_POS.x - MIDROOM_SEG_OFFSET, z: MIDROOM_NORTH_Z, halfX: MIDROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-west (door side)
+  { x: MIDROOM_POS.x + MIDROOM_SEG_OFFSET, z: MIDROOM_NORTH_Z, halfX: MIDROOM_SEG_WIDTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north-east (door side)
   { x: MIDROOM_POS.x - MIDROOM_SIZE / 2, z: MIDROOM_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: MIDROOM_SIZE / 2, pad: ROOM_PAD }, // west — solid
   { x: MIDROOM_POS.x + MIDROOM_SIZE / 2, z: MIDROOM_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: MIDROOM_SIZE / 2, pad: ROOM_PAD }, // east — solid
 ];
@@ -1781,9 +1781,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       scene.add(wallMesh);
       wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
     }
-    const midDoorGlow = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_DOOR_WIDTH, 0.15, ROOM_WALL_THICKNESS + 0.05), doorGlowMat);
-    midDoorGlow.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT - 0.3, MIDROOM_SOUTH_Z);
-    scene.add(midDoorGlow);
+    const midDoorGlowSouth = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_DOOR_WIDTH, 0.15, ROOM_WALL_THICKNESS + 0.05), doorGlowMat);
+    midDoorGlowSouth.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT - 0.3, MIDROOM_SOUTH_Z);
+    scene.add(midDoorGlowSouth);
+    const midDoorGlowNorth = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_DOOR_WIDTH, 0.15, ROOM_WALL_THICKNESS + 0.05), doorGlowMat);
+    midDoorGlowNorth.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT - 0.3, MIDROOM_NORTH_Z);
+    scene.add(midDoorGlowNorth);
     const midCeiling = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_SIZE, ROOM_WALL_THICKNESS, MIDROOM_SIZE), ceilingMat);
     midCeiling.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, MIDROOM_POS.z);
     scene.add(midCeiling);
