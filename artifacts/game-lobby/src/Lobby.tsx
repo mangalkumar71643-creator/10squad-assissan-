@@ -1507,10 +1507,30 @@ function applyGunArmPose(rig: FighterRig) {
 // gun-hold pose) to sell a rifle's recoil — there's no dedicated fire clip
 // baked into the rig, so this drives the arm bones directly, same approach
 // as the old punch pose it replaces.
+//
+// This must stay in quaternion space, composed onto whatever
+// applyGunArmPose just set — mutating `.rotation.x` here (as the original
+// version did) reads back through Three.js's Euler decomposition of that
+// same quaternion, which isn't unique near gimbal-adjacent orientations
+// (exactly the neighborhood GUN_FOREARM_ROT's z sits in); subtracting from
+// only the x component of whichever equivalent-but-different-looking
+// Euler triple it happened to decompose to that frame, then rebuilding the
+// quaternion from the edited triple, could snap the arm into a wildly
+// wrong rotation. That's frame- and orientation-dependent, so it never
+// showed up in scripted tests but did on a real device under real play.
+const recoilAxisX = new THREE.Vector3(1, 0, 0);
+const recoilQuat = new THREE.Quaternion();
+
 function applyFirePose(rig: FighterRig, t: number) {
   const kick = Math.sin(clamp(t / RECOIL_DURATION, 0, 1) * Math.PI);
-  if (rig.rightArm) rig.rightArm.rotation.x -= kick * RECOIL_SHOULDER_ANGLE;
-  if (rig.rightForeArm) rig.rightForeArm.rotation.x -= kick * RECOIL_ELBOW_ANGLE;
+  if (rig.rightArm) {
+    recoilQuat.setFromAxisAngle(recoilAxisX, -kick * RECOIL_SHOULDER_ANGLE);
+    rig.rightArm.quaternion.multiply(recoilQuat);
+  }
+  if (rig.rightForeArm) {
+    recoilQuat.setFromAxisAngle(recoilAxisX, -kick * RECOIL_ELBOW_ANGLE);
+    rig.rightForeArm.quaternion.multiply(recoilQuat);
+  }
 }
 
 // The rig ships two real motion-captured clips grafted into the same
