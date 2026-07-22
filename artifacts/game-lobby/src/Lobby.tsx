@@ -1486,6 +1486,30 @@ const BOT2_SPAWN = { x: 3.4, z: -3.2 };
 const tickQuatA = new THREE.Quaternion();
 const tickQuatB = new THREE.Quaternion();
 
+// Belt-and-suspenders guard: this pose can never legitimately swing more
+// than a few degrees in a single frame (the recoil kick is spread over
+// RECOIL_DURATION via a sine curve, and idle/run blending is gradual), so
+// any computed rotation more than MAX_BONE_JUMP_RAD away from last frame's
+// applied value is treated as a numerical glitch — a bad quaternion
+// decomposition, a degenerate parent transform, whatever the actual root
+// cause turns out to be on a given device — and rejected in favor of
+// holding last frame's pose, rather than ever letting the gun/arm snap
+// into a visibly broken orientation for even a single frame.
+const MAX_BONE_JUMP_RAD = 1.0;
+
+function quatAngleTo(a: THREE.Quaternion, b: THREE.Quaternion): number {
+  return 2 * Math.acos(clamp(Math.abs(a.dot(b)), -1, 1));
+}
+
+function applyBoneQuatGuarded(bone: THREE.Object3D, candidate: THREE.Quaternion, prev: THREE.Quaternion | null): THREE.Quaternion {
+  if (prev && quatAngleTo(candidate, prev) > MAX_BONE_JUMP_RAD) {
+    bone.quaternion.copy(prev);
+    return prev.clone();
+  }
+  bone.quaternion.copy(candidate);
+  return candidate.clone();
+}
+
 function applyGunArmPose(rig: FighterRig) {
   if (!rig.rightArm || !rig.rightForeArm || !rig.armRestQuat || !rig.forearmRestQuat) return;
   if (!rig.rightArm.parent || !rig.rightForeArm.parent) return;
@@ -1494,12 +1518,14 @@ function applyGunArmPose(rig: FighterRig) {
 
   const desiredArmWorld = rootQuat.clone().multiply(rig.armRestQuat);
   const armParentQuat = rig.rightArm.parent.getWorldQuaternion(tickQuatB);
-  rig.rightArm.quaternion.copy(armParentQuat.invert().multiply(desiredArmWorld));
+  const armCandidate = armParentQuat.invert().multiply(desiredArmWorld);
+  rig.armAppliedQuat = applyBoneQuatGuarded(rig.rightArm, armCandidate, rig.armAppliedQuat);
   rig.rightArm.updateMatrixWorld(true);
 
   const desiredForearmWorld = rootQuat.multiply(rig.forearmRestQuat);
   const forearmParentQuat = rig.rightForeArm.parent.getWorldQuaternion(tickQuatB);
-  rig.rightForeArm.quaternion.copy(forearmParentQuat.invert().multiply(desiredForearmWorld));
+  const forearmCandidate = forearmParentQuat.invert().multiply(desiredForearmWorld);
+  rig.forearmAppliedQuat = applyBoneQuatGuarded(rig.rightForeArm, forearmCandidate, rig.forearmAppliedQuat);
   rig.rightForeArm.updateMatrixWorld(true);
 }
 
@@ -1611,6 +1637,10 @@ interface FighterRig {
   // Euler angle — see applyGunArmPose for why.
   armRestQuat: THREE.Quaternion | null;
   forearmRestQuat: THREE.Quaternion | null;
+  // Last-applied quaternion for each bone, so applyGunArmPose can reject
+  // an impossible frame-to-frame jump instead of ever snapping to it.
+  armAppliedQuat: THREE.Quaternion | null;
+  forearmAppliedQuat: THREE.Quaternion | null;
   materials: THREE.MeshStandardMaterial[];
   gunMuzzle: THREE.Object3D | null;
   gunFlash: THREE.Mesh | null;
@@ -1801,7 +1831,22 @@ function loadFighter(
         forearmRestQuat = rootQuatInv.multiply(forearmBone.getWorldQuaternion(new THREE.Quaternion()));
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, armRestQuat, forearmRestQuat, materials, gunMuzzle, gunFlash });
+      onLoaded({
+        root,
+        mixer,
+        idleAction,
+        runAction,
+        rightArm,
+        rightForeArm,
+        rightHand,
+        armRestQuat,
+        forearmRestQuat,
+        armAppliedQuat: null,
+        forearmAppliedQuat: null,
+        materials,
+        gunMuzzle,
+        gunFlash,
+      });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
