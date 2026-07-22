@@ -1587,13 +1587,27 @@ const DEATH_FALL_DURATION = 0.6;
 const DEATH_FADE_DELAY = 0.3;
 const DEATH_FADE_DURATION = 1.0;
 const DEATH_TOTAL_DURATION = DEATH_FALL_DURATION + DEATH_FADE_DURATION;
+// A full -90° tip rotates the whole body around the feet like a rigid
+// plank hinged at the ankles — the chest and head swing through a huge
+// arc, which is what read as a broken/glitchy pose. A much shallower
+// stagger, combined with sinking down (selling a knee-buckle collapse
+// instead of a stiff topple) and a slight asymmetric side lean (so it
+// isn't a perfectly symmetric fall), reads as a knockback stumble
+// instead — closer to how other third-person shooters sell a death
+// without an actual ragdoll or death animation clip.
+const DEATH_TILT_ANGLE = 0.62; // radians, ~35°
+const DEATH_SIDE_TILT = 0.22; // radians, ~13°
+const DEATH_SINK_DEPTH = 0.35; // world units
 
-// Topples a defeated fighter onto its back and fades it out — there's no
-// death clip either, so this drives the root rotation and each mesh's
-// material opacity directly instead.
+// Staggers a defeated fighter into a knockback collapse and fades it out —
+// there's no death clip either, so this drives the root transform and
+// each mesh's material opacity directly instead.
 function applyDeathPose(rig: FighterRig, t: number) {
   const fallP = clamp(t / DEATH_FALL_DURATION, 0, 1);
-  rig.root.rotation.x = -(fallP * fallP * (3 - 2 * fallP)) * (Math.PI / 2); // smoothstep ease-out
+  const eased = fallP * fallP * (3 - 2 * fallP); // smoothstep
+  rig.root.rotation.x = -eased * DEATH_TILT_ANGLE;
+  rig.root.rotation.z = eased * DEATH_SIDE_TILT;
+  rig.root.position.y = -eased * DEATH_SINK_DEPTH;
   const fadeP = clamp((t - DEATH_FADE_DELAY) / DEATH_FADE_DURATION, 0, 1);
   for (const mat of rig.materials) {
     mat.transparent = true;
