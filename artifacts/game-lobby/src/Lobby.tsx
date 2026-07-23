@@ -1589,38 +1589,40 @@ function loadSwordPrototype(): Promise<THREE.Object3D> {
 // blade extends from there back toward -X.
 const SWORD_GRIP_LOCAL = new THREE.Vector3(0.78, 0, 0);
 const SWORD_BLADE_AXIS = new THREE.Vector3(-1, 0, 0);
-// Which direction the blade should point, in RightHand-local space, at the
-// game's actual resting idle pose (arm hanging down — Idle2, not a punch
-// mid-swing, which is what an earlier pass mistakenly validated against
-// and is why the sword first shipped floating oddly at the hip instead of
-// looking held). Tried all 6 principal-axis directions and screenshotted
-// each at genuine rest (see sword_rotation_sweep.js) — this one reads as
-// the sword resting diagonally across the back, the only candidate that
-// didn't look broken or disconnected. It happens to equal SWORD_BLADE_AXIS
-// itself, i.e. this is really just an identity rotation — only the
-// position (see attachSword) needed correcting, not the orientation.
-const SWORD_BLADE_TARGET_LOCAL = new THREE.Vector3(-1, 0, 0);
 // A real one-handed sword is roughly this long; the rest of the transform
 // is derived from that, not guessed independently.
 const SWORD_TARGET_LENGTH = 0.95;
+const swordDownQuat = new THREE.Quaternion();
+const swordHandWorldQuat = new THREE.Quaternion();
 
-// Parents a clone of the shared sword model onto a fighter's RightHand
-// bone: rotated so the blade points where it actually looks held at rest
-// (see SWORD_BLADE_TARGET_LOCAL), scaled to a normal sword length, and
-// positioned so the grip (not the mesh's own origin, which sits in the
-// middle of the blade) lands on the hand — counteracting the bone's tiny
-// cumulative world scale the same way the old procedural sword did.
-function attachSword(hand: THREE.Object3D, prototype: THREE.Object3D) {
-  hand.updateWorldMatrix(true, false);
+// Parents a clone of the shared sword model onto a fighter's RightHand bone
+// and sizes it — called once, when the sword is first equipped.
+function createSwordAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): THREE.Object3D {
   const worldScale = new THREE.Vector3();
   hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
   const sword = prototype.clone(true);
   const rawLength = 1.898;
   const scale = (SWORD_TARGET_LENGTH / rawLength) / (worldScale.x || 1);
   sword.scale.setScalar(scale);
-  sword.quaternion.setFromUnitVectors(SWORD_BLADE_AXIS, SWORD_BLADE_TARGET_LOCAL.clone().normalize());
-  sword.position.copy(SWORD_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(sword.quaternion).multiplyScalar(-1);
   hand.add(sword);
+  return sword;
+}
+
+// Re-derives the sword's rotation (and, since it depends on rotation, its
+// position) every tick so the blade always hangs straight down from the
+// grip, regardless of whatever the hand's current world orientation happens
+// to be. This has to be continuous, not a one-shot computation at attach
+// time: the sword is first equipped the instant bot 1's HP hits zero, which
+// is normally mid-punch-swing (arm raised via applyPunchPose) rather than
+// at rest — a rotation baked in at that fleeting moment looked fine for a
+// fraction of a second and then wrong for the rest of the fight once the
+// arm settled back into its very different Idle2 resting orientation.
+function updateSwordPose(hand: THREE.Object3D, sword: THREE.Object3D) {
+  hand.matrixWorld.decompose(new THREE.Vector3(), swordHandWorldQuat, new THREE.Vector3());
+  const targetLocalDown = new THREE.Vector3(0, -1, 0).applyQuaternion(swordHandWorldQuat.clone().invert()).normalize();
+  swordDownQuat.setFromUnitVectors(SWORD_BLADE_AXIS, targetLocalDown);
+  sword.quaternion.copy(swordDownQuat);
+  sword.position.copy(SWORD_GRIP_LOCAL).multiplyScalar(sword.scale.x).applyQuaternion(swordDownQuat).multiplyScalar(-1);
 }
 
 // Loads the one character model we have twice — once as the player (its
@@ -2147,6 +2149,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerDamage = PLAYER_DAMAGE;
     let playerAttackRange = ATTACK_RANGE;
     let swordAttached = false;
+    let equippedSword: THREE.Object3D | null = null;
     let bot1DeathT = -1;
     let bot2DeathT = -1;
     let playerDeathT = -1;
@@ -2161,6 +2164,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       player?.mixer?.update(dt);
       bot1?.mixer?.update(dt);
       bot2?.mixer?.update(dt);
+      if (equippedSword && player?.rightHand) updateSwordPose(player.rightHand, equippedSword);
 
       if (bot1 && bot1DeathT >= 0) {
         applyDeathPose(bot1, bot1DeathT);
@@ -2337,7 +2341,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             if (!swordAttached && player.rightHand) {
               swordAttached = true;
               const hand = player.rightHand;
-              swordPrototype.then((proto) => attachSword(hand, proto));
+              swordPrototype.then((proto) => {
+                equippedSword = createSwordAttachment(hand, proto);
+                updateSwordPose(hand, equippedSword);
+              });
             }
           } else {
             ended = true;
