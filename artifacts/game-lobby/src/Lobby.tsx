@@ -1510,23 +1510,39 @@ function applyBoneQuatGuarded(bone: THREE.Object3D, candidate: THREE.Quaternion,
   return candidate.clone();
 }
 
+function lockBoneToRestQuat(
+  bone: THREE.Object3D,
+  restQuat: THREE.Quaternion,
+  rootQuat: THREE.Quaternion,
+  prevApplied: THREE.Quaternion | null,
+): THREE.Quaternion | null {
+  if (!bone.parent) return prevApplied;
+  const desiredWorld = rootQuat.clone().multiply(restQuat);
+  const parentQuat = bone.parent.getWorldQuaternion(tickQuatB);
+  const candidate = parentQuat.invert().multiply(desiredWorld);
+  const applied = applyBoneQuatGuarded(bone, candidate, prevApplied);
+  bone.updateMatrixWorld(true);
+  return applied;
+}
+
 function applyGunArmPose(rig: FighterRig) {
-  if (!rig.rightArm || !rig.rightForeArm || !rig.armRestQuat || !rig.forearmRestQuat) return;
-  if (!rig.rightArm.parent || !rig.rightForeArm.parent) return;
   rig.root.updateMatrixWorld(true);
   const rootQuat = rig.root.getWorldQuaternion(tickQuatA).clone();
 
-  const desiredArmWorld = rootQuat.clone().multiply(rig.armRestQuat);
-  const armParentQuat = rig.rightArm.parent.getWorldQuaternion(tickQuatB);
-  const armCandidate = armParentQuat.invert().multiply(desiredArmWorld);
-  rig.armAppliedQuat = applyBoneQuatGuarded(rig.rightArm, armCandidate, rig.armAppliedQuat);
-  rig.rightArm.updateMatrixWorld(true);
-
-  const desiredForearmWorld = rootQuat.multiply(rig.forearmRestQuat);
-  const forearmParentQuat = rig.rightForeArm.parent.getWorldQuaternion(tickQuatB);
-  const forearmCandidate = forearmParentQuat.invert().multiply(desiredForearmWorld);
-  rig.forearmAppliedQuat = applyBoneQuatGuarded(rig.rightForeArm, forearmCandidate, rig.forearmAppliedQuat);
-  rig.rightForeArm.updateMatrixWorld(true);
+  if (rig.rightArm && rig.armRestQuat) {
+    rig.armAppliedQuat = lockBoneToRestQuat(rig.rightArm, rig.armRestQuat, rootQuat, rig.armAppliedQuat);
+  }
+  if (rig.rightForeArm && rig.forearmRestQuat) {
+    rig.forearmAppliedQuat = lockBoneToRestQuat(rig.rightForeArm, rig.forearmRestQuat, rootQuat, rig.forearmAppliedQuat);
+  }
+  // Neck before head — head's parent (neck) must already be updated this
+  // frame for its own cancel-out math to use the right parent orientation.
+  if (rig.neck && rig.neckRestQuat) {
+    rig.neckAppliedQuat = lockBoneToRestQuat(rig.neck, rig.neckRestQuat, rootQuat, rig.neckAppliedQuat);
+  }
+  if (rig.head && rig.headRestQuat) {
+    rig.headAppliedQuat = lockBoneToRestQuat(rig.head, rig.headRestQuat, rootQuat, rig.headAppliedQuat);
+  }
 }
 
 // Kicks a fighter's right arm back and up (layered on top of the locked
@@ -1646,15 +1662,28 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  neck: THREE.Object3D | null;
+  head: THREE.Object3D | null;
   // The gun-hold arm pose, captured once at load time (from the RifleIdle
   // clip) as a quaternion relative to `root` rather than a fixed local
   // Euler angle — see applyGunArmPose for why.
   armRestQuat: THREE.Quaternion | null;
   forearmRestQuat: THREE.Quaternion | null;
+  // RifleIdle turns out to include a several-second "look around" beat
+  // partway through its loop (Head yaws noticeably, ~t=3.6s-7.8s of its
+  // 8.57s duration) — harmless on its own, but caught mid-turn it reads
+  // as the character suddenly craning its head/torso back, which is what
+  // kept getting reported as a broken pose while standing still or right
+  // after stopping (nothing to do with death, running, or the arm fix).
+  // Locked the same way as the arm/forearm, relative to root.
+  neckRestQuat: THREE.Quaternion | null;
+  headRestQuat: THREE.Quaternion | null;
   // Last-applied quaternion for each bone, so applyGunArmPose can reject
   // an impossible frame-to-frame jump instead of ever snapping to it.
   armAppliedQuat: THREE.Quaternion | null;
   forearmAppliedQuat: THREE.Quaternion | null;
+  neckAppliedQuat: THREE.Quaternion | null;
+  headAppliedQuat: THREE.Quaternion | null;
   materials: THREE.MeshStandardMaterial[];
   gunMuzzle: THREE.Object3D | null;
   gunFlash: THREE.Mesh | null;
@@ -1766,12 +1795,16 @@ function loadFighter(
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
+      let neck: THREE.Object3D | null = null;
+      let head: THREE.Object3D | null = null;
       const materials: THREE.MeshStandardMaterial[] = [];
 
       model.traverse((o) => {
         if (o.name === "RightArm") rightArm = o;
         if (o.name === "RightForeArm") rightForeArm = o;
         if (o.name === "RightHand") rightHand = o;
+        if (o.name === "neck") neck = o;
+        if (o.name === "Head") head = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
@@ -1828,21 +1861,35 @@ function loadFighter(
         gunFlash = gun.flash;
       }
 
-      // Capture the arm/forearm's orientation from the RifleIdle pose
+      // Capture each locked bone's orientation from the RifleIdle pose
       // (idleAction is the only weighted action at this point) as a
-      // quaternion relative to `root`, so applyGunArmPose can hold the gun
-      // steady in the hand every frame regardless of what Idle/Running end
-      // up blending in on the bones between root and the arm.
+      // quaternion relative to `root`, so applyGunArmPose can hold them
+      // steady every frame regardless of what Idle/Running end up
+      // blending in between root and each bone.
       let armRestQuat: THREE.Quaternion | null = null;
       let forearmRestQuat: THREE.Quaternion | null = null;
-      if (mixer !== null && rightArm !== null && rightForeArm !== null) {
-        const armBone: THREE.Object3D = rightArm;
-        const forearmBone: THREE.Object3D = rightForeArm;
+      let neckRestQuat: THREE.Quaternion | null = null;
+      let headRestQuat: THREE.Quaternion | null = null;
+      if (mixer !== null) {
         mixer.update(0);
         root.updateMatrixWorld(true);
         const rootQuatInv = root.getWorldQuaternion(new THREE.Quaternion()).invert();
-        armRestQuat = rootQuatInv.clone().multiply(armBone.getWorldQuaternion(new THREE.Quaternion()));
-        forearmRestQuat = rootQuatInv.multiply(forearmBone.getWorldQuaternion(new THREE.Quaternion()));
+        if (rightArm !== null) {
+          const bone: THREE.Object3D = rightArm;
+          armRestQuat = rootQuatInv.clone().multiply(bone.getWorldQuaternion(new THREE.Quaternion()));
+        }
+        if (rightForeArm !== null) {
+          const bone: THREE.Object3D = rightForeArm;
+          forearmRestQuat = rootQuatInv.clone().multiply(bone.getWorldQuaternion(new THREE.Quaternion()));
+        }
+        if (neck !== null) {
+          const bone: THREE.Object3D = neck;
+          neckRestQuat = rootQuatInv.clone().multiply(bone.getWorldQuaternion(new THREE.Quaternion()));
+        }
+        if (head !== null) {
+          const bone: THREE.Object3D = head;
+          headRestQuat = rootQuatInv.clone().multiply(bone.getWorldQuaternion(new THREE.Quaternion()));
+        }
       }
 
       onLoaded({
@@ -1853,10 +1900,16 @@ function loadFighter(
         rightArm,
         rightForeArm,
         rightHand,
+        neck,
+        head,
         armRestQuat,
         forearmRestQuat,
+        neckRestQuat,
+        headRestQuat,
         armAppliedQuat: null,
         forearmAppliedQuat: null,
+        neckAppliedQuat: null,
+        headAppliedQuat: null,
         materials,
         gunMuzzle,
         gunFlash,
