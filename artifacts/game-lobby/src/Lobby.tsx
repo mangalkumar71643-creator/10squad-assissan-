@@ -1195,7 +1195,7 @@ const PLAYER_ACCEL_RATE = 9; // per-second damping rate speeding up
 const PLAYER_DECEL_RATE = 15; // per-second damping rate slowing down (snappier stop than start)
 const PLAYER_TURN_RATE = 11; // per-second damping rate turning to face the move direction
 const BOT_SPEED = 1.9;
-const GUN_RANGE = 14; // both fighters are armed with rifles now, so combat range is a shootout distance, not a melee reach
+const ATTACK_RANGE = 1.3;
 const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
 
 // A sci-fi outpost room off to the side of the arena — four walls around a
@@ -1450,129 +1450,27 @@ function resolveObstacleCollisions(pos: { x: number; z: number }) {
 
 const PLAYER_DAMAGE = 14;
 const BOT_DAMAGE = 10;
-const PLAYER_FIRE_COOLDOWN = 0.28;
-const BOT_FIRE_COOLDOWN = 1.3;
+const PLAYER_ATTACK_COOLDOWN = 0.55;
+const BOT_ATTACK_COOLDOWN = 1.3;
 const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
-const RECOIL_DURATION = 0.14;
-const RECOIL_SHOULDER_ANGLE = 0.35;
-const RECOIL_ELBOW_ANGLE = 0.5;
-const MUZZLE_FLASH_DURATION = 0.06;
-const TRACER_DURATION = 0.08;
+const PUNCH_DURATION = 0.35;
+const PUNCH_SWING_ANGLE = 1.4;
+const PUNCH_ELBOW_ANGLE = 0.9;
 const BOT2_TINT = 0xffb703;
 const BOT2_SPAWN = { x: 3.4, z: -3.2 };
+const SWORD_DAMAGE = 26;
+const SWORD_RANGE = 2.0;
 
-// The RifleIdle clip poses the right arm/forearm correctly, but "Running"
-// is a plain mocap locomotion clip with a completely different, much
-// wider arm swing (it was never meant to hold anything) — crossfading
-// into it while moving swings the gun through that same wide arc. Pinning
-// the arm bones' own LOCAL rotation to a fixed value doesn't fully fix
-// this either, because their parents up the chain (Hips, Spine...) also
-// carry a big, legitimate motion of their own during Running (a real
-// sprint lean) — freezing those parents too (tried first) fixed the arm
-// but broke the legs, which are siblings of the spine under Hips and were
-// animated assuming that same Hips motion as their baseline.
-//
-// The actual fix: leave every other bone (hips, spine, legs) completely
-// alone — running still looks correct — and instead force just the arm
-// and forearm's WORLD orientation (relative to `root`, so it still turns
-// with the character) to match the pose RifleIdle wants, by computing
-// each frame what LOCAL rotation is needed to cancel out whatever their
-// current parent bone (already animated by the idle/run blend) is doing.
-// The target orientations are captured once at load time directly off
-// the RifleIdle clip rather than hand-guessed numbers.
-const tickQuatA = new THREE.Quaternion();
-const tickQuatB = new THREE.Quaternion();
-
-// Belt-and-suspenders guard: this pose can never legitimately swing more
-// than a few degrees in a single frame (the recoil kick is spread over
-// RECOIL_DURATION via a sine curve, and idle/run blending is gradual), so
-// any computed rotation more than MAX_BONE_JUMP_RAD away from last frame's
-// applied value is treated as a numerical glitch — a bad quaternion
-// decomposition, a degenerate parent transform, whatever the actual root
-// cause turns out to be on a given device — and rejected in favor of
-// holding last frame's pose, rather than ever letting the gun/arm snap
-// into a visibly broken orientation for even a single frame.
-const MAX_BONE_JUMP_RAD = 1.0;
-
-function quatAngleTo(a: THREE.Quaternion, b: THREE.Quaternion): number {
-  return 2 * Math.acos(clamp(Math.abs(a.dot(b)), -1, 1));
-}
-
-function applyBoneQuatGuarded(bone: THREE.Object3D, candidate: THREE.Quaternion, prev: THREE.Quaternion | null): THREE.Quaternion {
-  if (prev && quatAngleTo(candidate, prev) > MAX_BONE_JUMP_RAD) {
-    bone.quaternion.copy(prev);
-    return prev.clone();
-  }
-  bone.quaternion.copy(candidate);
-  return candidate.clone();
-}
-
-function lockBoneToRestQuat(
-  bone: THREE.Object3D,
-  restQuat: THREE.Quaternion,
-  rootQuat: THREE.Quaternion,
-  prevApplied: THREE.Quaternion | null,
-): THREE.Quaternion | null {
-  if (!bone.parent) return prevApplied;
-  const desiredWorld = rootQuat.clone().multiply(restQuat);
-  const parentQuat = bone.parent.getWorldQuaternion(tickQuatB);
-  const candidate = parentQuat.invert().multiply(desiredWorld);
-  const applied = applyBoneQuatGuarded(bone, candidate, prevApplied);
-  bone.updateMatrixWorld(true);
-  return applied;
-}
-
-function applyGunArmPose(rig: FighterRig) {
-  rig.root.updateMatrixWorld(true);
-  const rootQuat = rig.root.getWorldQuaternion(tickQuatA).clone();
-
-  if (rig.rightArm && rig.armRestQuat) {
-    rig.armAppliedQuat = lockBoneToRestQuat(rig.rightArm, rig.armRestQuat, rootQuat, rig.armAppliedQuat);
-  }
-  if (rig.rightForeArm && rig.forearmRestQuat) {
-    rig.forearmAppliedQuat = lockBoneToRestQuat(rig.rightForeArm, rig.forearmRestQuat, rootQuat, rig.forearmAppliedQuat);
-  }
-  // Neck before head — head's parent (neck) must already be updated this
-  // frame for its own cancel-out math to use the right parent orientation.
-  if (rig.neck && rig.neckRestQuat) {
-    rig.neckAppliedQuat = lockBoneToRestQuat(rig.neck, rig.neckRestQuat, rootQuat, rig.neckAppliedQuat);
-  }
-  if (rig.head && rig.headRestQuat) {
-    rig.headAppliedQuat = lockBoneToRestQuat(rig.head, rig.headRestQuat, rootQuat, rig.headAppliedQuat);
-  }
-}
-
-// Kicks a fighter's right arm back and up (layered on top of the locked
-// gun-hold pose) to sell a rifle's recoil — there's no dedicated fire clip
-// baked into the rig, so this drives the arm bones directly, same approach
-// as the old punch pose it replaces.
-//
-// This must stay in quaternion space, composed onto whatever
-// applyGunArmPose just set — mutating `.rotation.x` here (as the original
-// version did) reads back through Three.js's Euler decomposition of that
-// same quaternion, which isn't unique near gimbal-adjacent orientations
-// (exactly the neighborhood GUN_FOREARM_ROT's z sits in); subtracting from
-// only the x component of whichever equivalent-but-different-looking
-// Euler triple it happened to decompose to that frame, then rebuilding the
-// quaternion from the edited triple, could snap the arm into a wildly
-// wrong rotation. That's frame- and orientation-dependent, so it never
-// showed up in scripted tests but did on a real device under real play.
-const recoilAxisX = new THREE.Vector3(1, 0, 0);
-const recoilQuat = new THREE.Quaternion();
-
-function applyFirePose(rig: FighterRig, t: number) {
-  const kick = Math.sin(clamp(t / RECOIL_DURATION, 0, 1) * Math.PI);
-  if (rig.rightArm) {
-    recoilQuat.setFromAxisAngle(recoilAxisX, -kick * RECOIL_SHOULDER_ANGLE);
-    rig.rightArm.quaternion.multiply(recoilQuat);
-  }
-  if (rig.rightForeArm) {
-    recoilQuat.setFromAxisAngle(recoilAxisX, -kick * RECOIL_ELBOW_ANGLE);
-    rig.rightForeArm.quaternion.multiply(recoilQuat);
-  }
+// Swings a fighter's right arm forward and back (bind-pose-relative, layered
+// on top of whatever the idle clip set that frame) — there's no punch clip
+// baked into the rig, so this drives the arm bones directly.
+function applyPunchPose(rig: FighterRig, t: number) {
+  const swing = Math.sin(clamp(t / PUNCH_DURATION, 0, 1) * Math.PI);
+  if (rig.rightArm) rig.rightArm.rotation.x -= swing * PUNCH_SWING_ANGLE;
+  if (rig.rightForeArm) rig.rightForeArm.rotation.x -= swing * PUNCH_ELBOW_ANGLE;
 }
 
 // The rig ships two real motion-captured clips grafted into the same
@@ -1605,12 +1503,12 @@ const DEATH_FADE_DURATION = 1.0;
 const DEATH_TOTAL_DURATION = DEATH_FALL_DURATION + DEATH_FADE_DURATION;
 // A full -90° tip rotates the whole body around the feet like a rigid
 // plank hinged at the ankles — the chest and head swing through a huge
-// arc, which is what read as a broken/glitchy pose. A much shallower
-// stagger, combined with sinking down (selling a knee-buckle collapse
-// instead of a stiff topple) and a slight asymmetric side lean (so it
-// isn't a perfectly symmetric fall), reads as a knockback stumble
-// instead — closer to how other third-person shooters sell a death
-// without an actual ragdoll or death animation clip.
+// arc, which read as a broken/glitchy pose. A much shallower stagger,
+// combined with sinking down (selling a knee-buckle collapse instead of
+// a stiff topple) and a slight asymmetric side lean (so it isn't a
+// perfectly symmetric fall), reads as a knockback stumble instead —
+// closer to how other third-person shooters sell a death without an
+// actual ragdoll or death animation clip.
 const DEATH_TILT_ANGLE = 0.62; // radians, ~35°
 const DEATH_SIDE_TILT = 0.22; // radians, ~13°
 const DEATH_SINK_DEPTH = 0.35; // world units
@@ -1662,109 +1560,46 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
-  neck: THREE.Object3D | null;
-  head: THREE.Object3D | null;
-  // The gun-hold arm pose, captured once at load time (from the RifleIdle
-  // clip) as a quaternion relative to `root` rather than a fixed local
-  // Euler angle — see applyGunArmPose for why.
-  armRestQuat: THREE.Quaternion | null;
-  forearmRestQuat: THREE.Quaternion | null;
-  // RifleIdle turns out to include a several-second "look around" beat
-  // partway through its loop (Head yaws noticeably, ~t=3.6s-7.8s of its
-  // 8.57s duration) — harmless on its own, but caught mid-turn it reads
-  // as the character suddenly craning its head/torso back, which is what
-  // kept getting reported as a broken pose while standing still or right
-  // after stopping (nothing to do with death, running, or the arm fix).
-  // Locked the same way as the arm/forearm, relative to root.
-  neckRestQuat: THREE.Quaternion | null;
-  headRestQuat: THREE.Quaternion | null;
-  // Last-applied quaternion for each bone, so applyGunArmPose can reject
-  // an impossible frame-to-frame jump instead of ever snapping to it.
-  armAppliedQuat: THREE.Quaternion | null;
-  forearmAppliedQuat: THREE.Quaternion | null;
-  neckAppliedQuat: THREE.Quaternion | null;
-  headAppliedQuat: THREE.Quaternion | null;
   materials: THREE.MeshStandardMaterial[];
-  gunMuzzle: THREE.Object3D | null;
-  gunFlash: THREE.Mesh | null;
 }
 
-// Overall size relative to the sword prop's own build scale (which read as
-// full sword-length) — an AK47 held one-handed needs to be much shorter and
-// tilted down off the hand's resting axis instead of standing straight out
-// like a blade, or it reads as an oversized plank rather than a rifle.
-const GUN_SCALE = 0.75;
-const GUN_PITCH = 1.2; // radians, tips the muzzle down toward a forward carry angle matching the RifleIdle clip's hand pose
-
-// A simple procedural AK47 (no rifle asset on hand) — receiver, barrel,
-// front sight, wood stock, angled magazine and grip built from basic
-// primitives, meant to be parented to a fighter's RightHand bone so it
-// rides along with the arm automatically. Built along local +Y (muzzle
-// end) the same way the rig's earlier sword prop was, since that's the
-// axis confirmed to read correctly once parented to this hand bone.
-function createGunMesh(): { group: THREE.Group; muzzle: THREE.Object3D; flash: THREE.Mesh } {
+// A simple procedural sword (no sword asset on hand) — blade, crossguard and
+// hilt built from basic primitives, meant to be parented to a fighter's
+// RightHand bone so it swings along with the arm automatically.
+function createSwordMesh(): THREE.Group {
   const group = new THREE.Group();
-  const metalMat = new THREE.MeshStandardMaterial({ color: 0x2b2f33, metalness: 0.7, roughness: 0.35 });
-  const darkMat = new THREE.MeshStandardMaterial({ color: 0x17181a, metalness: 0.5, roughness: 0.5 });
-  const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.75 });
-
-  const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.52, 0.09), metalMat);
-  receiver.position.y = 0.26;
-  group.add(receiver);
-
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.016, 0.5, 8), darkMat);
-  barrel.position.y = 0.52 + 0.25;
-  group.add(barrel);
-
-  const frontSight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.07, 0.02), darkMat);
-  frontSight.position.y = 0.52 + 0.46;
-  group.add(frontSight);
-
-  const stock = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.07), woodMat);
-  stock.position.y = -0.19;
-  group.add(stock);
-
-  // AK-style curved magazine — approximated as a straight box angled
-  // forward-down off the underside of the receiver.
-  const magazine = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.34, 0.09), darkMat);
-  magazine.position.set(0, -0.02, -0.09);
-  magazine.rotation.x = 0.4;
-  group.add(magazine);
-
-  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.16, 0.05), darkMat);
-  grip.position.set(0, -0.06, 0.03);
-  grip.rotation.x = -0.25;
-  group.add(grip);
-
-  // A small sphere at the muzzle tip, hidden by default and flashed
-  // visible for a couple of frames each time the gun fires.
-  const flash = new THREE.Mesh(
-    new THREE.SphereGeometry(0.09, 8, 8),
-    new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.95 }),
+  const blade = new THREE.Mesh(
+    new THREE.BoxGeometry(0.045, 0.85, 0.11),
+    new THREE.MeshStandardMaterial({ color: 0xdce8f2, metalness: 0.85, roughness: 0.25, emissive: 0x2a6a8a, emissiveIntensity: 0.4 }),
   );
-  flash.visible = false;
-  const muzzle = new THREE.Object3D();
-  muzzle.position.y = 0.52 + 0.5 + 0.05;
-  muzzle.add(flash);
-  group.add(muzzle);
-
-  return { group, muzzle, flash };
+  blade.position.y = 0.55;
+  group.add(blade);
+  const guard = new THREE.Mesh(
+    new THREE.BoxGeometry(0.05, 0.05, 0.32),
+    new THREE.MeshStandardMaterial({ color: 0x8a7248, metalness: 0.7, roughness: 0.4 }),
+  );
+  guard.position.y = 0.1;
+  group.add(guard);
+  const hilt = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.028, 0.028, 0.22, 8),
+    new THREE.MeshStandardMaterial({ color: 0x3a2c1e, roughness: 0.7 }),
+  );
+  hilt.position.y = -0.02;
+  group.add(hilt);
+  return group;
 }
 
 // The rig's hand bones carry a tiny cumulative world scale inherited from the
-// skeleton (the source model bakes a large armature scale), so a gun sized
+// skeleton (the source model bakes a large armature scale), so a sword sized
 // in normal world units would render nearly invisible if parented directly.
-// Counteract that by scaling the gun up by the bone's inverse world scale —
-// same fix the rig's earlier sword prop needed.
-function attachGun(hand: THREE.Object3D): { muzzle: THREE.Object3D; flash: THREE.Mesh } {
+// Counteract that by scaling the sword up by the bone's inverse world scale.
+function attachSword(hand: THREE.Object3D) {
   hand.updateWorldMatrix(true, false);
   const worldScale = new THREE.Vector3();
   hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
-  const { group, muzzle, flash } = createGunMesh();
-  group.scale.setScalar((1 / (worldScale.x || 1)) * GUN_SCALE);
-  group.rotation.x = GUN_PITCH;
-  hand.add(group);
-  return { muzzle, flash };
+  const sword = createSwordMesh();
+  sword.scale.setScalar(1 / (worldScale.x || 1));
+  hand.add(sword);
 }
 
 // Loads the one character model we have twice — once as the player (its
@@ -1795,16 +1630,12 @@ function loadFighter(
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
-      let neck: THREE.Object3D | null = null;
-      let head: THREE.Object3D | null = null;
       const materials: THREE.MeshStandardMaterial[] = [];
 
       model.traverse((o) => {
         if (o.name === "RightArm") rightArm = o;
         if (o.name === "RightForeArm") rightForeArm = o;
         if (o.name === "RightHand") rightHand = o;
-        if (o.name === "neck") neck = o;
-        if (o.name === "Head") head = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
@@ -1828,19 +1659,10 @@ function loadFighter(
       let runAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
-        // "RifleIdle" is a real motion-captured rifle-hold idle (retargeted
-        // from a Mixamo clip the same way Idle2/Running were), and poses
-        // the whole upper body — both arms, spine, everything — to
-        // naturally cradle a held rifle. It replaces "Idle2" as the
-        // default now that every fighter carries a gun from spawn, since a
-        // fixed two-bone rotation offset on top of the old plain-idle clip
-        // could never look right across every animation frame the way a
-        // dedicated captured pose does.
-        const idleClip =
-          gltf.animations.find((c) => c.name === "RifleIdle") ??
-          gltf.animations.find((c) => c.name === "Idle2") ??
-          gltf.animations.find((c) => c.name.includes("Idle")) ??
-          gltf.animations[0];
+        // "Idle2" is a real motion-captured breathing idle (retargeted from
+        // a Mixamo clip) — prefer it over the rig's own baked-in idle when
+        // present, since it's the one meant to actually ship.
+        const idleClip = gltf.animations.find((c) => c.name === "Idle2") ?? gltf.animations.find((c) => c.name.includes("Idle")) ?? gltf.animations[0];
         idleAction = mixer.clipAction(idleClip);
         idleAction.play();
         const runClip = gltf.animations.find((c) => c.name === "Running");
@@ -1850,70 +1672,7 @@ function loadFighter(
           runAction.setEffectiveWeight(0);
         }
       }
-      // Every fighter is armed with a rifle from the start now (player and
-      // both bots), rather than the sword the old melee phase used to hand
-      // out mid-fight.
-      let gunMuzzle: THREE.Object3D | null = null;
-      let gunFlash: THREE.Mesh | null = null;
-      if (rightHand) {
-        const gun = attachGun(rightHand);
-        gunMuzzle = gun.muzzle;
-        gunFlash = gun.flash;
-      }
-
-      // Capture each locked bone's orientation from the RifleIdle pose
-      // (idleAction is the only weighted action at this point) as a
-      // quaternion relative to `root`, so applyGunArmPose can hold them
-      // steady every frame regardless of what Idle/Running end up
-      // blending in between root and each bone.
-      let armRestQuat: THREE.Quaternion | null = null;
-      let forearmRestQuat: THREE.Quaternion | null = null;
-      let neckRestQuat: THREE.Quaternion | null = null;
-      let headRestQuat: THREE.Quaternion | null = null;
-      if (mixer !== null) {
-        mixer.update(0);
-        root.updateMatrixWorld(true);
-        const rootQuatInv = root.getWorldQuaternion(new THREE.Quaternion()).invert();
-        if (rightArm !== null) {
-          const bone: THREE.Object3D = rightArm;
-          armRestQuat = rootQuatInv.clone().multiply(bone.getWorldQuaternion(new THREE.Quaternion()));
-        }
-        if (rightForeArm !== null) {
-          const bone: THREE.Object3D = rightForeArm;
-          forearmRestQuat = rootQuatInv.clone().multiply(bone.getWorldQuaternion(new THREE.Quaternion()));
-        }
-        if (neck !== null) {
-          const bone: THREE.Object3D = neck;
-          neckRestQuat = rootQuatInv.clone().multiply(bone.getWorldQuaternion(new THREE.Quaternion()));
-        }
-        if (head !== null) {
-          const bone: THREE.Object3D = head;
-          headRestQuat = rootQuatInv.clone().multiply(bone.getWorldQuaternion(new THREE.Quaternion()));
-        }
-      }
-
-      onLoaded({
-        root,
-        mixer,
-        idleAction,
-        runAction,
-        rightArm,
-        rightForeArm,
-        rightHand,
-        neck,
-        head,
-        armRestQuat,
-        forearmRestQuat,
-        neckRestQuat,
-        headRestQuat,
-        armAppliedQuat: null,
-        forearmAppliedQuat: null,
-        neckAppliedQuat: null,
-        headAppliedQuat: null,
-        materials,
-        gunMuzzle,
-        gunFlash,
-      });
+      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -1921,8 +1680,8 @@ function loadFighter(
 }
 
 // A minimal single-player vs. bot skirmish on a 10x10 arena: touch
-// joystick to move, tap FIRE in range to shoot. No networking — the
-// "bot" is just a simple chase-and-shoot AI running in the same tick loop
+// joystick to move, tap the attack button in range. No networking — the
+// "bot" is just a simple chase-and-swing AI running in the same tick loop
 // as the player, both driven by the same idle-animation character model
 // (there's only one character asset right now) tinted to tell them apart.
 function CombatArena({ onExit }: { onExit: () => void }) {
@@ -2349,10 +2108,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let botHpLocal = 100;
     let playerCooldown = 0;
     let botCooldown = 0;
-    let playerFireT = -1;
-    let botFireT = -1;
-    let playerFlashT = -1;
-    let botFlashT = -1;
+    let playerPunchT = -1;
+    let botPunchT = -1;
     // Smoothed horizontal ground velocity — movement eases toward the
     // joystick-derived target instead of snapping to it, which is what
     // gives the accel/decel and the turning its weight.
@@ -2362,6 +2119,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerSpeedNow = 0;
     let ended = false;
     let phaseLocal: "bot1" | "bot2" = "bot1";
+    let playerDamage = PLAYER_DAMAGE;
+    let playerAttackRange = ATTACK_RANGE;
+    let swordAttached = false;
     let bot1DeathT = -1;
     let bot2DeathT = -1;
     let playerDeathT = -1;
@@ -2369,21 +2129,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let resultRevealT = 0;
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
-    // Bullet tracers: a short-lived line per shot, spawned at the firer's
-    // muzzle pointing at its target and removed once its life runs out —
-    // this is hitscan combat, so the tracer is purely a visual sell, not
-    // a simulated projectile.
-    const tracerMat = new THREE.LineBasicMaterial({ color: 0xfff2c2, transparent: true });
-    const activeTracers: { line: THREE.Line; life: number }[] = [];
-    const spawnTracer = (from: THREE.Object3D, toPos: THREE.Vector3) => {
-      const fromPos = new THREE.Vector3();
-      from.getWorldPosition(fromPos);
-      const geometry = new THREE.BufferGeometry().setFromPoints([fromPos, toPos]);
-      const mat = tracerMat.clone();
-      const line = new THREE.Line(geometry, mat);
-      scene.add(line);
-      activeTracers.push({ line, life: TRACER_DURATION });
-    };
 
     const tick = () => {
       raf = requestAnimationFrame(tick);
@@ -2391,11 +2136,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       player?.mixer?.update(dt);
       bot1?.mixer?.update(dt);
       bot2?.mixer?.update(dt);
-      // Locked every frame, after the mixers run, so the gun-hold pose
-      // always wins over whatever Running's arm swing set that frame.
-      if (player) applyGunArmPose(player);
-      if (bot1) applyGunArmPose(bot1);
-      if (bot2) applyGunArmPose(bot2);
 
       if (bot1 && bot1DeathT >= 0) {
         applyDeathPose(bot1, bot1DeathT);
@@ -2513,7 +2253,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           dist = Math.hypot(dx, dz);
         }
 
-        if (dist > GUN_RANGE * 0.85) {
+        if (dist > ATTACK_RANGE * 0.85) {
           const moveX = dx / dist;
           const moveZ = dz / dist;
           activeBot.root.position.x = clamp(activeBot.root.position.x + moveX * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
@@ -2521,8 +2261,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           resolveObstacleCollisions(activeBot.root.position);
           updateLocomotionAnim(activeBot, 1, BOT_SPEED);
         } else {
-          // Once in gun range the bot holds its ground and shoots rather
-          // than closing the last stretch to melee distance.
           updateLocomotionAnim(activeBot, 0, 0);
         }
         activeBot.root.rotation.y = Math.atan2(dx, dz);
@@ -2532,77 +2270,49 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
         if (attackRequested.current) {
           attackRequested.current = false;
-          if (playerCooldown <= 0 && dist <= GUN_RANGE) {
-            botHpLocal = Math.max(0, botHpLocal - PLAYER_DAMAGE);
+          if (playerCooldown <= 0 && dist <= playerAttackRange) {
+            botHpLocal = Math.max(0, botHpLocal - playerDamage);
             setBotHp(botHpLocal);
-            playerCooldown = PLAYER_FIRE_COOLDOWN;
-            playerFireT = 0;
-            playerFlashT = 0;
-            if (player.gunMuzzle) {
-              spawnTracer(player.gunMuzzle, new THREE.Vector3(activeBot.root.position.x, activeBot.root.position.y + 1.2, activeBot.root.position.z));
-            }
+            playerCooldown = PLAYER_ATTACK_COOLDOWN;
+            playerPunchT = 0;
           }
         }
 
-        if (dist <= GUN_RANGE && botCooldown <= 0) {
+        if (dist <= ATTACK_RANGE && botCooldown <= 0) {
           playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
           setPlayerHp(playerHpLocal);
-          botCooldown = BOT_FIRE_COOLDOWN;
-          botFireT = 0;
-          botFlashT = 0;
-          if (activeBot.gunMuzzle) {
-            spawnTracer(activeBot.gunMuzzle, new THREE.Vector3(player.root.position.x, player.root.position.y + 1.2, player.root.position.z));
-          }
+          botCooldown = BOT_ATTACK_COOLDOWN;
+          botPunchT = 0;
         }
 
-        if (playerFireT >= 0) {
-          applyFirePose(player, playerFireT);
-          playerFireT = playerFireT + dt > RECOIL_DURATION ? -1 : playerFireT + dt;
+        if (playerPunchT >= 0) {
+          applyPunchPose(player, playerPunchT);
+          playerPunchT = playerPunchT + dt > PUNCH_DURATION ? -1 : playerPunchT + dt;
         }
-        if (botFireT >= 0) {
-          applyFirePose(activeBot, botFireT);
-          botFireT = botFireT + dt > RECOIL_DURATION ? -1 : botFireT + dt;
-        }
-        if (playerFlashT >= 0) {
-          if (player.gunFlash) player.gunFlash.visible = true;
-          playerFlashT += dt;
-          if (playerFlashT > MUZZLE_FLASH_DURATION) {
-            if (player.gunFlash) player.gunFlash.visible = false;
-            playerFlashT = -1;
-          }
-        }
-        if (botFlashT >= 0) {
-          if (activeBot.gunFlash) activeBot.gunFlash.visible = true;
-          botFlashT += dt;
-          if (botFlashT > MUZZLE_FLASH_DURATION) {
-            if (activeBot.gunFlash) activeBot.gunFlash.visible = false;
-            botFlashT = -1;
-          }
-        }
-        for (let i = activeTracers.length - 1; i >= 0; i--) {
-          const tr = activeTracers[i];
-          tr.life -= dt;
-          if (tr.life <= 0) {
-            scene.remove(tr.line);
-            tr.line.geometry.dispose();
-            (tr.line.material as THREE.LineBasicMaterial).dispose();
-            activeTracers.splice(i, 1);
-          } else {
-            (tr.line.material as THREE.LineBasicMaterial).opacity = clamp(tr.life / TRACER_DURATION, 0, 1);
-          }
+        if (botPunchT >= 0) {
+          applyPunchPose(activeBot, botPunchT);
+          botPunchT = botPunchT + dt > PUNCH_DURATION ? -1 : botPunchT + dt;
         }
 
         if (botHpLocal <= 0) {
           if (phaseLocal === "bot1") {
             // Bot 1 down — it topples and fades out in the background while
-            // bot 2 (full health, already armed the same way) steps in.
+            // bot 2 (full health) steps in, and the player gets a sword
+            // (parented to their right hand so it swings with the punch
+            // pose automatically).
             phaseLocal = "bot2";
             setPhase("bot2");
             botHpLocal = 100;
             setBotHp(100);
             botCooldown = 0;
-            botFireT = -1;
+            botPunchT = -1;
             bot1DeathT = 0;
+            playerDamage = SWORD_DAMAGE;
+            playerAttackRange = SWORD_RANGE;
+            if (!swordAttached && player.rightHand) {
+              attachSword(player.rightHand);
+              swordAttached = true;
+            }
           } else {
             ended = true;
             bot2DeathT = 0;
@@ -2741,7 +2451,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       {/* Health bars */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
         <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
-          YOU
+          YOU{phase === "bot2" ? " ⚔ SWORD" : ""}
         </div>
         <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
@@ -2883,13 +2593,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         />
       </div>
 
-      {/* Fire button */}
+      {/* Attack button */}
       <button
         onPointerDown={(e) => {
           e.preventDefault();
           attackRequested.current = true;
         }}
-        aria-label="Fire"
+        aria-label="Attack"
         style={{
           position: "absolute",
           right: "7%",
@@ -2908,7 +2618,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           cursor: "pointer",
         }}
       >
-        FIRE
+        ATTACK
       </button>
 
       {/* Run toggle button */}
