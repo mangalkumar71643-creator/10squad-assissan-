@@ -1574,6 +1574,18 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  // Captured once from the frozen RifleReady pose (see loadFighter) and
+  // re-applied to these bones every tick after the mixer updates (see
+  // applyArmLock) — sampling showed the RifleRun clip is a generic running
+  // cycle where the two hands swing independently rather than holding a
+  // fixed two-handed rifle grip (LeftHand's position relative to RightHand
+  // swings from a magnitude of ~62 to ~87 units over the cycle instead of
+  // staying constant), so a rigidly-attached gun would swing wildly with
+  // the arm if it were left to follow that clip. Locking the arm chain to
+  // the stable Ready pose in every state means the gun always renders in
+  // the one pose it's actually fitted to (see attachRifle), while legs/hips
+  // still get their motion from the Idle/Run locomotion blend as before.
+  armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[];
   // Empty parented to the attached rifle clone's barrel tip, set once the
   // shared rifle asset (loaded separately, see loadRiflePrototype) finishes
   // attaching — used as the tracer origin.
@@ -1582,6 +1594,15 @@ interface FighterRig {
   // MUZZLE_FLASH_DURATION on each shot.
   gunFlash: THREE.Mesh | null;
   materials: THREE.MeshStandardMaterial[];
+}
+
+// Re-applies each locked bone's captured Ready-pose quaternion after the
+// mixer has (re)computed the full-body Idle/Run blend for this frame — see
+// FighterRig.armLock.
+function applyArmLock(rig: FighterRig) {
+  for (const { bone, quat } of rig.armLock) {
+    bone.quaternion.copy(quat);
+  }
 }
 
 // The real Meshy-AI rifle model is a static (unskinned) mesh, so one glTF
@@ -1601,32 +1622,41 @@ function loadRiflePrototype(): Promise<THREE.Object3D> {
   return riflePrototypePromise;
 }
 
-// Sized/rotated to sit in a held-rifle pose once parented to RightHand, and
-// tuned empirically (see the in-hand screenshots taken while wiring this up).
+// Sized to sit in a held-rifle pose once parented to RightHand, counteracting
+// the bone's tiny cumulative world scale the same way the old sword
+// attachment used to (the source model bakes a large armature scale into
+// the skeleton, so a gun sized in normal world units would render nearly
+// invisible if parented directly).
 const RIFLE_SCALE = 0.34;
-const RIFLE_HAND_OFFSET = new THREE.Vector3(0, 0, 0);
-const RIFLE_HAND_ROTATION = new THREE.Euler(0, 0, 0);
 // The raw model's long axis is local X; sampling its geometry (cross-section
 // per X-slice) found the -X end has the thin, symmetric cross-section of a
 // barrel tip (the opposite +X end and the mid-section — where the magazine
 // hangs below the receiver — are both wider), so -X is the muzzle.
 const RIFLE_LOCAL_MUZZLE = new THREE.Vector3(-0.95, 0.135, 0);
+const RIFLE_MUZZLE_AXIS = new THREE.Vector3(-1, 0, 0);
+// Where the muzzle axis should point once attached, expressed in
+// RightHand-local space at the locked Ready pose — tuned empirically
+// against screenshots (see the sweep in gun_rotation_sweep.js) rather than
+// derived from a fixed world/body axis, since a small guessing error here
+// is very visible (the gun swinging wildly off a rigidly-attached hand).
+const RIFLE_MUZZLE_TARGET_LOCAL = new THREE.Vector3(0, 0, 1);
 
-// Parents a clone of the shared rifle model onto a fighter's RightHand bone,
-// counteracting the bone's tiny cumulative world scale the same way the old
-// sword attachment used to (the source model bakes a large armature scale
-// into the skeleton, so anything parented directly at normal world-unit size
-// would render nearly invisible). Returns a muzzle marker (tracer origin)
-// and a small flash mesh (toggled visible on each shot), both positioned at
-// the barrel tip found above.
-function attachRifle(hand: THREE.Object3D, prototype: THREE.Object3D): { muzzle: THREE.Object3D; flash: THREE.Mesh } {
+// Parents a clone of the shared rifle model onto a fighter's RightHand
+// bone, counteracting the bone's tiny cumulative world scale (see
+// RIFLE_SCALE) and rotated (via `rotation`, measured once per rig from its
+// locked Ready pose — see loadFighter) so the muzzle points the same way
+// the body is actually facing at that pose, instead of a guessed fixed
+// transform (the Ready clip is itself a turn-in-progress, so "facing" here
+// means the body's own current facing at frame 0, not a fixed world axis).
+// Returns a muzzle marker (tracer origin) and a small flash mesh (toggled
+// visible on each shot), both positioned at the barrel tip.
+function attachRifle(hand: THREE.Object3D, prototype: THREE.Object3D, rotation: THREE.Quaternion): { muzzle: THREE.Object3D; flash: THREE.Mesh } {
   hand.updateWorldMatrix(true, false);
   const worldScale = new THREE.Vector3();
   hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
   const gun = prototype.clone(true);
   gun.scale.setScalar(RIFLE_SCALE / (worldScale.x || 1));
-  gun.position.copy(RIFLE_HAND_OFFSET);
-  gun.rotation.copy(RIFLE_HAND_ROTATION);
+  gun.quaternion.copy(rotation);
   hand.add(gun);
   const muzzle = new THREE.Object3D();
   muzzle.position.copy(RIFLE_LOCAL_MUZZLE);
@@ -1662,17 +1692,29 @@ function loadFighter(
 
       // The recoil kick (see applyFirePose) is still driven by grabbing
       // these arm bones directly and layering a quaternion nudge on top of
-      // whatever the RifleReady/RifleRun clips posed that frame, rather
-      // than needing its own baked-in clip.
+      // whatever the locked Ready pose put there that frame (see armLock
+      // below), rather than needing its own baked-in clip.
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
+      let rightShoulder: THREE.Object3D | null = null;
+      let leftArm: THREE.Object3D | null = null;
+      let leftForeArm: THREE.Object3D | null = null;
+      let leftHand: THREE.Object3D | null = null;
+      let leftShoulder: THREE.Object3D | null = null;
+      let hips: THREE.Object3D | null = null;
       const materials: THREE.MeshStandardMaterial[] = [];
 
       model.traverse((o) => {
         if (o.name === "RightArm") rightArm = o;
         if (o.name === "RightForeArm") rightForeArm = o;
         if (o.name === "RightHand") rightHand = o;
+        if (o.name === "RightShoulder") rightShoulder = o;
+        if (o.name === "LeftArm") leftArm = o;
+        if (o.name === "LeftForeArm") leftForeArm = o;
+        if (o.name === "LeftHand") leftHand = o;
+        if (o.name === "LeftShoulder") leftShoulder = o;
+        if (o.name === "Hips") hips = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
@@ -1719,12 +1761,28 @@ function loadFighter(
           runAction.setEffectiveWeight(0);
         }
       }
-      const rig: FighterRig = { root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, gunMuzzle: null, gunFlash: null, materials };
+
+      // Force the mixer to apply the (frozen) Ready pose once so the arm
+      // chain's bind-relative rotations can be captured from it (see
+      // armLock/FighterRig for why locking the arms matters more than just
+      // tuning a fixed gun transform).
+      const armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[] = [];
+      const gunRotation = new THREE.Quaternion().setFromUnitVectors(RIFLE_MUZZLE_AXIS, RIFLE_MUZZLE_TARGET_LOCAL.clone().normalize());
+      if (mixer) {
+        mixer.update(0);
+        model.updateWorldMatrix(true, true);
+        const armChain: (THREE.Object3D | null)[] = [rightShoulder, rightArm, rightForeArm, rightHand, leftShoulder, leftArm, leftForeArm, leftHand];
+        for (const bone of armChain) {
+          if (bone) armLock.push({ bone, quat: bone.quaternion.clone() });
+        }
+      }
+
+      const rig: FighterRig = { root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, armLock, gunMuzzle: null, gunFlash: null, materials };
       onLoaded(rig);
       if (rightHand) {
         const hand = rightHand as THREE.Object3D;
         riflePrototype.then((proto) => {
-          const { muzzle, flash } = attachRifle(hand, proto);
+          const { muzzle, flash } = attachRifle(hand, proto, gunRotation);
           rig.gunMuzzle = muzzle;
           rig.gunFlash = flash;
         });
@@ -2211,6 +2269,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       player?.mixer?.update(dt);
       bot1?.mixer?.update(dt);
       bot2?.mixer?.update(dt);
+      if (player) applyArmLock(player);
+      if (bot1) applyArmLock(bot1);
+      if (bot2) applyArmLock(bot2);
 
       if (bot1 && bot1DeathT >= 0) {
         applyDeathPose(bot1, bot1DeathT);
