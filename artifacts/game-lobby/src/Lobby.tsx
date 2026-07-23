@@ -1589,20 +1589,25 @@ function loadSwordPrototype(): Promise<THREE.Object3D> {
 // blade extends from there back toward -X.
 const SWORD_GRIP_LOCAL = new THREE.Vector3(0.78, 0, 0);
 const SWORD_BLADE_AXIS = new THREE.Vector3(-1, 0, 0);
-// The old procedural sword (a box blade authored with its grip at the local
-// origin and its blade extending along local +Y) looked correct when
-// parented to RightHand with an identity rotation, so +Y is a validated
-// "blade points this way" direction for this same bone/pose — reuse it
-// instead of re-deriving a rotation from scratch.
-const SWORD_BLADE_TARGET_LOCAL = new THREE.Vector3(0, 1, 0);
+// Which direction the blade should point, in RightHand-local space, at the
+// game's actual resting idle pose (arm hanging down — Idle2, not a punch
+// mid-swing, which is what an earlier pass mistakenly validated against
+// and is why the sword first shipped floating oddly at the hip instead of
+// looking held). Tried all 6 principal-axis directions and screenshotted
+// each at genuine rest (see sword_rotation_sweep.js) — this one reads as
+// the sword resting diagonally across the back, the only candidate that
+// didn't look broken or disconnected. It happens to equal SWORD_BLADE_AXIS
+// itself, i.e. this is really just an identity rotation — only the
+// position (see attachSword) needed correcting, not the orientation.
+const SWORD_BLADE_TARGET_LOCAL = new THREE.Vector3(-1, 0, 0);
 // A real one-handed sword is roughly this long; the rest of the transform
 // is derived from that, not guessed independently.
 const SWORD_TARGET_LENGTH = 0.95;
 
 // Parents a clone of the shared sword model onto a fighter's RightHand
-// bone: rotated so the blade points where the old procedural sword's blade
-// used to (see SWORD_BLADE_TARGET_LOCAL), scaled to a normal sword length,
-// and positioned so the grip (not the mesh's own origin, which sits in the
+// bone: rotated so the blade points where it actually looks held at rest
+// (see SWORD_BLADE_TARGET_LOCAL), scaled to a normal sword length, and
+// positioned so the grip (not the mesh's own origin, which sits in the
 // middle of the blade) lands on the hand — counteracting the bone's tiny
 // cumulative world scale the same way the old procedural sword did.
 function attachSword(hand: THREE.Object3D, prototype: THREE.Object3D) {
