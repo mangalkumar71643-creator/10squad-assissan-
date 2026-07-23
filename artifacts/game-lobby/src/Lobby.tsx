@@ -1195,7 +1195,7 @@ const PLAYER_ACCEL_RATE = 9; // per-second damping rate speeding up
 const PLAYER_DECEL_RATE = 15; // per-second damping rate slowing down (snappier stop than start)
 const PLAYER_TURN_RATE = 11; // per-second damping rate turning to face the move direction
 const BOT_SPEED = 1.9;
-const ATTACK_RANGE = 1.3;
+const GUN_RANGE = 14; // both fighters are armed with rifles, so combat range is a shootout distance, not a melee reach
 const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
 
 // A sci-fi outpost room off to the side of the arena — four walls around a
@@ -1450,27 +1450,41 @@ function resolveObstacleCollisions(pos: { x: number; z: number }) {
 
 const PLAYER_DAMAGE = 14;
 const BOT_DAMAGE = 10;
-const PLAYER_ATTACK_COOLDOWN = 0.55;
-const BOT_ATTACK_COOLDOWN = 1.3;
+const PLAYER_FIRE_COOLDOWN = 0.28;
+const BOT_FIRE_COOLDOWN = 1.3;
 const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
-const PUNCH_DURATION = 0.35;
-const PUNCH_SWING_ANGLE = 1.4;
-const PUNCH_ELBOW_ANGLE = 0.9;
+const RECOIL_DURATION = 0.14;
+const RECOIL_SHOULDER_ANGLE = 0.35;
+const RECOIL_ELBOW_ANGLE = 0.5;
+const MUZZLE_FLASH_DURATION = 0.06;
+const TRACER_DURATION = 0.08;
 const BOT2_TINT = 0xffb703;
 const BOT2_SPAWN = { x: 3.4, z: -3.2 };
-const SWORD_DAMAGE = 26;
-const SWORD_RANGE = 2.0;
 
-// Swings a fighter's right arm forward and back (bind-pose-relative, layered
-// on top of whatever the idle clip set that frame) — there's no punch clip
-// baked into the rig, so this drives the arm bones directly.
-function applyPunchPose(rig: FighterRig, t: number) {
-  const swing = Math.sin(clamp(t / PUNCH_DURATION, 0, 1) * Math.PI);
-  if (rig.rightArm) rig.rightArm.rotation.x -= swing * PUNCH_SWING_ANGLE;
-  if (rig.rightForeArm) rig.rightForeArm.rotation.x -= swing * PUNCH_ELBOW_ANGLE;
+// Kicks a fighter's right arm back and up (layered on top of whatever the
+// RifleReady/RifleRun clips posed that frame) to sell a rifle's recoil.
+// Composed as an axis-angle quaternion rather than mutating `.rotation.x`
+// directly — reading/editing the Euler decomposition of a quaternion isn't
+// always numerically stable (it broke a previous version of this feature
+// near a different bone's bind pose), so staying in quaternion space
+// throughout avoids that whole class of bug regardless of what the new
+// clips' own bind values happen to be.
+const recoilAxisX = new THREE.Vector3(1, 0, 0);
+const recoilQuat = new THREE.Quaternion();
+
+function applyFirePose(rig: FighterRig, t: number) {
+  const kick = Math.sin(clamp(t / RECOIL_DURATION, 0, 1) * Math.PI);
+  if (rig.rightArm) {
+    recoilQuat.setFromAxisAngle(recoilAxisX, -kick * RECOIL_SHOULDER_ANGLE);
+    rig.rightArm.quaternion.multiply(recoilQuat);
+  }
+  if (rig.rightForeArm) {
+    recoilQuat.setFromAxisAngle(recoilAxisX, -kick * RECOIL_ELBOW_ANGLE);
+    rig.rightForeArm.quaternion.multiply(recoilQuat);
+  }
 }
 
 // The rig ships two real motion-captured clips grafted into the same
@@ -1560,46 +1574,70 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  // Empty parented to the attached rifle clone's barrel tip, set once the
+  // shared rifle asset (loaded separately, see loadRiflePrototype) finishes
+  // attaching — used as the tracer origin.
+  gunMuzzle: THREE.Object3D | null;
+  // Small flash mesh parented to gunMuzzle, toggled visible for
+  // MUZZLE_FLASH_DURATION on each shot.
+  gunFlash: THREE.Mesh | null;
   materials: THREE.MeshStandardMaterial[];
 }
 
-// A simple procedural sword (no sword asset on hand) — blade, crossguard and
-// hilt built from basic primitives, meant to be parented to a fighter's
-// RightHand bone so it swings along with the arm automatically.
-function createSwordMesh(): THREE.Group {
-  const group = new THREE.Group();
-  const blade = new THREE.Mesh(
-    new THREE.BoxGeometry(0.045, 0.85, 0.11),
-    new THREE.MeshStandardMaterial({ color: 0xdce8f2, metalness: 0.85, roughness: 0.25, emissive: 0x2a6a8a, emissiveIntensity: 0.4 }),
-  );
-  blade.position.y = 0.55;
-  group.add(blade);
-  const guard = new THREE.Mesh(
-    new THREE.BoxGeometry(0.05, 0.05, 0.32),
-    new THREE.MeshStandardMaterial({ color: 0x8a7248, metalness: 0.7, roughness: 0.4 }),
-  );
-  guard.position.y = 0.1;
-  group.add(guard);
-  const hilt = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.028, 0.028, 0.22, 8),
-    new THREE.MeshStandardMaterial({ color: 0x3a2c1e, roughness: 0.7 }),
-  );
-  hilt.position.y = -0.02;
-  group.add(hilt);
-  return group;
+// The real Meshy-AI rifle model is a static (unskinned) mesh, so one glTF
+// load is shared and cloned per fighter instead of loading it three times.
+let riflePrototypePromise: Promise<THREE.Object3D> | null = null;
+function loadRiflePrototype(): Promise<THREE.Object3D> {
+  if (!riflePrototypePromise) {
+    riflePrototypePromise = new Promise((resolve, reject) => {
+      new GLTFLoader().load(
+        "/characters/rifle.glb",
+        (gltf) => resolve(gltf.scene),
+        undefined,
+        reject,
+      );
+    });
+  }
+  return riflePrototypePromise;
 }
 
-// The rig's hand bones carry a tiny cumulative world scale inherited from the
-// skeleton (the source model bakes a large armature scale), so a sword sized
-// in normal world units would render nearly invisible if parented directly.
-// Counteract that by scaling the sword up by the bone's inverse world scale.
-function attachSword(hand: THREE.Object3D) {
+// Sized/rotated to sit in a held-rifle pose once parented to RightHand, and
+// tuned empirically (see the in-hand screenshots taken while wiring this up).
+const RIFLE_SCALE = 0.34;
+const RIFLE_HAND_OFFSET = new THREE.Vector3(0, 0, 0);
+const RIFLE_HAND_ROTATION = new THREE.Euler(0, 0, 0);
+// The raw model's long axis is local X; sampling its geometry (cross-section
+// per X-slice) found the -X end has the thin, symmetric cross-section of a
+// barrel tip (the opposite +X end and the mid-section — where the magazine
+// hangs below the receiver — are both wider), so -X is the muzzle.
+const RIFLE_LOCAL_MUZZLE = new THREE.Vector3(-0.95, 0.135, 0);
+
+// Parents a clone of the shared rifle model onto a fighter's RightHand bone,
+// counteracting the bone's tiny cumulative world scale the same way the old
+// sword attachment used to (the source model bakes a large armature scale
+// into the skeleton, so anything parented directly at normal world-unit size
+// would render nearly invisible). Returns a muzzle marker (tracer origin)
+// and a small flash mesh (toggled visible on each shot), both positioned at
+// the barrel tip found above.
+function attachRifle(hand: THREE.Object3D, prototype: THREE.Object3D): { muzzle: THREE.Object3D; flash: THREE.Mesh } {
   hand.updateWorldMatrix(true, false);
   const worldScale = new THREE.Vector3();
   hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
-  const sword = createSwordMesh();
-  sword.scale.setScalar(1 / (worldScale.x || 1));
-  hand.add(sword);
+  const gun = prototype.clone(true);
+  gun.scale.setScalar(RIFLE_SCALE / (worldScale.x || 1));
+  gun.position.copy(RIFLE_HAND_OFFSET);
+  gun.rotation.copy(RIFLE_HAND_ROTATION);
+  hand.add(gun);
+  const muzzle = new THREE.Object3D();
+  muzzle.position.copy(RIFLE_LOCAL_MUZZLE);
+  gun.add(muzzle);
+  const flash = new THREE.Mesh(
+    new THREE.SphereGeometry(0.06, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.95 }),
+  );
+  flash.visible = false;
+  muzzle.add(flash);
+  return { muzzle, flash };
 }
 
 // Loads the one character model we have twice — once as the player (its
@@ -1608,6 +1646,7 @@ function attachSword(hand: THREE.Object3D) {
 function loadFighter(
   scene: THREE.Scene,
   tint: THREE.ColorRepresentation,
+  riflePrototype: Promise<THREE.Object3D>,
   onLoaded: (rig: FighterRig) => void,
 ) {
   new GLTFLoader().load(
@@ -1621,12 +1660,10 @@ function loadFighter(
       model.scale.setScalar(scale);
       model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
 
-      // There's no punch animation baked into either clip, so the arm
-      // bones are still grabbed here and swung by hand (see the punch
-      // logic in CombatArena's tick loop) — but locomotion itself now
-      // comes from the real "Running" mocap clip grafted into this glb
-      // (see loadCombatAssets / the merge that produced it), not a
-      // hand-guessed sine/IK system.
+      // The recoil kick (see applyFirePose) is still driven by grabbing
+      // these arm bones directly and layering a quaternion nudge on top of
+      // whatever the RifleReady/RifleRun clips posed that frame, rather
+      // than needing its own baked-in clip.
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
@@ -1659,20 +1696,39 @@ function loadFighter(
       let runAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
-        // "Idle2" is a real motion-captured breathing idle (retargeted from
-        // a Mixamo clip) — prefer it over the rig's own baked-in idle when
-        // present, since it's the one meant to actually ship.
-        const idleClip = gltf.animations.find((c) => c.name === "Idle2") ?? gltf.animations.find((c) => c.name.includes("Idle")) ?? gltf.animations[0];
+        // "RifleReady" (source clip "Rifle_Aim_Turn_Right" — same skeleton
+        // as this rig, no retargeting needed) is a turn-and-aim clip, not a
+        // held pose, so it's frozen at its first frame right after playing
+        // instead of run normally: that first frame is a stable "ready aim"
+        // stance, and freezing timeScale avoids ever animating through the
+        // rest of the clip's big turn/walk excursion. This sidesteps the
+        // whole lock/cancellation system the previous rifle-idle clip
+        // needed (it had its own baked-in look-around motion) — there's
+        // nothing here to cancel because the clip just never advances.
+        const idleClip = gltf.animations.find((c) => c.name === "RifleReady") ?? gltf.animations.find((c) => c.name === "Idle2") ?? gltf.animations.find((c) => c.name.includes("Idle")) ?? gltf.animations[0];
         idleAction = mixer.clipAction(idleClip);
         idleAction.play();
-        const runClip = gltf.animations.find((c) => c.name === "Running");
+        if (idleClip.name === "RifleReady") {
+          idleAction.time = 0;
+          idleAction.timeScale = 0;
+        }
+        const runClip = gltf.animations.find((c) => c.name === "RifleRun") ?? gltf.animations.find((c) => c.name === "Running");
         if (runClip) {
           runAction = mixer.clipAction(runClip);
           runAction.play();
           runAction.setEffectiveWeight(0);
         }
       }
-      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, materials });
+      const rig: FighterRig = { root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, gunMuzzle: null, gunFlash: null, materials };
+      onLoaded(rig);
+      if (rightHand) {
+        const hand = rightHand as THREE.Object3D;
+        riflePrototype.then((proto) => {
+          const { muzzle, flash } = attachRifle(hand, proto);
+          rig.gunMuzzle = muzzle;
+          rig.gunFlash = flash;
+        });
+      }
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -2071,19 +2127,23 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let bot1: FighterRig | null = null;
     let bot2: FighterRig | null = null;
 
-    loadFighter(scene, 0xffffff, (rig) => {
+    // Loaded once and cloned per fighter (see loadFighter/attachRifle) since
+    // it's a single static mesh shared by all three rigs.
+    const riflePrototype = loadRiflePrototype();
+
+    loadFighter(scene, 0xffffff, riflePrototype, (rig) => {
       if (disposed) return;
       rig.root.position.set(0, 0, 3);
       rig.root.rotation.y = Math.PI; // face bot1 at the start
       player = rig;
     });
-    loadFighter(scene, 0xff6b5e, (rig) => {
+    loadFighter(scene, 0xff6b5e, riflePrototype, (rig) => {
       if (disposed) return;
       rig.root.position.set(0, 0, -3);
       bot1 = rig;
     });
     // Bot 2 stands off to the side, idle, until bot 1 is defeated.
-    loadFighter(scene, BOT2_TINT, (rig) => {
+    loadFighter(scene, BOT2_TINT, riflePrototype, (rig) => {
       if (disposed) return;
       rig.root.position.set(BOT2_SPAWN.x, 0, BOT2_SPAWN.z);
       rig.root.rotation.y = Math.PI * 0.75;
@@ -2108,8 +2168,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let botHpLocal = 100;
     let playerCooldown = 0;
     let botCooldown = 0;
-    let playerPunchT = -1;
-    let botPunchT = -1;
+    let playerFireT = -1;
+    let botFireT = -1;
+    let playerFlashT = -1;
+    let botFlashT = -1;
     // Smoothed horizontal ground velocity — movement eases toward the
     // joystick-derived target instead of snapping to it, which is what
     // gives the accel/decel and the turning its weight.
@@ -2119,9 +2181,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerSpeedNow = 0;
     let ended = false;
     let phaseLocal: "bot1" | "bot2" = "bot1";
-    let playerDamage = PLAYER_DAMAGE;
-    let playerAttackRange = ATTACK_RANGE;
-    let swordAttached = false;
     let bot1DeathT = -1;
     let bot2DeathT = -1;
     let playerDeathT = -1;
@@ -2129,6 +2188,22 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let resultRevealT = 0;
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
+
+    // Short-lived tracer lines from a shooter's muzzle to its target,
+    // spawned per shot and cleaned up once their life runs out.
+    const tracerMaterial = new THREE.LineBasicMaterial({ color: 0xfff6c9, transparent: true, opacity: 0.9 });
+    const activeTracers: { line: THREE.Line; life: number }[] = [];
+    const spawnTracer = (shooter: FighterRig, target: FighterRig) => {
+      if (!shooter.gunMuzzle) return;
+      const from = new THREE.Vector3();
+      shooter.gunMuzzle.getWorldPosition(from);
+      const to = target.root.position.clone();
+      to.y += 1.0; // aim roughly at torso height, not the root/feet
+      const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
+      const line = new THREE.Line(geo, tracerMaterial);
+      scene.add(line);
+      activeTracers.push({ line, life: TRACER_DURATION });
+    };
 
     const tick = () => {
       raf = requestAnimationFrame(tick);
@@ -2253,7 +2328,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           dist = Math.hypot(dx, dz);
         }
 
-        if (dist > ATTACK_RANGE * 0.85) {
+        if (dist > GUN_RANGE * 0.85) {
           const moveX = dx / dist;
           const moveZ = dz / dist;
           activeBot.root.position.x = clamp(activeBot.root.position.x + moveX * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
@@ -2270,49 +2345,72 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
         if (attackRequested.current) {
           attackRequested.current = false;
-          if (playerCooldown <= 0 && dist <= playerAttackRange) {
-            botHpLocal = Math.max(0, botHpLocal - playerDamage);
+          if (playerCooldown <= 0 && dist <= GUN_RANGE) {
+            botHpLocal = Math.max(0, botHpLocal - PLAYER_DAMAGE);
             setBotHp(botHpLocal);
-            playerCooldown = PLAYER_ATTACK_COOLDOWN;
-            playerPunchT = 0;
+            playerCooldown = PLAYER_FIRE_COOLDOWN;
+            playerFireT = 0;
+            playerFlashT = 0;
+            spawnTracer(player, activeBot);
           }
         }
 
-        if (dist <= ATTACK_RANGE && botCooldown <= 0) {
+        if (dist <= GUN_RANGE && botCooldown <= 0) {
           playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
           setPlayerHp(playerHpLocal);
-          botCooldown = BOT_ATTACK_COOLDOWN;
-          botPunchT = 0;
+          botCooldown = BOT_FIRE_COOLDOWN;
+          botFireT = 0;
+          botFlashT = 0;
+          spawnTracer(activeBot, player);
         }
 
-        if (playerPunchT >= 0) {
-          applyPunchPose(player, playerPunchT);
-          playerPunchT = playerPunchT + dt > PUNCH_DURATION ? -1 : playerPunchT + dt;
+        if (playerFireT >= 0) {
+          applyFirePose(player, playerFireT);
+          playerFireT = playerFireT + dt > RECOIL_DURATION ? -1 : playerFireT + dt;
         }
-        if (botPunchT >= 0) {
-          applyPunchPose(activeBot, botPunchT);
-          botPunchT = botPunchT + dt > PUNCH_DURATION ? -1 : botPunchT + dt;
+        if (botFireT >= 0) {
+          applyFirePose(activeBot, botFireT);
+          botFireT = botFireT + dt > RECOIL_DURATION ? -1 : botFireT + dt;
+        }
+        if (playerFlashT >= 0) {
+          if (player.gunFlash) player.gunFlash.visible = true;
+          playerFlashT += dt;
+          if (playerFlashT > MUZZLE_FLASH_DURATION) {
+            if (player.gunFlash) player.gunFlash.visible = false;
+            playerFlashT = -1;
+          }
+        }
+        if (botFlashT >= 0) {
+          if (activeBot.gunFlash) activeBot.gunFlash.visible = true;
+          botFlashT += dt;
+          if (botFlashT > MUZZLE_FLASH_DURATION) {
+            if (activeBot.gunFlash) activeBot.gunFlash.visible = false;
+            botFlashT = -1;
+          }
+        }
+
+        for (let i = activeTracers.length - 1; i >= 0; i--) {
+          const tr = activeTracers[i];
+          tr.life -= dt;
+          if (tr.life <= 0) {
+            scene.remove(tr.line);
+            tr.line.geometry.dispose();
+            activeTracers.splice(i, 1);
+          }
         }
 
         if (botHpLocal <= 0) {
           if (phaseLocal === "bot1") {
             // Bot 1 down — it topples and fades out in the background while
-            // bot 2 (full health) steps in, and the player gets a sword
-            // (parented to their right hand so it swings with the punch
-            // pose automatically).
+            // bot 2 (full health, already armed with its own rifle from
+            // spawn) steps in to take its place.
             phaseLocal = "bot2";
             setPhase("bot2");
             botHpLocal = 100;
             setBotHp(100);
             botCooldown = 0;
-            botPunchT = -1;
+            botFireT = -1;
             bot1DeathT = 0;
-            playerDamage = SWORD_DAMAGE;
-            playerAttackRange = SWORD_RANGE;
-            if (!swordAttached && player.rightHand) {
-              attachSword(player.rightHand);
-              swordAttached = true;
-            }
           } else {
             ended = true;
             bot2DeathT = 0;
@@ -2451,7 +2549,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       {/* Health bars */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
         <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
-          YOU{phase === "bot2" ? " ⚔ SWORD" : ""}
+          YOU
         </div>
         <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
@@ -2593,13 +2691,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         />
       </div>
 
-      {/* Attack button */}
+      {/* Fire button */}
       <button
         onPointerDown={(e) => {
           e.preventDefault();
           attackRequested.current = true;
         }}
-        aria-label="Attack"
+        aria-label="Fire"
         style={{
           position: "absolute",
           right: "7%",
@@ -2618,7 +2716,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           cursor: "pointer",
         }}
       >
-        ATTACK
+        FIRE
       </button>
 
       {/* Run toggle button */}
