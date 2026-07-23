@@ -1563,42 +1563,58 @@ interface FighterRig {
   materials: THREE.MeshStandardMaterial[];
 }
 
-// A simple procedural sword (no sword asset on hand) — blade, crossguard and
-// hilt built from basic primitives, meant to be parented to a fighter's
-// RightHand bone so it swings along with the arm automatically.
-function createSwordMesh(): THREE.Group {
-  const group = new THREE.Group();
-  const blade = new THREE.Mesh(
-    new THREE.BoxGeometry(0.045, 0.85, 0.11),
-    new THREE.MeshStandardMaterial({ color: 0xdce8f2, metalness: 0.85, roughness: 0.25, emissive: 0x2a6a8a, emissiveIntensity: 0.4 }),
-  );
-  blade.position.y = 0.55;
-  group.add(blade);
-  const guard = new THREE.Mesh(
-    new THREE.BoxGeometry(0.05, 0.05, 0.32),
-    new THREE.MeshStandardMaterial({ color: 0x8a7248, metalness: 0.7, roughness: 0.4 }),
-  );
-  guard.position.y = 0.1;
-  group.add(guard);
-  const hilt = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.028, 0.028, 0.22, 8),
-    new THREE.MeshStandardMaterial({ color: 0x3a2c1e, roughness: 0.7 }),
-  );
-  hilt.position.y = -0.02;
-  group.add(hilt);
-  return group;
+// The real sword model is a static (unskinned) mesh, so one glTF load is
+// shared and cloned for whichever fighter needs it (currently just the
+// player, on defeating bot 1).
+let swordPrototypePromise: Promise<THREE.Object3D> | null = null;
+function loadSwordPrototype(): Promise<THREE.Object3D> {
+  if (!swordPrototypePromise) {
+    swordPrototypePromise = new Promise((resolve, reject) => {
+      new GLTFLoader().load(
+        "/characters/sword.glb",
+        (gltf) => resolve(gltf.scene),
+        undefined,
+        reject,
+      );
+    });
+  }
+  return swordPrototypePromise;
 }
 
-// The rig's hand bones carry a tiny cumulative world scale inherited from the
-// skeleton (the source model bakes a large armature scale), so a sword sized
-// in normal world units would render nearly invisible if parented directly.
-// Counteract that by scaling the sword up by the bone's inverse world scale.
-function attachSword(hand: THREE.Object3D) {
+// The raw model's long axis is local X; sampling its geometry (cross-section
+// per X-slice) found a wide crossguard bulge around x=0.32..0.63 and a
+// narrower cylindrical grip from there to the pommel at x=0.95, with the
+// blade (fairly constant, slimmer cross-section) running from there down to
+// the tip at x=-0.95 — so the grip center is roughly (0.78, 0, 0), and the
+// blade extends from there back toward -X.
+const SWORD_GRIP_LOCAL = new THREE.Vector3(0.78, 0, 0);
+const SWORD_BLADE_AXIS = new THREE.Vector3(-1, 0, 0);
+// The old procedural sword (a box blade authored with its grip at the local
+// origin and its blade extending along local +Y) looked correct when
+// parented to RightHand with an identity rotation, so +Y is a validated
+// "blade points this way" direction for this same bone/pose — reuse it
+// instead of re-deriving a rotation from scratch.
+const SWORD_BLADE_TARGET_LOCAL = new THREE.Vector3(0, 1, 0);
+// A real one-handed sword is roughly this long; the rest of the transform
+// is derived from that, not guessed independently.
+const SWORD_TARGET_LENGTH = 0.95;
+
+// Parents a clone of the shared sword model onto a fighter's RightHand
+// bone: rotated so the blade points where the old procedural sword's blade
+// used to (see SWORD_BLADE_TARGET_LOCAL), scaled to a normal sword length,
+// and positioned so the grip (not the mesh's own origin, which sits in the
+// middle of the blade) lands on the hand — counteracting the bone's tiny
+// cumulative world scale the same way the old procedural sword did.
+function attachSword(hand: THREE.Object3D, prototype: THREE.Object3D) {
   hand.updateWorldMatrix(true, false);
   const worldScale = new THREE.Vector3();
   hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
-  const sword = createSwordMesh();
-  sword.scale.setScalar(1 / (worldScale.x || 1));
+  const sword = prototype.clone(true);
+  const rawLength = 1.898;
+  const scale = (SWORD_TARGET_LENGTH / rawLength) / (worldScale.x || 1);
+  sword.scale.setScalar(scale);
+  sword.quaternion.setFromUnitVectors(SWORD_BLADE_AXIS, SWORD_BLADE_TARGET_LOCAL.clone().normalize());
+  sword.position.copy(SWORD_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(sword.quaternion).multiplyScalar(-1);
   hand.add(sword);
 }
 
@@ -2071,6 +2087,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let bot1: FighterRig | null = null;
     let bot2: FighterRig | null = null;
 
+    // Preloaded here (rather than at the moment bot 1 dies) so it's very
+    // likely already resolved by the time the player actually earns it.
+    const swordPrototype = loadSwordPrototype();
+
     loadFighter(scene, 0xffffff, (rig) => {
       if (disposed) return;
       rig.root.position.set(0, 0, 3);
@@ -2310,8 +2330,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             playerDamage = SWORD_DAMAGE;
             playerAttackRange = SWORD_RANGE;
             if (!swordAttached && player.rightHand) {
-              attachSword(player.rightHand);
               swordAttached = true;
+              const hand = player.rightHand;
+              swordPrototype.then((proto) => attachSword(hand, proto));
             }
           } else {
             ended = true;
