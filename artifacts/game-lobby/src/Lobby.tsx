@@ -2472,16 +2472,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         if (attackRequested.current) {
           attackRequested.current = false;
           if (playerCooldown <= 0 && dist <= playerAttackRange) {
+            // Snap the body to face wherever the aim/camera is pointed the
+            // instant an attack actually lands — gun or bare-handed punch,
+            // doesn't matter — so the character always visibly faces the
+            // direction of the attack rather than whatever it happened to
+            // be facing beforehand.
+            player.root.rotation.y = cameraYaw.current;
             if (phaseLocal === "bot2") {
               // The shot always fires (cooldown, recoil pose, tracer) on
               // press, but only actually damages the bot if the reticle
               // was red at the moment of firing — i.e. the shot has to be
-              // aimed, not just in range. Snap the body to face the aim
-              // direction the instant it fires, so the gun visually points
-              // wherever the shot is actually going (e.g. a bot closing in
-              // from behind won't look like it's being shot at while the
-              // player still faces the opposite way).
-              player.root.rotation.y = cameraYaw.current;
+              // aimed, not just in range.
               playerCooldown = PLAYER_FIRE_COOLDOWN;
               playerFireT = 0;
               spawnTracer(player, activeBot);
