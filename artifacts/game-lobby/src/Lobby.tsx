@@ -2459,16 +2459,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
         activeBot.root.rotation.y = Math.atan2(dx, dz);
 
-        // Standing still — face wherever the camera is currently looking
-        // (like Free Fire: aim follows the screen, not an auto-lock onto
-        // the bot) instead of whatever direction was last walked in. While
-        // actually moving, facing already follows the movement direction
-        // (see above), which naturally lines up with the camera anyway
-        // when walking straight ahead; this only kicks in once the player
-        // stops, so attacks read as aimed wherever the screen is pointed.
-        if (playerSpeedNow <= 0.05) {
-          player.root.rotation.y = dampAngle(player.root.rotation.y, cameraYaw.current, PLAYER_TURN_RATE, dt);
-        }
+        // While stationary, the player's body keeps whatever facing it had
+        // from its last movement — free-look camera drags orbit the view
+        // around the character without spinning the character itself
+        // (matching Free Fire: panning the screen doesn't turn your body).
+        // Aim/hit detection is already purely camera-based (see below), so
+        // where the shot lands never depended on this facing anyway.
 
         playerCooldown = Math.max(0, playerCooldown - dt);
         botCooldown = Math.max(0, botCooldown - dt);
