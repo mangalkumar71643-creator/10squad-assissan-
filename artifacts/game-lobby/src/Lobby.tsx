@@ -2420,6 +2420,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
         activeBot.root.rotation.y = Math.atan2(dx, dz);
 
+        // Standing still and in range to attack — face the bot instead of
+        // whatever direction was last walked in, so punches/shots read as
+        // aimed at the target instead of thrown facing away from it. While
+        // actually moving, facing already follows the movement direction
+        // (see above); this only kicks in once the player stops.
+        if (playerSpeedNow <= 0.05 && dist <= playerAttackRange * 1.5) {
+          const faceBotYaw = Math.atan2(-dx, -dz);
+          player.root.rotation.y = dampAngle(player.root.rotation.y, faceBotYaw, PLAYER_TURN_RATE, dt);
+        }
+
         playerCooldown = Math.max(0, playerCooldown - dt);
         botCooldown = Math.max(0, botCooldown - dt);
 
