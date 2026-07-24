@@ -2471,30 +2471,39 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
         if (attackRequested.current) {
           attackRequested.current = false;
-          if (playerCooldown <= 0 && dist <= playerAttackRange) {
+          if (playerCooldown <= 0) {
+            // The attack always plays — pose, cooldown, the works — on
+            // press, whether or not the bot is actually in range right
+            // now; the character's hands respond the same way regardless.
+            // Only the damage (and, in the gun phase, the tracer) is
+            // conditional on the bot actually being in range to hit.
             // Snap the body to face wherever the aim/camera is pointed the
-            // instant an attack actually lands — gun or bare-handed punch,
-            // doesn't matter — so the character always visibly faces the
-            // direction of the attack rather than whatever it happened to
-            // be facing beforehand.
+            // instant an attack fires — gun or bare-handed punch, doesn't
+            // matter — so the character always visibly faces the attack
+            // direction rather than whatever it happened to face before.
             player.root.rotation.y = cameraYaw.current;
+            const inRange = dist <= playerAttackRange;
             if (phaseLocal === "bot2") {
-              // The shot always fires (cooldown, recoil pose, tracer) on
-              // press, but only actually damages the bot if the reticle
-              // was red at the moment of firing — i.e. the shot has to be
-              // aimed, not just in range.
+              // The shot always fires (cooldown, recoil pose) on press,
+              // but only actually damages the bot if it's in range AND the
+              // reticle was red at the moment of firing — i.e. the shot
+              // has to be aimed, not just in range.
               playerCooldown = PLAYER_FIRE_COOLDOWN;
               playerFireT = 0;
-              spawnTracer(player, activeBot);
-              if (aimedAtBot) {
+              if (inRange) {
+                spawnTracer(player, activeBot);
+                if (aimedAtBot) {
+                  botHpLocal = Math.max(0, botHpLocal - playerDamage);
+                  setBotHp(botHpLocal);
+                }
+              }
+            } else {
+              playerCooldown = PLAYER_ATTACK_COOLDOWN;
+              playerPunchT = 0;
+              if (inRange) {
                 botHpLocal = Math.max(0, botHpLocal - playerDamage);
                 setBotHp(botHpLocal);
               }
-            } else {
-              botHpLocal = Math.max(0, botHpLocal - playerDamage);
-              setBotHp(botHpLocal);
-              playerCooldown = PLAYER_ATTACK_COOLDOWN;
-              playerPunchT = 0;
             }
           }
         }
