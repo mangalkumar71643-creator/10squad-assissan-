@@ -1465,6 +1465,19 @@ const GUN_DAMAGE = 18;
 const GUN_RANGE = 14; // a shootout distance, not a melee reach
 const PLAYER_FIRE_COOLDOWN = 0.35;
 const TRACER_DURATION = 0.08;
+// Free Fire-style aim reticle: a shot only lands during the gun phase if
+// the fixed screen-center crosshair is actually over the bot, not just
+// whether it's in range. The tolerance is deliberately wider vertically
+// than horizontally: the chase camera's fixed pitch means a same-height,
+// same-yaw-aligned target drifts up screen as range grows (basic
+// perspective under a fixed downward tilt), and this is ground-level
+// combat where left/right aim is the real skill — players shouldn't also
+// have to fight the camera's vertical framing on a touch drag to land a
+// hit. AIM_TARGET_HEIGHT aims at roughly chest height rather than the
+// root/feet.
+const AIM_TOLERANCE_X_PX = 65;
+const AIM_TOLERANCE_Y_PX = 170;
+const AIM_TARGET_HEIGHT = 1.3;
 
 // Swings a fighter's right arm forward and back (bind-pose-relative, layered
 // on top of whatever the idle clip set that frame) — there's no punch clip
@@ -1815,6 +1828,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const [runActive, setRunActive] = useState(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
+  // Aim reticle color/glow is updated directly via ref every tick (like the
+  // joystick knob above) rather than through React state, since it changes
+  // every frame the camera moves.
+  const crosshairRef = useRef<HTMLDivElement>(null);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
   // buttons) orbits the camera around the player, independent of movement.
   // Horizontal drag turns cameraYaw; vertical drag adds to cameraPitch,
@@ -2408,6 +2425,28 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           dist = Math.hypot(dx, dz);
         }
 
+        // Free Fire-style aim check (gun phase only): project the bot's
+        // chest position through the camera and see how close it lands to
+        // the fixed screen-center crosshair. Drives both the reticle color
+        // and whether a shot actually lands (see attackRequested below).
+        let aimedAtBot = false;
+        if (phaseLocal === "bot2") {
+          const aimPoint = activeBot.root.position.clone();
+          aimPoint.y += AIM_TARGET_HEIGHT;
+          aimPoint.project(camera);
+          if (aimPoint.z < 1) {
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            const px = (aimPoint.x + 1) * 0.5 * w;
+            const py = (1 - aimPoint.y) * 0.5 * h;
+            aimedAtBot = Math.abs(px - w / 2) <= AIM_TOLERANCE_X_PX && Math.abs(py - h / 2) <= AIM_TOLERANCE_Y_PX;
+          }
+          if (crosshairRef.current) {
+            crosshairRef.current.style.borderColor = aimedAtBot ? "#ff3b30" : "rgba(255,255,255,0.85)";
+            crosshairRef.current.style.boxShadow = aimedAtBot ? "0 0 10px 3px rgba(255,59,48,0.75)" : "0 0 0 1px rgba(0,0,0,0.3)";
+          }
+        }
+
         if (dist > ATTACK_RANGE * 0.85) {
           const moveX = dx / dist;
           const moveZ = dz / dist;
@@ -2437,13 +2476,21 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         if (attackRequested.current) {
           attackRequested.current = false;
           if (playerCooldown <= 0 && dist <= playerAttackRange) {
-            botHpLocal = Math.max(0, botHpLocal - playerDamage);
-            setBotHp(botHpLocal);
             if (phaseLocal === "bot2") {
+              // The shot always fires (cooldown, recoil pose, tracer) on
+              // press, but only actually damages the bot if the reticle
+              // was red at the moment of firing — i.e. the shot has to be
+              // aimed, not just in range.
               playerCooldown = PLAYER_FIRE_COOLDOWN;
               playerFireT = 0;
               spawnTracer(player, activeBot);
+              if (aimedAtBot) {
+                botHpLocal = Math.max(0, botHpLocal - playerDamage);
+                setBotHp(botHpLocal);
+              }
             } else {
+              botHpLocal = Math.max(0, botHpLocal - playerDamage);
+              setBotHp(botHpLocal);
               playerCooldown = PLAYER_ATTACK_COOLDOWN;
               playerPunchT = 0;
             }
@@ -2627,6 +2674,42 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         onPointerCancel={handleLookUp}
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
       />
+
+      {/* Aim reticle — gun phase only. Fixed at screen center; turns red
+          (via crosshairRef, updated every tick) when the bot is under it. */}
+      {phase === "bot2" && (
+        <div
+          ref={crosshairRef}
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            width: 28,
+            height: 28,
+            marginLeft: -14,
+            marginTop: -14,
+            borderRadius: "50%",
+            border: "2px solid rgba(255,255,255,0.85)",
+            boxShadow: "0 0 0 1px rgba(0,0,0,0.3)",
+            pointerEvents: "none",
+            zIndex: 5,
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              width: 4,
+              height: 4,
+              marginLeft: -2,
+              marginTop: -2,
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.9)",
+            }}
+          />
+        </div>
+      )}
 
       {/* Health bars */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
