@@ -2476,7 +2476,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
               // The shot always fires (cooldown, recoil pose, tracer) on
               // press, but only actually damages the bot if the reticle
               // was red at the moment of firing — i.e. the shot has to be
-              // aimed, not just in range.
+              // aimed, not just in range. Snap the body to face the aim
+              // direction the instant it fires, so the gun visually points
+              // wherever the shot is actually going (e.g. a bot closing in
+              // from behind won't look like it's being shot at while the
+              // player still faces the opposite way).
+              player.root.rotation.y = cameraYaw.current;
               playerCooldown = PLAYER_FIRE_COOLDOWN;
               playerFireT = 0;
               spawnTracer(player, activeBot);
