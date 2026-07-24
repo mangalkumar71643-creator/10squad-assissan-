@@ -1571,6 +1571,13 @@ interface FighterRig {
   // the gun dangling from just the right hand while the left hand hangs
   // empty at the character's side.
   armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[];
+  // LeftHand's position at that same locked pose, expressed in
+  // RightHand-local space — used once, at gun-attach time, to nudge the
+  // gun's position (not its rotation, which is tuned separately for how it
+  // should look) so a point along the barrel actually coincides with where
+  // the off-hand really is, instead of leaving a visible gap between the
+  // support hand and the foregrip.
+  gunHandLocal: THREE.Vector3;
   materials: THREE.MeshStandardMaterial[];
 }
 
@@ -1621,6 +1628,9 @@ const GUN_TARGET_LENGTH = 0.85;
 // Tuned empirically instead (screenshotted from the game's actual default
 // camera, not an orbited test angle) so the barrel visibly points forward.
 const GUN_MUZZLE_TARGET_LOCAL = new THREE.Vector3(0, 1, 0);
+// A point on the handguard, between the grip and the muzzle, in the raw
+// mesh's own local space — where the off-hand should actually be gripping.
+const GUN_FOREGRIP_LOCAL = new THREE.Vector3(-0.4, 0, 0);
 
 // Parents a clone of the shared gun model onto a fighter's RightHand bone,
 // sized and oriented so the barrel points forward (see
@@ -1629,7 +1639,7 @@ const GUN_MUZZLE_TARGET_LOCAL = new THREE.Vector3(0, 1, 0);
 // needs solving once, at attach time, rather than continuously like the
 // sword's hang-down pose did (that one had to track the hand's live
 // orientation because the arm kept moving; this one doesn't move).
-function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): THREE.Object3D {
+function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D, gunHandLocal: THREE.Vector3): THREE.Object3D {
   const worldScale = new THREE.Vector3();
   hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
   const gun = prototype.clone(true);
@@ -1638,6 +1648,15 @@ function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): T
   gun.scale.setScalar(scale);
   gun.quaternion.setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
   gun.position.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gun.quaternion).multiplyScalar(-1);
+  // The rotation above is tuned to look like aiming forward, not to match
+  // the off-hand's actual locked position (aligning to that instead put
+  // the barrel sideways across the chest — see GUN_MUZZLE_TARGET_LOCAL),
+  // so the fixed rotation alone leaves a gap between the support hand and
+  // the foregrip. Close it by nudging the gun's position (not its
+  // rotation) so the foregrip point lands exactly where the hand already
+  // is.
+  const foregripWorld = GUN_FOREGRIP_LOCAL.clone().multiplyScalar(scale).applyQuaternion(gun.quaternion).add(gun.position);
+  gun.position.add(gunHandLocal.clone().sub(foregripWorld));
   hand.add(gun);
   return gun;
 }
@@ -1754,8 +1773,11 @@ function loadFighter(
       // stable arm pose for when the gun is equipped. This never touches
       // locomotion; legs/hips keep coming from Idle2/Running as before.
       const armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[] = [];
+      let gunHandLocal = new THREE.Vector3(0.3, 0, 0.3);
       const rifleIdleClip = gltf.animations.find((c) => c.name === "RifleIdle");
-      if (rifleIdleClip) {
+      if (rifleIdleClip && rightHand && leftHand) {
+        const rh = rightHand as THREE.Object3D;
+        const lh = leftHand as THREE.Object3D;
         const tempMixer = new THREE.AnimationMixer(model);
         const tempAction = tempMixer.clipAction(rifleIdleClip);
         tempAction.play();
@@ -1765,10 +1787,12 @@ function loadFighter(
         for (const bone of armChain) {
           if (bone) armLock.push({ bone, quat: bone.quaternion.clone() });
         }
+        const invRightHand = new THREE.Matrix4().copy(rh.matrixWorld).invert();
+        gunHandLocal = lh.getWorldPosition(new THREE.Vector3()).applyMatrix4(invRightHand);
         tempAction.stop();
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, armLock, materials });
+      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, armLock, gunHandLocal, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -2453,8 +2477,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             if (!gunAttached && player.rightHand) {
               gunAttached = true;
               const hand = player.rightHand;
+              const gunHandLocal = player.gunHandLocal;
               gunPrototype.then((proto) => {
-                createGunAttachment(hand, proto);
+                createGunAttachment(hand, proto, gunHandLocal);
               });
             }
           } else {
