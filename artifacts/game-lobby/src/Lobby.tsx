@@ -1465,6 +1465,15 @@ const BOT3_TINT = 0x8a5cff;
 const BOT3_SPAWN = { x: -3.4, z: -3.2 };
 const BOT4_TINT = 0x4dff9e;
 const BOT4_SPAWN = { x: 0, z: -5.6 };
+// The Boss — a tougher fifth enemy stationed in Room 6 rather than roaming
+// with the other four. It doesn't chase; it stands its ground, already
+// armed, and opens fire the moment the player comes within range.
+const BOSS_TINT = 0xb3122b;
+const BOSS_SPAWN = { x: ROOM6_POS.x, z: ROOM6_POS.z };
+const BOSS_HP = 220;
+const BOSS_DAMAGE = 14;
+const BOSS_RANGE = 13;
+const BOSS_FIRE_COOLDOWN = 1.1;
 const GUN_DAMAGE = 18;
 const GUN_RANGE = 14; // a shootout distance, not a melee reach
 const PLAYER_FIRE_COOLDOWN = 0.35;
@@ -1848,7 +1857,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const lookLastY = useRef(0);
 
   const [playerHp, setPlayerHp] = useState(100);
-  const [botHps, setBotHps] = useState<number[]>([100, 100, 100, 100]);
+  const [botHps, setBotHps] = useState<number[]>([100, 100, 100, 100, 100]);
   const [gunEquipped, setGunEquipped] = useState(false);
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   const [lookSensitivity, setLookSensitivity] = useState(() => {
@@ -2213,6 +2222,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let bot2: FighterRig | null = null;
     let bot3: FighterRig | null = null;
     let bot4: FighterRig | null = null;
+    let boss: FighterRig | null = null;
 
     // Preloaded here (rather than at the moment bot 1 dies) so it's very
     // likely already resolved by the time the player actually earns it.
@@ -2249,6 +2259,21 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       rig.root.rotation.y = Math.PI;
       bot4 = rig;
     });
+    // The Boss stands guard in Room 6, already armed — unlike the player,
+    // who has to earn the gun with a kill first.
+    loadFighter(scene, BOSS_TINT, (rig) => {
+      if (disposed) return;
+      rig.root.position.set(BOSS_SPAWN.x, 0, BOSS_SPAWN.z);
+      rig.root.rotation.y = Math.PI;
+      boss = rig;
+      if (rig.rightHand) {
+        const hand = rig.rightHand;
+        const gunHandLocal = rig.gunHandLocal;
+        gunPrototype.then((proto) => {
+          createGunAttachment(hand, proto, gunHandLocal);
+        });
+      }
+    });
 
     const resize = () => {
       const w = container.clientWidth;
@@ -2276,10 +2301,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
-    // All four bots fight simultaneously (not one at a time) — each has its
-    // own hp/cooldown/pose/death timeline, tracked in parallel here rather
-    // than a single shared set of "the current bot" variables.
-    const botStates = [0, 1, 2, 3].map(() => ({ hp: 100, cooldown: 0, punchT: -1, deathT: -1, dead: false }));
+    // All four regular bots plus the Boss fight simultaneously (not one at
+    // a time) — each has its own hp/cooldown/pose/death timeline, tracked
+    // in parallel here rather than a single shared set of "the current
+    // bot" variables. Index 4 is the Boss: stationary and much tougher.
+    const botMaxHp = [100, 100, 100, 100, BOSS_HP];
+    const botStates = botMaxHp.map((hp, i) => ({ hp, cooldown: 0, punchT: -1, deathT: -1, dead: false, isBoss: i === 4 }));
     let playerDamage = PLAYER_DAMAGE;
     let playerAttackRange = ATTACK_RANGE;
     let gunAttached = false;
@@ -2313,7 +2340,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       st.hp = Math.max(0, st.hp - amount);
       setBotHps((prev) => {
         const next = prev.slice();
-        next[idx] = st.hp;
+        next[idx] = (st.hp / botMaxHp[idx]) * 100;
         return next;
       });
       if (st.hp <= 0) {
@@ -2345,11 +2372,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       bot2?.mixer?.update(dt);
       bot3?.mixer?.update(dt);
       bot4?.mixer?.update(dt);
+      boss?.mixer?.update(dt);
       // Locks both arms to the RifleIdle pose every tick once the gun is
       // equipped, overriding whatever the Idle2/Running blend just set —
       // otherwise the two clips would keep pulling each arm back toward
-      // its own independent melee pose every frame.
+      // its own independent melee pose every frame. The Boss is armed from
+      // the moment it spawns, so it always gets the lock.
       if (gunAttached && player) applyArmLock(player);
+      if (boss) applyArmLock(boss);
 
       for (let i = activeTracers.length - 1; i >= 0; i--) {
         const tr = activeTracers[i];
@@ -2361,8 +2391,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
       }
 
-      const rigs = [bot1, bot2, bot3, bot4];
-      for (let i = 0; i < 4; i++) {
+      const rigs = [bot1, bot2, bot3, bot4, boss];
+      for (let i = 0; i < 5; i++) {
         const rig = rigs[i];
         const st = botStates[i];
         if (rig && st.deathT >= 0) {
@@ -2382,7 +2412,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
       }
 
-      if (!ended && player && bot1 && bot2 && bot3 && bot4) {
+      if (!ended && player && bot1 && bot2 && bot3 && bot4 && boss) {
         const jv = joystickVec.current;
         const joyMag = Math.min(1, Math.hypot(jv.x, jv.y));
 
@@ -2469,7 +2499,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         let nearestIdx = -1;
         let nearestDist = Infinity;
         let aimedIdx = -1;
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < 5; i++) {
           const rig = rigs[i];
           const st = botStates[i];
           if (!rig || st.dead) continue;
@@ -2490,28 +2520,49 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             dist = Math.hypot(dx, dz);
           }
 
-          if (dist > ATTACK_RANGE * 0.85) {
-            const moveX = dx / dist;
-            const moveZ = dz / dist;
-            rig.root.position.x = clamp(rig.root.position.x + moveX * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-            rig.root.position.z = clamp(rig.root.position.z + moveZ * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-            resolveObstacleCollisions(rig.root.position);
-            updateLocomotionAnim(rig, 1, BOT_SPEED);
-          } else {
+          if (st.isBoss) {
+            // The Boss holds its ground in Room 6 — it never chases, but
+            // its gun reaches far further than a melee bot's fists do, and
+            // it opens fire the instant the player is within that range.
             updateLocomotionAnim(rig, 0, 0);
-          }
-          rig.root.rotation.y = Math.atan2(dx, dz);
+            rig.root.rotation.y = Math.atan2(dx, dz);
 
-          st.cooldown = Math.max(0, st.cooldown - dt);
-          if (dist <= ATTACK_RANGE && st.cooldown <= 0) {
-            playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
-            setPlayerHp(playerHpLocal);
-            st.cooldown = BOT_ATTACK_COOLDOWN;
-            st.punchT = 0;
-          }
-          if (st.punchT >= 0) {
-            applyPunchPose(rig, st.punchT);
-            st.punchT = st.punchT + dt > PUNCH_DURATION ? -1 : st.punchT + dt;
+            st.cooldown = Math.max(0, st.cooldown - dt);
+            if (dist <= BOSS_RANGE && st.cooldown <= 0) {
+              playerHpLocal = Math.max(0, playerHpLocal - BOSS_DAMAGE);
+              setPlayerHp(playerHpLocal);
+              st.cooldown = BOSS_FIRE_COOLDOWN;
+              st.punchT = 0;
+              spawnTracer(rig, player);
+            }
+            if (st.punchT >= 0) {
+              applyFirePose(rig, st.punchT);
+              st.punchT = st.punchT + dt > RECOIL_DURATION ? -1 : st.punchT + dt;
+            }
+          } else {
+            if (dist > ATTACK_RANGE * 0.85) {
+              const moveX = dx / dist;
+              const moveZ = dz / dist;
+              rig.root.position.x = clamp(rig.root.position.x + moveX * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+              rig.root.position.z = clamp(rig.root.position.z + moveZ * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+              resolveObstacleCollisions(rig.root.position);
+              updateLocomotionAnim(rig, 1, BOT_SPEED);
+            } else {
+              updateLocomotionAnim(rig, 0, 0);
+            }
+            rig.root.rotation.y = Math.atan2(dx, dz);
+
+            st.cooldown = Math.max(0, st.cooldown - dt);
+            if (dist <= ATTACK_RANGE && st.cooldown <= 0) {
+              playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
+              setPlayerHp(playerHpLocal);
+              st.cooldown = BOT_ATTACK_COOLDOWN;
+              st.punchT = 0;
+            }
+            if (st.punchT >= 0) {
+              applyPunchPose(rig, st.punchT);
+              st.punchT = st.punchT + dt > PUNCH_DURATION ? -1 : st.punchT + dt;
+            }
           }
 
           if (dist < nearestDist) {
@@ -2777,16 +2828,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
         </div>
       </div>
-      {/* All four bots fight at once now, so each gets its own compact bar
-          instead of a single shared one — dimmed out once that bot is down. */}
+      {/* All four bots plus the Boss fight at once now, so each gets its own
+          compact bar instead of a single shared one — dimmed out once that
+          one is down. */}
       <div style={{ position: "absolute", top: 16, right: 16, width: "min(38%, 260px)" }}>
         {botHps.map((hp, i) => (
           <div key={i} style={{ marginBottom: i < botHps.length - 1 ? 6 : 0, opacity: hp > 0 ? 1 : 0.35 }}>
-            <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 11, letterSpacing: "0.08em", marginBottom: 2, textAlign: "right" }}>
-              BOT {i + 1}
+            <div style={{ color: i === 4 ? "#ff8a8a" : "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 11, letterSpacing: "0.08em", marginBottom: 2, textAlign: "right" }}>
+              {i === 4 ? "BOSS" : `BOT ${i + 1}`}
             </div>
-            <div style={{ height: 7, borderRadius: 4, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${hp}%`, marginLeft: `${100 - hp}%`, background: "linear-gradient(90deg,#ff8a6b,#ff5e4e)", transition: "width 150ms ease-out, margin-left 150ms ease-out" }} />
+            <div style={{ height: i === 4 ? 9 : 7, borderRadius: 4, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${hp}%`, marginLeft: `${100 - hp}%`, background: i === 4 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff8a6b,#ff5e4e)", transition: "width 150ms ease-out, margin-left 150ms ease-out" }} />
             </div>
           </div>
         ))}
