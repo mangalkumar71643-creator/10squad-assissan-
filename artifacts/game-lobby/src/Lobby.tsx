@@ -1459,12 +1459,20 @@ const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
 const PUNCH_DURATION = 0.35;
 const PUNCH_SWING_ANGLE = 1.4;
 const PUNCH_ELBOW_ANGLE = 0.9;
+const BOT1_TINT = 0xff6b5e;
 const BOT2_TINT = 0xffb703;
-const BOT2_SPAWN = { x: 3.4, z: -3.2 };
 const BOT3_TINT = 0x8a5cff;
-const BOT3_SPAWN = { x: -3.4, z: -3.2 };
 const BOT4_TINT = 0x4dff9e;
-const BOT4_SPAWN = { x: 0, z: -5.6 };
+const BOT5_TINT = 0x4dd0ff;
+const BOT1_SPAWN = { x: ROOM_POS.x, z: ROOM_POS.z };
+const BOT2_SPAWN = { x: ROOM2_POS.x, z: ROOM2_POS.z };
+const BOT3_SPAWN = { x: ROOM3_POS.x, z: ROOM3_POS.z };
+const BOT4_SPAWN = { x: ROOM4_POS.x, z: ROOM4_POS.z };
+const BOT5_SPAWN = { x: ROOM5_POS.x, z: ROOM5_POS.z };
+const GUARD_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS];
+const GUARD_ALERT_RADIUS = 6;
+const ALERT_TELEGRAPH_DURATION = 0.7;
+const ALERT_MARK_HEIGHT = 2.15; // just above a guard's head
 // The Boss — a tougher fifth enemy stationed in Room 6 rather than roaming
 // with the other four. It doesn't chase; it stands its ground, already
 // armed, and opens fire the moment the player comes within range.
@@ -1863,6 +1871,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   // joystick knob above) rather than through React state, since it changes
   // every frame the camera moves.
   const crosshairRef = useRef<HTMLDivElement>(null);
+  // One floating "?" mark per guard bot (bot1..bot5), screen-projected and
+  // positioned directly via ref each tick (same reasoning as the crosshair
+  // above) — shown for the brief alert telegraph right before a dormant
+  // guard wakes up and starts chasing.
+  const alertRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
   // buttons) orbits the camera around the player, independent of movement.
   // Horizontal drag turns cameraYaw; vertical drag adds to cameraPitch,
@@ -1875,7 +1888,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const lookLastY = useRef(0);
 
   const [playerHp, setPlayerHp] = useState(100);
-  const [botHps, setBotHps] = useState<number[]>([100, 100, 100, 100, 100]);
+  const [botHps, setBotHps] = useState<number[]>([100, 100, 100, 100, 100, 100]);
   const [gunEquipped, setGunEquipped] = useState(false);
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   const [lookSensitivity, setLookSensitivity] = useState(() => {
@@ -2264,6 +2277,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let bot2: FighterRig | null = null;
     let bot3: FighterRig | null = null;
     let bot4: FighterRig | null = null;
+    let bot5: FighterRig | null = null;
     let boss: FighterRig | null = null;
 
     // Preloaded here (rather than at the moment bot 1 dies) so it's very
@@ -2273,26 +2287,28 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     loadFighter(scene, 0xffffff, (rig) => {
       if (disposed) return;
       rig.root.position.set(0, 0, 3);
-      rig.root.rotation.y = Math.PI; // face bot1 at the start
+      rig.root.rotation.y = Math.PI; // face into the dungeon at the start
       player = rig;
     });
-    loadFighter(scene, 0xff6b5e, (rig) => {
+    // Each bot stands guard inside its own room, dormant until the player
+    // actually walks in (see GUARD_POS / the alert check in the tick loop)
+    // rather than roaming near spawn.
+    loadFighter(scene, BOT1_TINT, (rig) => {
       if (disposed) return;
-      rig.root.position.set(0, 0, -3);
+      rig.root.position.set(BOT1_SPAWN.x, 0, BOT1_SPAWN.z);
+      rig.root.rotation.y = Math.PI;
       bot1 = rig;
     });
-    // Bots 2-4 stand off to the side, idle, until it's their turn — each
-    // one steps in only once the previous bot is defeated.
     loadFighter(scene, BOT2_TINT, (rig) => {
       if (disposed) return;
       rig.root.position.set(BOT2_SPAWN.x, 0, BOT2_SPAWN.z);
-      rig.root.rotation.y = Math.PI * 0.75;
+      rig.root.rotation.y = Math.PI;
       bot2 = rig;
     });
     loadFighter(scene, BOT3_TINT, (rig) => {
       if (disposed) return;
       rig.root.position.set(BOT3_SPAWN.x, 0, BOT3_SPAWN.z);
-      rig.root.rotation.y = -Math.PI * 0.75;
+      rig.root.rotation.y = Math.PI;
       bot3 = rig;
     });
     loadFighter(scene, BOT4_TINT, (rig) => {
@@ -2300,6 +2316,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       rig.root.position.set(BOT4_SPAWN.x, 0, BOT4_SPAWN.z);
       rig.root.rotation.y = Math.PI;
       bot4 = rig;
+    });
+    loadFighter(scene, BOT5_TINT, (rig) => {
+      if (disposed) return;
+      rig.root.position.set(BOT5_SPAWN.x, 0, BOT5_SPAWN.z);
+      rig.root.rotation.y = Math.PI;
+      bot5 = rig;
     });
     // The Boss stands guard in Room 6, already armed — unlike the player,
     // who has to earn the gun with a kill first.
@@ -2347,8 +2369,19 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // a time) — each has its own hp/cooldown/pose/death timeline, tracked
     // in parallel here rather than a single shared set of "the current
     // bot" variables. Index 4 is the Boss: stationary and much tougher.
-    const botMaxHp = [100, 100, 100, 100, BOSS_HP];
-    const botStates = botMaxHp.map((hp, i) => ({ hp, cooldown: 0, punchT: -1, deathT: -1, dead: false, isBoss: i === 4 }));
+    const botMaxHp = [100, 100, 100, 100, 100, BOSS_HP];
+    const botStates = botMaxHp.map((hp, i) => ({
+      hp,
+      cooldown: 0,
+      punchT: -1,
+      deathT: -1,
+      dead: false,
+      isBoss: i === 5,
+      // Guard bots start dormant (idle, not attacking) until the player
+      // steps into their room; the Boss has no guard behavior to wait on.
+      awake: i === 5,
+      alertT: -1,
+    }));
     let playerDamage = PLAYER_DAMAGE;
     let playerAttackRange = ATTACK_RANGE;
     let gunAttached = false;
@@ -2414,6 +2447,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       bot2?.mixer?.update(dt);
       bot3?.mixer?.update(dt);
       bot4?.mixer?.update(dt);
+      bot5?.mixer?.update(dt);
       boss?.mixer?.update(dt);
       // Locks both arms to the RifleIdle pose every tick once the gun is
       // equipped, overriding whatever the Idle2/Running blend just set —
@@ -2433,8 +2467,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
       }
 
-      const rigs = [bot1, bot2, bot3, bot4, boss];
-      for (let i = 0; i < 5; i++) {
+      const rigs = [bot1, bot2, bot3, bot4, bot5, boss];
+      for (let i = 0; i < 6; i++) {
         const rig = rigs[i];
         const st = botStates[i];
         if (rig && st.deathT >= 0) {
@@ -2454,7 +2488,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
       }
 
-      if (!ended && player && bot1 && bot2 && bot3 && bot4 && boss) {
+      if (!ended && player && bot1 && bot2 && bot3 && bot4 && bot5 && boss) {
         const jv = joystickVec.current;
         const joyMag = Math.min(1, Math.hypot(jv.x, jv.y));
 
@@ -2541,7 +2575,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         let nearestIdx = -1;
         let nearestDist = Infinity;
         let aimedIdx = -1;
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 6; i++) {
           const rig = rigs[i];
           const st = botStates[i];
           if (!rig || st.dead) continue;
@@ -2580,6 +2614,41 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             if (st.punchT >= 0) {
               applyFirePose(rig, st.punchT);
               st.punchT = st.punchT + dt > RECOIL_DURATION ? -1 : st.punchT + dt;
+            }
+          } else if (!st.awake) {
+            // Dormant guard: stands idle in its room until the player
+            // actually walks in, then shows a "?" over its head for a beat
+            // before waking into the normal chase/attack behavior below.
+            updateLocomotionAnim(rig, 0, 0);
+            if (st.alertT < 0) {
+              const guard = GUARD_POS[i];
+              const gdx = player.root.position.x - guard.x;
+              const gdz = player.root.position.z - guard.z;
+              if (Math.hypot(gdx, gdz) <= GUARD_ALERT_RADIUS) {
+                st.alertT = ALERT_TELEGRAPH_DURATION;
+              }
+            } else {
+              st.alertT -= dt;
+              if (st.alertT <= 0) {
+                st.awake = true;
+              }
+            }
+            if (st.alertT >= 0 && alertRefs.current[i]) {
+              const markPoint = rig.root.position.clone();
+              markPoint.y += ALERT_MARK_HEIGHT;
+              markPoint.project(camera);
+              const el = alertRefs.current[i]!;
+              if (markPoint.z < 1) {
+                const w = container.clientWidth;
+                const h = container.clientHeight;
+                el.style.display = "block";
+                el.style.left = `${(markPoint.x + 1) * 0.5 * w}px`;
+                el.style.top = `${(1 - markPoint.y) * 0.5 * h}px`;
+              } else {
+                el.style.display = "none";
+              }
+            } else if (alertRefs.current[i]) {
+              alertRefs.current[i]!.style.display = "none";
             }
           } else {
             if (dist > ATTACK_RANGE * 0.85) {
@@ -2861,6 +2930,33 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         </div>
       )}
 
+      {/* Guard alert marks — a "?" popping up over a dormant guard's head
+          for a beat right before it wakes and attacks, positioned each
+          tick via alertRefs (screen-projected from its 3D position),
+          hidden by default. */}
+      {[0, 1, 2, 3, 4].map((i) => (
+        <div
+          key={i}
+          ref={(el) => {
+            alertRefs.current[i] = el;
+          }}
+          style={{
+            position: "absolute",
+            display: "none",
+            transform: "translate(-50%, -100%)",
+            color: "#ffe14d",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 800,
+            fontSize: 26,
+            textShadow: "0 0 8px rgba(255,225,77,0.9), 0 0 2px rgba(0,0,0,0.8)",
+            pointerEvents: "none",
+            zIndex: 6,
+          }}
+        >
+          ❓
+        </div>
+      ))}
+
       {/* Health bars */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
         <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
@@ -2876,11 +2972,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       <div style={{ position: "absolute", top: 16, right: 16, width: "min(38%, 260px)" }}>
         {botHps.map((hp, i) => (
           <div key={i} style={{ marginBottom: i < botHps.length - 1 ? 6 : 0, opacity: hp > 0 ? 1 : 0.35 }}>
-            <div style={{ color: i === 4 ? "#ff8a8a" : "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 11, letterSpacing: "0.08em", marginBottom: 2, textAlign: "right" }}>
-              {i === 4 ? "BOSS" : `BOT ${i + 1}`}
+            <div style={{ color: i === 5 ? "#ff8a8a" : "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 11, letterSpacing: "0.08em", marginBottom: 2, textAlign: "right" }}>
+              {i === 5 ? "BOSS" : `BOT ${i + 1}`}
             </div>
-            <div style={{ height: i === 4 ? 9 : 7, borderRadius: 4, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${hp}%`, marginLeft: `${100 - hp}%`, background: i === 4 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff8a6b,#ff5e4e)", transition: "width 150ms ease-out, margin-left 150ms ease-out" }} />
+            <div style={{ height: i === 5 ? 9 : 7, borderRadius: 4, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${hp}%`, marginLeft: `${100 - hp}%`, background: i === 5 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff8a6b,#ff5e4e)", transition: "width 150ms ease-out, margin-left 150ms ease-out" }} />
             </div>
           </div>
         ))}
