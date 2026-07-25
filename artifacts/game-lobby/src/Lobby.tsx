@@ -1461,6 +1461,10 @@ const PUNCH_SWING_ANGLE = 1.4;
 const PUNCH_ELBOW_ANGLE = 0.9;
 const BOT2_TINT = 0xffb703;
 const BOT2_SPAWN = { x: 3.4, z: -3.2 };
+const BOT3_TINT = 0x8a5cff;
+const BOT3_SPAWN = { x: -3.4, z: -3.2 };
+const BOT4_TINT = 0x4dff9e;
+const BOT4_SPAWN = { x: 0, z: -5.6 };
 const GUN_DAMAGE = 18;
 const GUN_RANGE = 14; // a shootout distance, not a melee reach
 const PLAYER_FIRE_COOLDOWN = 0.35;
@@ -1845,7 +1849,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
   const [playerHp, setPlayerHp] = useState(100);
   const [botHp, setBotHp] = useState(100);
-  const [phase, setPhase] = useState<"bot1" | "bot2">("bot1");
+  const [phase, setPhase] = useState<"bot1" | "bot2" | "bot3" | "bot4">("bot1");
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
@@ -2207,6 +2211,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let player: FighterRig | null = null;
     let bot1: FighterRig | null = null;
     let bot2: FighterRig | null = null;
+    let bot3: FighterRig | null = null;
+    let bot4: FighterRig | null = null;
 
     // Preloaded here (rather than at the moment bot 1 dies) so it's very
     // likely already resolved by the time the player actually earns it.
@@ -2223,12 +2229,25 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       rig.root.position.set(0, 0, -3);
       bot1 = rig;
     });
-    // Bot 2 stands off to the side, idle, until bot 1 is defeated.
+    // Bots 2-4 stand off to the side, idle, until it's their turn — each
+    // one steps in only once the previous bot is defeated.
     loadFighter(scene, BOT2_TINT, (rig) => {
       if (disposed) return;
       rig.root.position.set(BOT2_SPAWN.x, 0, BOT2_SPAWN.z);
       rig.root.rotation.y = Math.PI * 0.75;
       bot2 = rig;
+    });
+    loadFighter(scene, BOT3_TINT, (rig) => {
+      if (disposed) return;
+      rig.root.position.set(BOT3_SPAWN.x, 0, BOT3_SPAWN.z);
+      rig.root.rotation.y = -Math.PI * 0.75;
+      bot3 = rig;
+    });
+    loadFighter(scene, BOT4_TINT, (rig) => {
+      if (disposed) return;
+      rig.root.position.set(BOT4_SPAWN.x, 0, BOT4_SPAWN.z);
+      rig.root.rotation.y = Math.PI;
+      bot4 = rig;
     });
 
     const resize = () => {
@@ -2260,12 +2279,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
-    let phaseLocal: "bot1" | "bot2" = "bot1";
+    let phaseLocal: "bot1" | "bot2" | "bot3" | "bot4" = "bot1";
     let playerDamage = PLAYER_DAMAGE;
     let playerAttackRange = ATTACK_RANGE;
     let gunAttached = false;
     let bot1DeathT = -1;
     let bot2DeathT = -1;
+    let bot3DeathT = -1;
+    let bot4DeathT = -1;
     let playerDeathT = -1;
     let pendingResult: "win" | "lose" | null = null;
     let resultRevealT = 0;
@@ -2293,6 +2314,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       player?.mixer?.update(dt);
       bot1?.mixer?.update(dt);
       bot2?.mixer?.update(dt);
+      bot3?.mixer?.update(dt);
+      bot4?.mixer?.update(dt);
       // Locks both arms to the RifleIdle pose every tick once the gun is
       // equipped, overriding whatever the Idle2/Running blend just set —
       // otherwise the two clips would keep pulling each arm back toward
@@ -2317,6 +2340,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         applyDeathPose(bot2, bot2DeathT);
         bot2DeathT += dt;
       }
+      if (bot3 && bot3DeathT >= 0) {
+        applyDeathPose(bot3, bot3DeathT);
+        bot3DeathT += dt;
+      }
+      if (bot4 && bot4DeathT >= 0) {
+        applyDeathPose(bot4, bot4DeathT);
+        bot4DeathT += dt;
+      }
       if (player && playerDeathT >= 0) {
         applyDeathPose(player, playerDeathT);
         playerDeathT += dt;
@@ -2329,8 +2360,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
       }
 
-      if (!ended && player && bot1 && bot2) {
-        const activeBot = phaseLocal === "bot1" ? bot1 : bot2;
+      if (!ended && player && bot1 && bot2 && bot3 && bot4) {
+        const activeBot =
+          phaseLocal === "bot1" ? bot1 : phaseLocal === "bot2" ? bot2 : phaseLocal === "bot3" ? bot3 : bot4;
         const jv = joystickVec.current;
         const joyMag = Math.min(1, Math.hypot(jv.x, jv.y));
 
@@ -2430,7 +2462,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // the fixed screen-center crosshair. Drives both the reticle color
         // and whether a shot actually lands (see attackRequested below).
         let aimedAtBot = false;
-        if (phaseLocal === "bot2") {
+        if (phaseLocal !== "bot1") {
           const aimPoint = activeBot.root.position.clone();
           aimPoint.y += AIM_TARGET_HEIGHT;
           aimPoint.project(camera);
@@ -2483,7 +2515,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             // direction rather than whatever it happened to face before.
             player.root.rotation.y = cameraYaw.current;
             const inRange = dist <= playerAttackRange;
-            if (phaseLocal === "bot2") {
+            if (phaseLocal !== "bot1") {
               // The shot always fires (cooldown, recoil pose) on press,
               // but only actually damages the bot if it's in range AND the
               // reticle was red at the moment of firing — i.e. the shot
@@ -2551,9 +2583,28 @@ function CombatArena({ onExit }: { onExit: () => void }) {
                 createGunAttachment(hand, proto, gunHandLocal);
               });
             }
+          } else if (phaseLocal === "bot2") {
+            // Bot 2 down — bot 3 steps in, full health, no weapon change
+            // (the player keeps the rifle for the rest of the gauntlet).
+            phaseLocal = "bot3";
+            setPhase("bot3");
+            botHpLocal = 100;
+            setBotHp(100);
+            botCooldown = 0;
+            botPunchT = -1;
+            bot2DeathT = 0;
+          } else if (phaseLocal === "bot3") {
+            // Bot 3 down — bot 4, the last one, steps in.
+            phaseLocal = "bot4";
+            setPhase("bot4");
+            botHpLocal = 100;
+            setBotHp(100);
+            botCooldown = 0;
+            botPunchT = -1;
+            bot3DeathT = 0;
           } else {
             ended = true;
-            bot2DeathT = 0;
+            bot4DeathT = 0;
             pendingResult = "win";
           }
         } else if (playerHpLocal <= 0) {
@@ -2688,7 +2739,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
       {/* Aim reticle — gun phase only. Fixed at screen center; turns red
           (via crosshairRef, updated every tick) when the bot is under it. */}
-      {phase === "bot2" && (
+      {phase !== "bot1" && (
         <div
           ref={crosshairRef}
           style={{
@@ -2725,7 +2776,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       {/* Health bars */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
         <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
-          YOU{phase === "bot2" ? " 🔫 GUN" : ""}
+          YOU{phase !== "bot1" ? " 🔫 GUN" : ""}
         </div>
         <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
@@ -2733,7 +2784,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       </div>
       <div style={{ position: "absolute", top: 16, right: 16, width: "min(38%, 260px)" }}>
         <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4, textAlign: "right" }}>
-          {phase === "bot1" ? "BOT 1 / 2" : "BOT 2 / 2"}
+          BOT {phase === "bot1" ? 1 : phase === "bot2" ? 2 : phase === "bot3" ? 3 : 4} / 4
         </div>
         <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${botHp}%`, marginLeft: `${100 - botHp}%`, background: "linear-gradient(90deg,#ff8a6b,#ff5e4e)", transition: "width 150ms ease-out, margin-left 150ms ease-out" }} />
