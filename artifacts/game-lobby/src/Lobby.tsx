@@ -1474,21 +1474,24 @@ const BOSS_HP = 220;
 const BOSS_DAMAGE = 14;
 const BOSS_RANGE = 13;
 const BOSS_FIRE_COOLDOWN = 1.1;
-// Breadcrumb route to the Boss, in order — the compass HUD arrow always
-// points at whichever of these the player hasn't reached yet, advancing
-// down the list as they walk each leg, so there's a guided path all the
-// way from spawn through every room to Room 6 instead of an open field
-// the player has to search blind.
-const BOSS_ROUTE_WAYPOINTS = [
-  { x: ROOM_POS.x, z: ROOM_POS.z },
-  { x: MIDROOM_POS.x, z: MIDROOM_POS.z },
-  { x: ROOM2_POS.x, z: ROOM2_POS.z },
-  { x: ROOM3_POS.x, z: ROOM3_POS.z },
-  { x: ROOM4_POS.x, z: ROOM4_POS.z },
-  { x: ROOM5_POS.x, z: ROOM5_POS.z },
-  { x: BOSS_SPAWN.x, z: BOSS_SPAWN.z },
+// Route to the Boss, as a floor-arrow marker at every gate along the way
+// (not a HUD element) — one glowing arrow on the ground at each doorway,
+// pointing which way to walk through it, from spawn all the way to Room 6.
+const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
+  { x: ROOM_POS.x, z: ROOM_POS.z + ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room1 south — from spawn
+  { x: ROOM_POS.x, z: ROOM_POS.z - ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room1 north — onward to midroom
+  { x: MIDROOM_POS.x, z: MIDROOM_SOUTH_Z, dirX: 0, dirZ: -1 }, // midroom south
+  { x: MIDROOM_POS.x, z: MIDROOM_NORTH_Z, dirX: 0, dirZ: -1 }, // midroom north
+  { x: ROOM2_POS.x, z: ROOM2_POS.z + ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room2 south
+  { x: ROOM2_POS.x, z: ROOM2_POS.z - ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room2 north
+  { x: ROOM3_POS.x, z: ROOM3_POS.z + ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room3 south
+  { x: ROOM3_POS.x + ROOM_SIZE / 2, z: ROOM3_POS.z, dirX: 1, dirZ: 0 }, // room3 east — turn toward room4
+  { x: ROOM4_POS.x - ROOM_SIZE / 2, z: ROOM4_POS.z, dirX: 1, dirZ: 0 }, // room4 west
+  { x: ROOM4_POS.x, z: ROOM4_POS.z - ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room4 north — turn toward room5
+  { x: ROOM5_POS.x, z: ROOM5_POS.z + ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room5 south
+  { x: ROOM5_POS.x, z: ROOM5_POS.z - ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room5 north
+  { x: ROOM6_POS.x, z: ROOM6_POS.z + ROOM6_DEPTH / 2, dirX: 0, dirZ: -1 }, // room6's only door
 ];
-const WAYPOINT_ARRIVE_RADIUS = 6;
 const GUN_DAMAGE = 18;
 const GUN_RANGE = 14; // a shootout distance, not a melee reach
 const PLAYER_FIRE_COOLDOWN = 0.35;
@@ -1860,13 +1863,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   // joystick knob above) rather than through React state, since it changes
   // every frame the camera moves.
   const crosshairRef = useRef<HTMLDivElement>(null);
-  // Boss-route compass: an arrow updated directly via ref every tick (same
-  // reasoning as the crosshair above) that always points at the next
-  // unreached waypoint on BOSS_ROUTE_WAYPOINTS, plus a label showing the
-  // remaining distance.
-  const compassArrowRef = useRef<HTMLDivElement>(null);
-  const compassLabelRef = useRef<HTMLDivElement>(null);
-  const waypointIdx = useRef(0);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
   // buttons) orbits the camera around the player, independent of movement.
   // Horizontal drag turns cameraYaw; vertical drag adds to cameraPitch,
@@ -2192,6 +2188,30 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     room6Ceiling.position.set(ROOM6_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM6_POS.z);
     scene.add(room6Ceiling);
     room6Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(room6Ceiling.geometry), roomEdgeMat));
+
+    // Path arrows — a glowing marker flat on the floor right at each gate
+    // along the route to the Boss, pointing which way to walk through it.
+    // Unlike a HUD compass, this sits in the world at ground level exactly
+    // where the player needs it, gate by gate, all the way to Room 6.
+    const pathArrowMat = new THREE.MeshStandardMaterial({
+      color: 0xffd23f,
+      emissive: 0xffd23f,
+      emissiveIntensity: 1.6,
+      roughness: 0.35,
+      side: THREE.DoubleSide,
+    });
+    for (const gate of PATH_GATES) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute([0, 0, 1.4, -0.7, 0, -0.7, 0.7, 0, -0.7], 3),
+      );
+      geo.computeVertexNormals();
+      const arrow = new THREE.Mesh(geo, pathArrowMat);
+      arrow.position.set(gate.x, 0.03, gate.z);
+      arrow.rotation.y = Math.atan2(gate.dirX, gate.dirZ);
+      scene.add(arrow);
+    }
 
     // Simple crate visuals matching EXTRA_CRATES above (one per corridor and
     // midroom, three scattered through the much bigger ROOM6).
@@ -2617,40 +2637,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           crosshairRef.current.style.boxShadow = aimedNow ? "0 0 10px 3px rgba(255,59,48,0.75)" : "0 0 0 1px rgba(0,0,0,0.3)";
         }
 
-        // Boss-route compass: advance to the next waypoint once close enough
-        // to the current one, then point the HUD arrow at whichever one is
-        // still ahead — this is what actually guides the player through the
-        // rooms instead of leaving them to wander the open arena.
-        while (
-          waypointIdx.current < BOSS_ROUTE_WAYPOINTS.length - 1 &&
-          Math.hypot(
-            player.root.position.x - BOSS_ROUTE_WAYPOINTS[waypointIdx.current].x,
-            player.root.position.z - BOSS_ROUTE_WAYPOINTS[waypointIdx.current].z,
-          ) < WAYPOINT_ARRIVE_RADIUS
-        ) {
-          waypointIdx.current += 1;
-        }
-        const wp = BOSS_ROUTE_WAYPOINTS[waypointIdx.current];
-        const wpDx = wp.x - player.root.position.x;
-        const wpDz = wp.z - player.root.position.z;
-        const wpDist = Math.hypot(wpDx, wpDz);
-        if (compassArrowRef.current) {
-          const yaw = cameraYaw.current;
-          const screenForwardX = Math.sin(yaw);
-          const screenForwardZ = Math.cos(yaw);
-          const screenRightX = Math.cos(yaw);
-          const screenRightZ = -Math.sin(yaw);
-          const bearing = Math.atan2(
-            wpDx * screenRightX + wpDz * screenRightZ,
-            wpDx * screenForwardX + wpDz * screenForwardZ,
-          );
-          compassArrowRef.current.style.transform = `rotate(${(bearing * 180) / Math.PI}deg)`;
-        }
-        if (compassLabelRef.current) {
-          const isFinalLeg = waypointIdx.current === BOSS_ROUTE_WAYPOINTS.length - 1;
-          compassLabelRef.current.textContent = `${isFinalLeg ? "BOSS" : "BOSS →"} ${Math.round(wpDist)}m`;
-        }
-
         // While stationary, the player's body keeps whatever facing it had
         // from its last movement — free-look camera drags orbit the view
         // around the character without spinning the character itself
@@ -2922,41 +2908,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       >
         EXIT
       </button>
-
-      {/* Boss-route compass: an arrow that always points at the next
-          waypoint on the way to Room 6, plus the remaining distance, so
-          there's a guided path instead of an open field to search blind. */}
-      <div
-        style={{
-          position: "absolute",
-          top: 58,
-          left: "50%",
-          transform: "translateX(-50%)",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 2,
-          pointerEvents: "none",
-        }}
-      >
-        <div
-          style={{
-            width: 34,
-            height: 34,
-            borderRadius: "50%",
-            border: "1px solid rgba(255,120,90,0.6)",
-            background: "rgba(20,10,10,0.35)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div ref={compassArrowRef} style={{ width: 0, height: 0, borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderBottom: "14px solid #ff5e4e", transformOrigin: "50% 60%" }} />
-        </div>
-        <div ref={compassLabelRef} style={{ color: "#ff8a8a", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 11, letterSpacing: "0.06em" }}>
-          BOSS →
-        </div>
-      </div>
 
       {/* Look-sensitivity settings */}
       <button
