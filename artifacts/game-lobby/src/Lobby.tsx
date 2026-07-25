@@ -1848,8 +1848,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const lookLastY = useRef(0);
 
   const [playerHp, setPlayerHp] = useState(100);
-  const [botHp, setBotHp] = useState(100);
-  const [phase, setPhase] = useState<"bot1" | "bot2" | "bot3" | "bot4">("bot1");
+  const [botHps, setBotHps] = useState<number[]>([100, 100, 100, 100]);
+  const [gunEquipped, setGunEquipped] = useState(false);
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
@@ -2265,11 +2265,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let raf = 0;
     const clock = new THREE.Clock();
     let playerHpLocal = 100;
-    let botHpLocal = 100;
     let playerCooldown = 0;
-    let botCooldown = 0;
     let playerPunchT = -1;
-    let botPunchT = -1;
     let playerFireT = -1;
     // Smoothed horizontal ground velocity — movement eases toward the
     // joystick-derived target instead of snapping to it, which is what
@@ -2279,14 +2276,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
-    let phaseLocal: "bot1" | "bot2" | "bot3" | "bot4" = "bot1";
+    // All four bots fight simultaneously (not one at a time) — each has its
+    // own hp/cooldown/pose/death timeline, tracked in parallel here rather
+    // than a single shared set of "the current bot" variables.
+    const botStates = [0, 1, 2, 3].map(() => ({ hp: 100, cooldown: 0, punchT: -1, deathT: -1, dead: false }));
     let playerDamage = PLAYER_DAMAGE;
     let playerAttackRange = ATTACK_RANGE;
     let gunAttached = false;
-    let bot1DeathT = -1;
-    let bot2DeathT = -1;
-    let bot3DeathT = -1;
-    let bot4DeathT = -1;
     let playerDeathT = -1;
     let pendingResult: "win" | "lose" | null = null;
     let resultRevealT = 0;
@@ -2306,6 +2302,39 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       const line = new THREE.Line(geo, tracerMaterial);
       scene.add(line);
       activeTracers.push({ line, life: TRACER_DURATION });
+    };
+
+    // Applies damage to one bot by index, handling its death (topple pose,
+    // one-time gun equip on the very first kill regardless of which bot it
+    // is) and the overall win condition (every bot dead).
+    const damageBot = (idx: number, amount: number) => {
+      const st = botStates[idx];
+      if (st.dead) return;
+      st.hp = Math.max(0, st.hp - amount);
+      setBotHps((prev) => {
+        const next = prev.slice();
+        next[idx] = st.hp;
+        return next;
+      });
+      if (st.hp <= 0) {
+        st.dead = true;
+        st.deathT = 0;
+        if (!gunAttached && player?.rightHand) {
+          gunAttached = true;
+          setGunEquipped(true);
+          playerDamage = GUN_DAMAGE;
+          playerAttackRange = GUN_RANGE;
+          const hand = player.rightHand;
+          const gunHandLocal = player.gunHandLocal;
+          gunPrototype.then((proto) => {
+            createGunAttachment(hand, proto, gunHandLocal);
+          });
+        }
+        if (botStates.every((s) => s.dead)) {
+          ended = true;
+          pendingResult = "win";
+        }
+      }
     };
 
     const tick = () => {
@@ -2332,21 +2361,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
       }
 
-      if (bot1 && bot1DeathT >= 0) {
-        applyDeathPose(bot1, bot1DeathT);
-        bot1DeathT += dt;
-      }
-      if (bot2 && bot2DeathT >= 0) {
-        applyDeathPose(bot2, bot2DeathT);
-        bot2DeathT += dt;
-      }
-      if (bot3 && bot3DeathT >= 0) {
-        applyDeathPose(bot3, bot3DeathT);
-        bot3DeathT += dt;
-      }
-      if (bot4 && bot4DeathT >= 0) {
-        applyDeathPose(bot4, bot4DeathT);
-        bot4DeathT += dt;
+      const rigs = [bot1, bot2, bot3, bot4];
+      for (let i = 0; i < 4; i++) {
+        const rig = rigs[i];
+        const st = botStates[i];
+        if (rig && st.deathT >= 0) {
+          applyDeathPose(rig, st.deathT);
+          st.deathT += dt;
+        }
       }
       if (player && playerDeathT >= 0) {
         applyDeathPose(player, playerDeathT);
@@ -2361,8 +2383,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       }
 
       if (!ended && player && bot1 && bot2 && bot3 && bot4) {
-        const activeBot =
-          phaseLocal === "bot1" ? bot1 : phaseLocal === "bot2" ? bot2 : phaseLocal === "bot3" ? bot3 : bot4;
         const jv = joystickVec.current;
         const joyMag = Math.min(1, Math.hypot(jv.x, jv.y));
 
@@ -2441,110 +2461,135 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         const speedFrac = clamp(playerSpeedNow / PLAYER_MAX_SPEED, 0, 1.15);
         updateLocomotionAnim(player, speedFrac, playerSpeedNow);
 
-        let dx = player.root.position.x - activeBot.root.position.x;
-        let dz = player.root.position.z - activeBot.root.position.z;
-        let dist = Math.hypot(dx, dz);
+        // All four bots act independently and simultaneously — every bot
+        // still alive chases the player and can land its own hit, rather
+        // than only "the current" one taking its turn. Track the nearest
+        // alive bot (melee target) and, once armed, whichever alive bot the
+        // aim reticle is currently over (ranged target) as we go.
+        let nearestIdx = -1;
+        let nearestDist = Infinity;
+        let aimedIdx = -1;
+        for (let i = 0; i < 4; i++) {
+          const rig = rigs[i];
+          const st = botStates[i];
+          if (!rig || st.dead) continue;
 
-        // Keep the two fighters from walking through each other's bodies —
-        // push the player back out to the minimum separation distance.
-        if (dist < BODY_SEPARATION) {
-          const nx = dist > 0.0001 ? dx / dist : 0;
-          const nz = dist > 0.0001 ? dz / dist : 1;
-          player.root.position.x = clamp(activeBot.root.position.x + nx * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-          player.root.position.z = clamp(activeBot.root.position.z + nz * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-          dx = player.root.position.x - activeBot.root.position.x;
-          dz = player.root.position.z - activeBot.root.position.z;
-          dist = Math.hypot(dx, dz);
-        }
+          let dx = player.root.position.x - rig.root.position.x;
+          let dz = player.root.position.z - rig.root.position.z;
+          let dist = Math.hypot(dx, dz);
 
-        // Free Fire-style aim check (gun phase only): project the bot's
-        // chest position through the camera and see how close it lands to
-        // the fixed screen-center crosshair. Drives both the reticle color
-        // and whether a shot actually lands (see attackRequested below).
-        let aimedAtBot = false;
-        if (phaseLocal !== "bot1") {
-          const aimPoint = activeBot.root.position.clone();
-          aimPoint.y += AIM_TARGET_HEIGHT;
-          aimPoint.project(camera);
-          if (aimPoint.z < 1) {
-            const w = container.clientWidth;
-            const h = container.clientHeight;
-            const px = (aimPoint.x + 1) * 0.5 * w;
-            const py = (1 - aimPoint.y) * 0.5 * h;
-            aimedAtBot = Math.abs(px - w / 2) <= AIM_TOLERANCE_X_PX && Math.abs(py - h / 2) <= AIM_TOLERANCE_Y_PX;
+          // Keep fighters from walking through each other's bodies — push
+          // the player back out to the minimum separation distance.
+          if (dist < BODY_SEPARATION) {
+            const nx = dist > 0.0001 ? dx / dist : 0;
+            const nz = dist > 0.0001 ? dz / dist : 1;
+            player.root.position.x = clamp(rig.root.position.x + nx * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            player.root.position.z = clamp(rig.root.position.z + nz * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            dx = player.root.position.x - rig.root.position.x;
+            dz = player.root.position.z - rig.root.position.z;
+            dist = Math.hypot(dx, dz);
           }
-          if (crosshairRef.current) {
-            crosshairRef.current.style.borderColor = aimedAtBot ? "#ff3b30" : "rgba(255,255,255,0.85)";
-            crosshairRef.current.style.boxShadow = aimedAtBot ? "0 0 10px 3px rgba(255,59,48,0.75)" : "0 0 0 1px rgba(0,0,0,0.3)";
+
+          if (dist > ATTACK_RANGE * 0.85) {
+            const moveX = dx / dist;
+            const moveZ = dz / dist;
+            rig.root.position.x = clamp(rig.root.position.x + moveX * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            rig.root.position.z = clamp(rig.root.position.z + moveZ * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            resolveObstacleCollisions(rig.root.position);
+            updateLocomotionAnim(rig, 1, BOT_SPEED);
+          } else {
+            updateLocomotionAnim(rig, 0, 0);
           }
-        }
+          rig.root.rotation.y = Math.atan2(dx, dz);
 
-        if (dist > ATTACK_RANGE * 0.85) {
-          const moveX = dx / dist;
-          const moveZ = dz / dist;
-          activeBot.root.position.x = clamp(activeBot.root.position.x + moveX * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-          activeBot.root.position.z = clamp(activeBot.root.position.z + moveZ * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-          resolveObstacleCollisions(activeBot.root.position);
-          updateLocomotionAnim(activeBot, 1, BOT_SPEED);
-        } else {
-          updateLocomotionAnim(activeBot, 0, 0);
-        }
-        activeBot.root.rotation.y = Math.atan2(dx, dz);
+          st.cooldown = Math.max(0, st.cooldown - dt);
+          if (dist <= ATTACK_RANGE && st.cooldown <= 0) {
+            playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
+            setPlayerHp(playerHpLocal);
+            st.cooldown = BOT_ATTACK_COOLDOWN;
+            st.punchT = 0;
+          }
+          if (st.punchT >= 0) {
+            applyPunchPose(rig, st.punchT);
+            st.punchT = st.punchT + dt > PUNCH_DURATION ? -1 : st.punchT + dt;
+          }
 
-        // While stationary, the player's body keeps whatever facing it had
-        // from its last movement — free-look camera drags orbit the view
-        // around the character without spinning the character itself
-        // (matching Free Fire: panning the screen doesn't turn your body).
-        // Aim/hit detection is already purely camera-based (see below), so
-        // where the shot lands never depended on this facing anyway.
+          if (dist < nearestDist) {
+            nearestDist = dist;
+            nearestIdx = i;
+          }
 
-        playerCooldown = Math.max(0, playerCooldown - dt);
-        botCooldown = Math.max(0, botCooldown - dt);
-
-        if (attackRequested.current) {
-          attackRequested.current = false;
-          if (playerCooldown <= 0) {
-            // The attack always plays — pose, cooldown, the works — on
-            // press, whether or not the bot is actually in range right
-            // now; the character's hands respond the same way regardless.
-            // Only the damage (and, in the gun phase, the tracer) is
-            // conditional on the bot actually being in range to hit.
-            // Snap the body to face wherever the aim/camera is pointed the
-            // instant an attack fires — gun or bare-handed punch, doesn't
-            // matter — so the character always visibly faces the attack
-            // direction rather than whatever it happened to face before.
-            player.root.rotation.y = cameraYaw.current;
-            const inRange = dist <= playerAttackRange;
-            if (phaseLocal !== "bot1") {
-              // The shot always fires (cooldown, recoil pose) on press,
-              // but only actually damages the bot if it's in range AND the
-              // reticle was red at the moment of firing — i.e. the shot
-              // has to be aimed, not just in range.
-              playerCooldown = PLAYER_FIRE_COOLDOWN;
-              playerFireT = 0;
-              if (inRange) {
-                spawnTracer(player, activeBot);
-                if (aimedAtBot) {
-                  botHpLocal = Math.max(0, botHpLocal - playerDamage);
-                  setBotHp(botHpLocal);
-                }
-              }
-            } else {
-              playerCooldown = PLAYER_ATTACK_COOLDOWN;
-              playerPunchT = 0;
-              if (inRange) {
-                botHpLocal = Math.max(0, botHpLocal - playerDamage);
-                setBotHp(botHpLocal);
+          // Free Fire-style aim check (once armed): project this bot's
+          // chest position through the camera and see how close it lands
+          // to the fixed screen-center crosshair.
+          if (gunAttached && aimedIdx === -1) {
+            const aimPoint = rig.root.position.clone();
+            aimPoint.y += AIM_TARGET_HEIGHT;
+            aimPoint.project(camera);
+            if (aimPoint.z < 1) {
+              const w = container.clientWidth;
+              const h = container.clientHeight;
+              const px = (aimPoint.x + 1) * 0.5 * w;
+              const py = (1 - aimPoint.y) * 0.5 * h;
+              if (Math.abs(px - w / 2) <= AIM_TOLERANCE_X_PX && Math.abs(py - h / 2) <= AIM_TOLERANCE_Y_PX) {
+                aimedIdx = i;
               }
             }
           }
         }
 
-        if (dist <= ATTACK_RANGE && botCooldown <= 0) {
-          playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
-          setPlayerHp(playerHpLocal);
-          botCooldown = BOT_ATTACK_COOLDOWN;
-          botPunchT = 0;
+        if (crosshairRef.current && gunAttached) {
+          const aimedNow = aimedIdx !== -1;
+          crosshairRef.current.style.borderColor = aimedNow ? "#ff3b30" : "rgba(255,255,255,0.85)";
+          crosshairRef.current.style.boxShadow = aimedNow ? "0 0 10px 3px rgba(255,59,48,0.75)" : "0 0 0 1px rgba(0,0,0,0.3)";
+        }
+
+        // While stationary, the player's body keeps whatever facing it had
+        // from its last movement — free-look camera drags orbit the view
+        // around the character without spinning the character itself
+        // (matching Free Fire: panning the screen doesn't turn your body).
+        // Aim/hit detection is already purely camera-based (see above), so
+        // where the shot lands never depended on this facing anyway.
+
+        playerCooldown = Math.max(0, playerCooldown - dt);
+
+        if (attackRequested.current) {
+          attackRequested.current = false;
+          if (playerCooldown <= 0) {
+            // The attack always plays — pose, cooldown, the works — on
+            // press, whether or not a bot is actually in range right now;
+            // the character's hands respond the same way regardless. Only
+            // the damage (and, in the gun phase, the tracer) is
+            // conditional on a bot actually being in range to hit.
+            // Snap the body to face wherever the aim/camera is pointed the
+            // instant an attack fires — gun or bare-handed punch, doesn't
+            // matter — so the character always visibly faces the attack
+            // direction rather than whatever it happened to face before.
+            player.root.rotation.y = cameraYaw.current;
+            if (gunAttached) {
+              // The shot always fires (cooldown, recoil pose) on press,
+              // but only actually damages a bot if the reticle was red
+              // (i.e. aimed at that bot) AND it's in range — the shot has
+              // to be aimed, not just in range.
+              playerCooldown = PLAYER_FIRE_COOLDOWN;
+              playerFireT = 0;
+              if (aimedIdx !== -1) {
+                const targetRig = rigs[aimedIdx]!;
+                const tdx = player.root.position.x - targetRig.root.position.x;
+                const tdz = player.root.position.z - targetRig.root.position.z;
+                if (Math.hypot(tdx, tdz) <= playerAttackRange) {
+                  spawnTracer(player, targetRig);
+                  damageBot(aimedIdx, playerDamage);
+                }
+              }
+            } else {
+              playerCooldown = PLAYER_ATTACK_COOLDOWN;
+              playerPunchT = 0;
+              if (nearestIdx !== -1 && nearestDist <= playerAttackRange) {
+                damageBot(nearestIdx, playerDamage);
+              }
+            }
+          }
         }
 
         if (playerPunchT >= 0) {
@@ -2555,59 +2600,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           applyFirePose(player, playerFireT);
           playerFireT = playerFireT + dt > RECOIL_DURATION ? -1 : playerFireT + dt;
         }
-        if (botPunchT >= 0) {
-          applyPunchPose(activeBot, botPunchT);
-          botPunchT = botPunchT + dt > PUNCH_DURATION ? -1 : botPunchT + dt;
-        }
 
-        if (botHpLocal <= 0) {
-          if (phaseLocal === "bot1") {
-            // Bot 1 down — it topples and fades out in the background while
-            // bot 2 (full health) steps in, and the player gets a rifle
-            // (parented to their right hand), switching from melee punches
-            // to ranged shots for the rest of the fight.
-            phaseLocal = "bot2";
-            setPhase("bot2");
-            botHpLocal = 100;
-            setBotHp(100);
-            botCooldown = 0;
-            botPunchT = -1;
-            bot1DeathT = 0;
-            playerDamage = GUN_DAMAGE;
-            playerAttackRange = GUN_RANGE;
-            if (!gunAttached && player.rightHand) {
-              gunAttached = true;
-              const hand = player.rightHand;
-              const gunHandLocal = player.gunHandLocal;
-              gunPrototype.then((proto) => {
-                createGunAttachment(hand, proto, gunHandLocal);
-              });
-            }
-          } else if (phaseLocal === "bot2") {
-            // Bot 2 down — bot 3 steps in, full health, no weapon change
-            // (the player keeps the rifle for the rest of the gauntlet).
-            phaseLocal = "bot3";
-            setPhase("bot3");
-            botHpLocal = 100;
-            setBotHp(100);
-            botCooldown = 0;
-            botPunchT = -1;
-            bot2DeathT = 0;
-          } else if (phaseLocal === "bot3") {
-            // Bot 3 down — bot 4, the last one, steps in.
-            phaseLocal = "bot4";
-            setPhase("bot4");
-            botHpLocal = 100;
-            setBotHp(100);
-            botCooldown = 0;
-            botPunchT = -1;
-            bot3DeathT = 0;
-          } else {
-            ended = true;
-            bot4DeathT = 0;
-            pendingResult = "win";
-          }
-        } else if (playerHpLocal <= 0) {
+        if (playerHpLocal <= 0) {
           ended = true;
           playerDeathT = 0;
           pendingResult = "lose";
@@ -2737,9 +2731,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
       />
 
-      {/* Aim reticle — gun phase only. Fixed at screen center; turns red
-          (via crosshairRef, updated every tick) when the bot is under it. */}
-      {phase !== "bot1" && (
+      {/* Aim reticle — once the gun is equipped. Fixed at screen center;
+          turns red (via crosshairRef, updated every tick) when a bot is
+          under it. */}
+      {gunEquipped && (
         <div
           ref={crosshairRef}
           style={{
@@ -2776,19 +2771,25 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       {/* Health bars */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
         <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
-          YOU{phase !== "bot1" ? " 🔫 GUN" : ""}
+          YOU{gunEquipped ? " 🔫 GUN" : ""}
         </div>
         <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
         </div>
       </div>
+      {/* All four bots fight at once now, so each gets its own compact bar
+          instead of a single shared one — dimmed out once that bot is down. */}
       <div style={{ position: "absolute", top: 16, right: 16, width: "min(38%, 260px)" }}>
-        <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4, textAlign: "right" }}>
-          BOT {phase === "bot1" ? 1 : phase === "bot2" ? 2 : phase === "bot3" ? 3 : 4} / 4
-        </div>
-        <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${botHp}%`, marginLeft: `${100 - botHp}%`, background: "linear-gradient(90deg,#ff8a6b,#ff5e4e)", transition: "width 150ms ease-out, margin-left 150ms ease-out" }} />
-        </div>
+        {botHps.map((hp, i) => (
+          <div key={i} style={{ marginBottom: i < botHps.length - 1 ? 6 : 0, opacity: hp > 0 ? 1 : 0.35 }}>
+            <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 11, letterSpacing: "0.08em", marginBottom: 2, textAlign: "right" }}>
+              BOT {i + 1}
+            </div>
+            <div style={{ height: 7, borderRadius: 4, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${hp}%`, marginLeft: `${100 - hp}%`, background: "linear-gradient(90deg,#ff8a6b,#ff5e4e)", transition: "width 150ms ease-out, margin-left 150ms ease-out" }} />
+            </div>
+          </div>
+        ))}
       </div>
 
       <button
