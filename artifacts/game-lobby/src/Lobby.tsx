@@ -1479,6 +1479,13 @@ const ALERT_MARK_HEIGHT = 2.15; // just above a guard's head
 const PATROL_RADIUS = 3;
 const PATROL_SPEED = BOT_SPEED * 0.5; // an unhurried walk, not a chase sprint
 const PATROL_ARRIVE_DIST = 0.4;
+// There's no dedicated walk clip on this rig (only Idle2 and a full-sprint
+// Running clip) — slowing the run clip's timeScale down to match the
+// patrol speed still keeps its full running stride, which reads as a
+// slow-motion sprint rather than an actual stroll. Blending it down
+// toward idle instead (a partial run weight) softens that stride into
+// something closer to an unhurried, restrained walk.
+const PATROL_RUN_WEIGHT = 0.42;
 // The Boss — a tougher fifth enemy stationed in Room 6 rather than roaming
 // with the other four. It doesn't chase; it stands its ground, already
 // armed, and opens fire the moment the player comes within range.
@@ -1555,6 +1562,51 @@ function updateLocomotionAnim(rig: FighterRig, runWeight: number, actualSpeed: n
   rig.idleAction.setEffectiveWeight(1 - w);
   rig.runAction.setEffectiveWeight(w);
   rig.runAction.timeScale = clamp(actualSpeed / RUN_REFERENCE_SPEED, RUN_CLIP_MIN_TIMESCALE, RUN_CLIP_MAX_TIMESCALE);
+}
+
+// A bot's movement is otherwise just "walk straight at the target" — with
+// no pathfinding at all, that reads as mindless the moment a wall, crate,
+// or door frame sits between it and where it's trying to go: it just
+// keeps shoving into the obstacle every frame, pinned in place. This
+// tracks how much ground a bot is actually covering versus how much its
+// straight-line heading implies; once it's been making close to zero
+// progress for a bit, it starts steering mostly sideways (around whatever
+// it's stuck on) instead of straight ahead, flipping which side it tries
+// if that direction turns out blocked too, and only stops steering once
+// it's making real progress again.
+const STUCK_AVOID_DELAY = 0.35;
+const STUCK_AVOID_FLIP_DELAY = 1.1;
+function moveWithAvoidance(
+  rig: FighterRig,
+  st: { stuckT: number; avoidSign: 1 | -1 },
+  dirX: number,
+  dirZ: number,
+  speed: number,
+  dt: number,
+) {
+  const beforeX = rig.root.position.x;
+  const beforeZ = rig.root.position.z;
+  let moveX = dirX;
+  let moveZ = dirZ;
+  if (st.stuckT > STUCK_AVOID_DELAY) {
+    // Mostly sideways (perpendicular to the blocked heading), with a
+    // little forward bias so it still drifts back on course once clear.
+    moveX = -dirZ * st.avoidSign * 0.85 + dirX * 0.25;
+    moveZ = dirX * st.avoidSign * 0.85 + dirZ * 0.25;
+  }
+  rig.root.position.x = clamp(rig.root.position.x + moveX * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+  rig.root.position.z = clamp(rig.root.position.z + moveZ * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+  resolveObstacleCollisions(rig.root.position);
+  const moved = Math.hypot(rig.root.position.x - beforeX, rig.root.position.z - beforeZ);
+  if (moved < speed * dt * 0.3) {
+    st.stuckT += dt;
+    if (st.stuckT > STUCK_AVOID_FLIP_DELAY) {
+      st.avoidSign = st.avoidSign === 1 ? -1 : 1;
+      st.stuckT = STUCK_AVOID_DELAY;
+    }
+  } else {
+    st.stuckT = Math.max(0, st.stuckT - dt * 2);
+  }
 }
 
 const DEATH_FALL_DURATION = 0.6;
@@ -2388,6 +2440,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       awake: i === 5,
       alertT: -1,
       patrolTarget: null as { x: number; z: number } | null,
+      stuckT: 0,
+      avoidSign: 1 as 1 | -1,
     }));
     let playerDamage = PLAYER_DAMAGE;
     let playerAttackRange = ATTACK_RANGE;
@@ -2643,11 +2697,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
               const pdz = st.patrolTarget.z - rig.root.position.z;
               const pdist = Math.hypot(pdx, pdz);
               if (pdist > 0.0001) {
-                rig.root.position.x += (pdx / pdist) * PATROL_SPEED * dt;
-                rig.root.position.z += (pdz / pdist) * PATROL_SPEED * dt;
-                resolveObstacleCollisions(rig.root.position);
+                moveWithAvoidance(rig, st, pdx / pdist, pdz / pdist, PATROL_SPEED, dt);
                 rig.root.rotation.y = Math.atan2(pdx, pdz);
-                updateLocomotionAnim(rig, 1, PATROL_SPEED);
+                updateLocomotionAnim(rig, PATROL_RUN_WEIGHT, PATROL_SPEED);
               }
 
               const gdx = player.root.position.x - guard.x;
@@ -2682,11 +2734,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             }
           } else {
             if (dist > ATTACK_RANGE * 0.85) {
-              const moveX = dx / dist;
-              const moveZ = dz / dist;
-              rig.root.position.x = clamp(rig.root.position.x + moveX * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-              rig.root.position.z = clamp(rig.root.position.z + moveZ * BOT_SPEED * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-              resolveObstacleCollisions(rig.root.position);
+              moveWithAvoidance(rig, st, dx / dist, dz / dist, BOT_SPEED, dt);
               updateLocomotionAnim(rig, 1, BOT_SPEED);
             } else {
               updateLocomotionAnim(rig, 0, 0);
