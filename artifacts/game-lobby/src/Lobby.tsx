@@ -1473,6 +1473,12 @@ const GUARD_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS];
 const GUARD_ALERT_RADIUS = 6;
 const ALERT_TELEGRAPH_DURATION = 0.7;
 const ALERT_MARK_HEIGHT = 2.15; // just above a guard's head
+// While dormant, a guard doesn't just freeze on one spot — it wanders a
+// short walking loop around its post (left/right/forward/back at random),
+// well within its room's walls, until the player's entry wakes it up.
+const PATROL_RADIUS = 3;
+const PATROL_SPEED = BOT_SPEED * 0.5; // an unhurried walk, not a chase sprint
+const PATROL_ARRIVE_DIST = 0.4;
 // The Boss — a tougher fifth enemy stationed in Room 6 rather than roaming
 // with the other four. It doesn't chase; it stands its ground, already
 // armed, and opens fire the moment the player comes within range.
@@ -2381,6 +2387,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       // steps into their room; the Boss has no guard behavior to wait on.
       awake: i === 5,
       alertT: -1,
+      patrolTarget: null as { x: number; z: number } | null,
     }));
     let playerDamage = PLAYER_DAMAGE;
     let playerAttackRange = ATTACK_RANGE;
@@ -2616,18 +2623,41 @@ function CombatArena({ onExit }: { onExit: () => void }) {
               st.punchT = st.punchT + dt > RECOIL_DURATION ? -1 : st.punchT + dt;
             }
           } else if (!st.awake) {
-            // Dormant guard: stands idle in its room until the player
-            // actually walks in, then shows a "?" over its head for a beat
-            // before waking into the normal chase/attack behavior below.
-            updateLocomotionAnim(rig, 0, 0);
+            // Dormant guard: rather than freezing on one spot, it wanders a
+            // short walking loop around its post — until the player
+            // actually walks into the room, at which point it freezes,
+            // faces them, and shows a "?" over its head for a beat before
+            // waking into the normal chase/attack behavior below.
+            const guard = GUARD_POS[i];
             if (st.alertT < 0) {
-              const guard = GUARD_POS[i];
+              if (
+                !st.patrolTarget ||
+                Math.hypot(rig.root.position.x - st.patrolTarget.x, rig.root.position.z - st.patrolTarget.z) < PATROL_ARRIVE_DIST
+              ) {
+                st.patrolTarget = {
+                  x: guard.x + (Math.random() * 2 - 1) * PATROL_RADIUS,
+                  z: guard.z + (Math.random() * 2 - 1) * PATROL_RADIUS,
+                };
+              }
+              const pdx = st.patrolTarget.x - rig.root.position.x;
+              const pdz = st.patrolTarget.z - rig.root.position.z;
+              const pdist = Math.hypot(pdx, pdz);
+              if (pdist > 0.0001) {
+                rig.root.position.x += (pdx / pdist) * PATROL_SPEED * dt;
+                rig.root.position.z += (pdz / pdist) * PATROL_SPEED * dt;
+                resolveObstacleCollisions(rig.root.position);
+                rig.root.rotation.y = Math.atan2(pdx, pdz);
+                updateLocomotionAnim(rig, 1, PATROL_SPEED);
+              }
+
               const gdx = player.root.position.x - guard.x;
               const gdz = player.root.position.z - guard.z;
               if (Math.hypot(gdx, gdz) <= GUARD_ALERT_RADIUS) {
                 st.alertT = ALERT_TELEGRAPH_DURATION;
               }
             } else {
+              updateLocomotionAnim(rig, 0, 0);
+              rig.root.rotation.y = Math.atan2(dx, dz);
               st.alertT -= dt;
               if (st.alertT <= 0) {
                 st.awake = true;
