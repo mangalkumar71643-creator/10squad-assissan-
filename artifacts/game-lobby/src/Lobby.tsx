@@ -1700,6 +1700,10 @@ interface FighterRig {
   // the gun dangling from just the right hand while the left hand hangs
   // empty at the character's side.
   armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[];
+  // Hips/Spine/Spine01/Spine02 at that same reference pose — only applied
+  // while standing genuinely still (see applyTorsoLock), to stop a mocap
+  // clip's spine twist from swinging the gun-holding arms off with it.
+  torsoLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[];
   // LeftHand's position at that same locked pose, expressed in
   // RightHand-local space — used once, at gun-attach time, to nudge the
   // gun's position (not its rotation, which is tuned separately for how it
@@ -1715,6 +1719,12 @@ interface FighterRig {
 // see FighterRig.armLock.
 function applyArmLock(rig: FighterRig) {
   for (const { bone, quat } of rig.armLock) {
+    bone.quaternion.copy(quat);
+  }
+}
+
+function applyTorsoLock(rig: FighterRig) {
+  for (const { bone, quat } of rig.torsoLock) {
     bone.quaternion.copy(quat);
   }
 }
@@ -1847,6 +1857,16 @@ function loadFighter(
       let leftForeArm: THREE.Object3D | null = null;
       let leftHand: THREE.Object3D | null = null;
       let leftShoulder: THREE.Object3D | null = null;
+      // The torso chain the arms hang off of — locked alongside the arms
+      // themselves (see armLock below) so a mocap clip that twists the
+      // spine (RifleIdle2's look-around motion, for instance) can't swing
+      // the whole gun-holding assembly out of its held pose. Hips keeps
+      // its own translation free either way (armLock only ever touches
+      // quaternions), so the breathing sway still comes through.
+      let hips: THREE.Object3D | null = null;
+      let spine: THREE.Object3D | null = null;
+      let spine01: THREE.Object3D | null = null;
+      let spine02: THREE.Object3D | null = null;
       const materials: THREE.MeshStandardMaterial[] = [];
 
       model.traverse((o) => {
@@ -1858,6 +1878,10 @@ function loadFighter(
         if (o.name === "LeftForeArm") leftForeArm = o;
         if (o.name === "LeftHand") leftHand = o;
         if (o.name === "LeftShoulder") leftShoulder = o;
+        if (o.name === "Hips") hips = o;
+        if (o.name === "Spine") spine = o;
+        if (o.name === "Spine01") spine01 = o;
+        if (o.name === "Spine02") spine02 = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
@@ -1909,6 +1933,13 @@ function loadFighter(
       // stable arm pose for when the gun is equipped. This never touches
       // locomotion; legs/hips keep coming from Idle2/Running as before.
       const armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[] = [];
+      // The torso chain from this same reference pose, captured separately
+      // from the arms — only applied while genuinely standing still (see
+      // applyTorsoLock/updateArmedStandIdle), not while moving. Running's
+      // natural hip/spine sway still needs to come through unlocked, but
+      // RifleIdle2's spine-twisting look-around motion would otherwise swing
+      // the whole gun-holding arm assembly along with it while idle.
+      const torsoLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[] = [];
       let gunHandLocal = new THREE.Vector3(0.3, 0, 0.3);
       const rifleIdleClip = gltf.animations.find((c) => c.name === "RifleIdle");
       if (rifleIdleClip && rightHand && leftHand) {
@@ -1923,12 +1954,16 @@ function loadFighter(
         for (const bone of armChain) {
           if (bone) armLock.push({ bone, quat: bone.quaternion.clone() });
         }
+        const torsoChain: (THREE.Object3D | null)[] = [hips, spine, spine01, spine02];
+        for (const bone of torsoChain) {
+          if (bone) torsoLock.push({ bone, quat: bone.quaternion.clone() });
+        }
         const invRightHand = new THREE.Matrix4().copy(rh.matrixWorld).invert();
         gunHandLocal = lh.getWorldPosition(new THREE.Vector3()).applyMatrix4(invRightHand);
         tempAction.stop();
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, rifleIdle2Action, rightArm, rightForeArm, rightHand, armLock, gunHandLocal, materials });
+      onLoaded({ root, mixer, idleAction, runAction, rifleIdle2Action, rightArm, rightForeArm, rightHand, armLock, torsoLock, gunHandLocal, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -2543,13 +2578,15 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       // own independent pose every frame, and the gun's attachment (a
       // fixed offset from the hand, tuned for exactly this pose) would
       // drift out of the character's grip the moment some other clip's
-      // hand orientation took over. RifleIdle2 still gets to drive
-      // everything else — torso, spine, hips, legs, head — for a real
-      // breathing idle; only the gun-holding arm chain itself stays
-      // pinned. The Boss is armed from the moment it spawns, so it always
-      // gets the lock too.
+      // hand orientation took over. The Boss is armed from the moment it
+      // spawns, so it always gets the lock too — and since it's also
+      // always in the standing-still RifleIdle2 state (see below), its
+      // torso gets locked right here as well, not just its arms.
       if (gunAttached && player) applyArmLock(player);
-      if (boss) applyArmLock(boss);
+      if (boss) {
+        applyArmLock(boss);
+        applyTorsoLock(boss);
+      }
 
       for (let i = activeTracers.length - 1; i >= 0; i--) {
         const tr = activeTracers[i];
@@ -2664,8 +2701,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // equipped — play the real rifle-idle animation for the body
         // instead of Idle2 (the arm chain still gets pinned by applyArmLock
         // above regardless, so the gun stays gripped correctly either way).
+        // The torso also gets locked here, but only in this standing-still
+        // case — RifleIdle2's look-around motion twists the spine, and
+        // without this the gun-holding arms (rigidly following that spine)
+        // would swing along with it. Running's own natural hip/spine sway
+        // stays free, since that lock is skipped while actually moving.
         playerRifleIdleActive = gunAttached && playerSpeedNow <= 0.05;
         updateArmedStandIdle(player, playerRifleIdleActive);
+        if (playerRifleIdleActive) applyTorsoLock(player);
 
         // All four bots act independently and simultaneously — every bot
         // still alive chases the player and can land its own hit, rather
