@@ -1564,6 +1564,20 @@ function updateLocomotionAnim(rig: FighterRig, runWeight: number, actualSpeed: n
   rig.runAction.timeScale = clamp(actualSpeed / RUN_REFERENCE_SPEED, RUN_CLIP_MIN_TIMESCALE, RUN_CLIP_MAX_TIMESCALE);
 }
 
+// While armed and genuinely standing still (not just between two patrol
+// steps), plays the real RifleIdle2 mocap clip at full weight — replacing
+// Idle2 and the old frozen arm-lock snapshot with an actual breathing,
+// rifle-holding idle. The moment there's real movement, this switches back
+// off and updateLocomotionAnim/applyArmLock take over again as before.
+function updateArmedStandIdle(rig: FighterRig, active: boolean) {
+  if (!rig.rifleIdle2Action) return;
+  rig.rifleIdle2Action.setEffectiveWeight(active ? 1 : 0);
+  if (active) {
+    rig.idleAction?.setEffectiveWeight(0);
+    rig.runAction?.setEffectiveWeight(0);
+  }
+}
+
 // A bot's movement is otherwise just "walk straight at the target" — with
 // no pathfinding at all, that reads as mindless the moment a wall, crate,
 // or door frame sits between it and where it's trying to go: it just
@@ -1669,6 +1683,11 @@ interface FighterRig {
   // the old hand-guessed sine/IK locomotion entirely.
   idleAction: THREE.AnimationAction | null;
   runAction: THREE.AnimationAction | null;
+  // A real motion-captured rifle-hold idle (breathing, subtle sway) —
+  // played at full weight in place of Idle2/armLock whenever a fighter is
+  // both armed and standing still (see updateArmedStandIdle), instead of
+  // the old frozen arm-lock snapshot over a melee idle.
+  rifleIdle2Action: THREE.AnimationAction | null;
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
@@ -1860,6 +1879,7 @@ function loadFighter(
       let mixer: THREE.AnimationMixer | null = null;
       let idleAction: THREE.AnimationAction | null = null;
       let runAction: THREE.AnimationAction | null = null;
+      let rifleIdle2Action: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
         // "Idle2" is a real motion-captured breathing idle (retargeted from
@@ -1873,6 +1893,12 @@ function loadFighter(
           runAction = mixer.clipAction(runClip);
           runAction.play();
           runAction.setEffectiveWeight(0);
+        }
+        const rifleIdle2Clip = gltf.animations.find((c) => c.name === "RifleIdle2");
+        if (rifleIdle2Clip) {
+          rifleIdle2Action = mixer.clipAction(rifleIdle2Clip);
+          rifleIdle2Action.play();
+          rifleIdle2Action.setEffectiveWeight(0);
         }
       }
 
@@ -1902,7 +1928,7 @@ function loadFighter(
         tempAction.stop();
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, armLock, gunHandLocal, materials });
+      onLoaded({ root, mixer, idleAction, runAction, rifleIdle2Action, rightArm, rightForeArm, rightHand, armLock, gunHandLocal, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -2446,6 +2472,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerDamage = PLAYER_DAMAGE;
     let playerAttackRange = ATTACK_RANGE;
     let gunAttached = false;
+    let playerRifleIdleActive = false;
     let playerDeathT = -1;
     let pendingResult: "win" | "lose" | null = null;
     let resultRevealT = 0;
@@ -2511,10 +2538,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       bot5?.mixer?.update(dt);
       boss?.mixer?.update(dt);
       // Locks both arms to the RifleIdle pose every tick once the gun is
-      // equipped, overriding whatever the Idle2/Running blend just set —
-      // otherwise the two clips would keep pulling each arm back toward
-      // its own independent melee pose every frame. The Boss is armed from
-      // the moment it spawns, so it always gets the lock.
+      // equipped, overriding whatever Idle2/Running/RifleIdle2 just set —
+      // otherwise each clip would keep pulling the arms back toward its
+      // own independent pose every frame, and the gun's attachment (a
+      // fixed offset from the hand, tuned for exactly this pose) would
+      // drift out of the character's grip the moment some other clip's
+      // hand orientation took over. RifleIdle2 still gets to drive
+      // everything else — torso, spine, hips, legs, head — for a real
+      // breathing idle; only the gun-holding arm chain itself stays
+      // pinned. The Boss is armed from the moment it spawns, so it always
+      // gets the lock too.
       if (gunAttached && player) applyArmLock(player);
       if (boss) applyArmLock(boss);
 
@@ -2627,6 +2660,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // continuously off actual speed so there's no hard on/off cut.
         const speedFrac = clamp(playerSpeedNow / PLAYER_MAX_SPEED, 0, 1.15);
         updateLocomotionAnim(player, speedFrac, playerSpeedNow);
+        // Genuinely standing still (not just between steps) with the gun
+        // equipped — play the real rifle-idle animation for the body
+        // instead of Idle2 (the arm chain still gets pinned by applyArmLock
+        // above regardless, so the gun stays gripped correctly either way).
+        playerRifleIdleActive = gunAttached && playerSpeedNow <= 0.05;
+        updateArmedStandIdle(player, playerRifleIdleActive);
 
         // All four bots act independently and simultaneously — every bot
         // still alive chases the player and can land its own hit, rather
@@ -2661,7 +2700,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             // The Boss holds its ground in Room 6 — it never chases, but
             // its gun reaches far further than a melee bot's fists do, and
             // it opens fire the instant the player is within that range.
-            updateLocomotionAnim(rig, 0, 0);
+            // Always standing still and always armed, so it just always
+            // plays the real rifle-idle animation rather than a static lock.
+            updateArmedStandIdle(rig, true);
             rig.root.rotation.y = Math.atan2(dx, dz);
 
             st.cooldown = Math.max(0, st.cooldown - dt);
