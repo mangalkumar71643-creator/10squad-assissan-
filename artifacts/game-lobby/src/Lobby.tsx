@@ -1487,14 +1487,13 @@ const PATROL_ARRIVE_DIST = 0.4;
 // something closer to an unhurried, restrained walk.
 const PATROL_RUN_WEIGHT = 0.42;
 // The Boss — a tougher fifth enemy stationed in Room 6 rather than roaming
-// with the other four. It doesn't chase; it stands its ground, already
-// armed, and opens fire the moment the player comes within range.
+// with the other four. It doesn't chase; it stands its ground and throws
+// punches the moment the player comes within reach.
 const BOSS_TINT = 0xb3122b;
 const BOSS_SPAWN = { x: ROOM6_POS.x, z: ROOM6_POS.z };
 const BOSS_HP = 220;
 const BOSS_DAMAGE = 14;
-const BOSS_RANGE = 13;
-const BOSS_FIRE_COOLDOWN = 1.1;
+const BOSS_ATTACK_COOLDOWN = 1.1;
 // Route to the Boss, as a floor-arrow marker at every gate along the way
 // (not a HUD element) — one glowing arrow on the ground at each doorway,
 // pointing which way to walk through it, from spawn all the way to Room 6.
@@ -1513,23 +1512,6 @@ const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
   { x: ROOM5_POS.x, z: ROOM5_POS.z - ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room5 north
   { x: ROOM6_POS.x, z: ROOM6_POS.z + ROOM6_DEPTH / 2, dirX: 0, dirZ: -1 }, // room6's only door
 ];
-const GUN_DAMAGE = 18;
-const GUN_RANGE = 14; // a shootout distance, not a melee reach
-const PLAYER_FIRE_COOLDOWN = 0.35;
-const TRACER_DURATION = 0.08;
-// Free Fire-style aim reticle: a shot only lands during the gun phase if
-// the fixed screen-center crosshair is actually over the bot, not just
-// whether it's in range. The tolerance is deliberately wider vertically
-// than horizontally: the chase camera's fixed pitch means a same-height,
-// same-yaw-aligned target drifts up screen as range grows (basic
-// perspective under a fixed downward tilt), and this is ground-level
-// combat where left/right aim is the real skill — players shouldn't also
-// have to fight the camera's vertical framing on a touch drag to land a
-// hit. AIM_TARGET_HEIGHT aims at roughly chest height rather than the
-// root/feet.
-const AIM_TOLERANCE_X_PX = 65;
-const AIM_TOLERANCE_Y_PX = 170;
-const AIM_TARGET_HEIGHT = 1.3;
 
 // Swings a fighter's right arm forward and back (bind-pose-relative, layered
 // on top of whatever the idle clip set that frame) — there's no punch clip
@@ -1564,19 +1546,6 @@ function updateLocomotionAnim(rig: FighterRig, runWeight: number, actualSpeed: n
   rig.runAction.timeScale = clamp(actualSpeed / RUN_REFERENCE_SPEED, RUN_CLIP_MIN_TIMESCALE, RUN_CLIP_MAX_TIMESCALE);
 }
 
-// While armed and genuinely standing still (not just between two patrol
-// steps), plays the real RifleIdle2 mocap clip at full weight — replacing
-// Idle2 and the old frozen arm-lock snapshot with an actual breathing,
-// rifle-holding idle. The moment there's real movement, this switches back
-// off and updateLocomotionAnim/applyArmLock take over again as before.
-function updateArmedStandIdle(rig: FighterRig, active: boolean) {
-  if (!rig.rifleIdle2Action) return;
-  rig.rifleIdle2Action.setEffectiveWeight(active ? 1 : 0);
-  if (active) {
-    rig.idleAction?.setEffectiveWeight(0);
-    rig.runAction?.setEffectiveWeight(0);
-  }
-}
 
 // A bot's movement is otherwise just "walk straight at the target" — with
 // no pathfinding at all, that reads as mindless the moment a wall, crate,
@@ -1683,145 +1652,10 @@ interface FighterRig {
   // the old hand-guessed sine/IK locomotion entirely.
   idleAction: THREE.AnimationAction | null;
   runAction: THREE.AnimationAction | null;
-  // A real motion-captured rifle-hold idle (breathing, subtle sway) —
-  // played at full weight in place of Idle2/armLock whenever a fighter is
-  // both armed and standing still (see updateArmedStandIdle), instead of
-  // the old frozen arm-lock snapshot over a melee idle.
-  rifleIdle2Action: THREE.AnimationAction | null;
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
-  // Captured once (at load time) from the rig's "RifleIdle" clip — a real
-  // two-handed rifle-holding pose left over from an earlier feature, where
-  // both hands stay close together and stable throughout the whole clip
-  // (unlike the melee Idle2/Running clips, where each arm moves
-  // independently). Re-applied every tick while the gun is equipped (see
-  // applyArmLock) so both arms hold a believable shared grip instead of
-  // the gun dangling from just the right hand while the left hand hangs
-  // empty at the character's side.
-  armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[];
-  // Hips/Spine/Spine01/Spine02 at that same reference pose — only applied
-  // while standing genuinely still (see applyTorsoLock), to stop a mocap
-  // clip's spine twist from swinging the gun-holding arms off with it.
-  torsoLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[];
-  // LeftHand's position at that same locked pose, expressed in
-  // RightHand-local space — used once, at gun-attach time, to nudge the
-  // gun's position (not its rotation, which is tuned separately for how it
-  // should look) so a point along the barrel actually coincides with where
-  // the off-hand really is, instead of leaving a visible gap between the
-  // support hand and the foregrip.
-  gunHandLocal: THREE.Vector3;
   materials: THREE.MeshStandardMaterial[];
-}
-
-// Re-applies each locked bone's captured RifleIdle-pose quaternion after
-// the mixer has (re)computed the full-body Idle/Run blend for this frame —
-// see FighterRig.armLock.
-function applyArmLock(rig: FighterRig) {
-  for (const { bone, quat } of rig.armLock) {
-    bone.quaternion.copy(quat);
-  }
-}
-
-function applyTorsoLock(rig: FighterRig) {
-  for (const { bone, quat } of rig.torsoLock) {
-    bone.quaternion.copy(quat);
-  }
-}
-
-// The real rifle model is a static (unskinned) mesh, so one glTF load is
-// shared and cloned for whichever fighter needs it (currently just the
-// player, on defeating bot 1).
-let gunPrototypePromise: Promise<THREE.Object3D> | null = null;
-function loadGunPrototype(): Promise<THREE.Object3D> {
-  if (!gunPrototypePromise) {
-    gunPrototypePromise = new Promise((resolve, reject) => {
-      new GLTFLoader().load(
-        "/characters/rifle.glb",
-        (gltf) => resolve(gltf.scene),
-        undefined,
-        reject,
-      );
-    });
-  }
-  return gunPrototypePromise;
-}
-
-// The raw model's long axis is local X, muzzle at -X (sampling its
-// cross-section per X-slice found a thin, symmetric tip there, versus a
-// wide magazine-well bulge around x=-0.16..0.48 and a slightly wider stock
-// end at +0.95) — the trigger-hand grip (just behind the mag well, in
-// front of the stock) is roughly (0.15, 0, 0).
-const GUN_GRIP_LOCAL = new THREE.Vector3(0.15, 0, 0);
-const GUN_MUZZLE_AXIS = new THREE.Vector3(-1, 0, 0);
-// A real rifle is roughly this long; the rest of the transform is derived
-// from that, not guessed independently.
-const GUN_TARGET_LENGTH = 0.85;
-
-// Where the muzzle should point, in RightHand-local space, at the locked
-// RifleIdle pose. Aligning it with the off-hand's actual measured position
-// (rig.gunHandLocal) technically put both hands on the gun, but the pose
-// itself turns out to hold the rifle in a diagonal "port arms" carry
-// across the chest, not aiming forward — the gun ended up lying sideways,
-// which doesn't read as "held" even though the hand contact was correct.
-// Tuned empirically instead (screenshotted from the game's actual default
-// camera, not an orbited test angle) so the barrel visibly points forward.
-const GUN_MUZZLE_TARGET_LOCAL = new THREE.Vector3(0, 1, 0);
-// A point on the handguard, between the grip and the muzzle, in the raw
-// mesh's own local space — where the off-hand should actually be gripping.
-const GUN_FOREGRIP_LOCAL = new THREE.Vector3(-0.4, 0, 0);
-
-// Parents a clone of the shared gun model onto a fighter's RightHand bone,
-// sized and oriented so the barrel points forward (see
-// GUN_MUZZLE_TARGET_LOCAL): with both arms locked to the "RifleIdle" pose
-// every tick, the hand-to-hand relationship never changes, so this only
-// needs solving once, at attach time, rather than continuously like the
-// sword's hang-down pose did (that one had to track the hand's live
-// orientation because the arm kept moving; this one doesn't move).
-function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D, gunHandLocal: THREE.Vector3): THREE.Object3D {
-  const worldScale = new THREE.Vector3();
-  hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
-  const gun = prototype.clone(true);
-  const rawLength = 1.906;
-  const scale = (GUN_TARGET_LENGTH / rawLength) / (worldScale.x || 1);
-  gun.scale.setScalar(scale);
-  gun.quaternion.setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
-  gun.position.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gun.quaternion).multiplyScalar(-1);
-  // The rotation above is tuned to look like aiming forward, not to match
-  // the off-hand's actual locked position (aligning to that instead put
-  // the barrel sideways across the chest — see GUN_MUZZLE_TARGET_LOCAL),
-  // so the fixed rotation alone leaves a gap between the support hand and
-  // the foregrip. Close it by nudging the gun's position (not its
-  // rotation) so the foregrip point lands exactly where the hand already
-  // is.
-  const foregripWorld = GUN_FOREGRIP_LOCAL.clone().multiplyScalar(scale).applyQuaternion(gun.quaternion).add(gun.position);
-  gun.position.add(gunHandLocal.clone().sub(foregripWorld));
-  hand.add(gun);
-  return gun;
-}
-
-const RECOIL_DURATION = 0.15;
-const RECOIL_SHOULDER_ANGLE = 0.35;
-const RECOIL_ELBOW_ANGLE = 0.5;
-// Composed as an axis-angle quaternion rather than mutating `.rotation.x`
-// directly — reading/editing the Euler decomposition of a quaternion isn't
-// always numerically stable near certain bind poses, so staying in
-// quaternion space throughout avoids that whole class of bug.
-const recoilAxisX = new THREE.Vector3(1, 0, 0);
-const recoilQuat = new THREE.Quaternion();
-
-// Kicks a fighter's right arm back to sell a rifle shot's recoil, layered
-// on top of whatever the current pose already put there that frame.
-function applyFirePose(rig: FighterRig, t: number) {
-  const kick = Math.sin(clamp(t / RECOIL_DURATION, 0, 1) * Math.PI);
-  if (rig.rightArm) {
-    recoilQuat.setFromAxisAngle(recoilAxisX, -kick * RECOIL_SHOULDER_ANGLE);
-    rig.rightArm.quaternion.multiply(recoilQuat);
-  }
-  if (rig.rightForeArm) {
-    recoilQuat.setFromAxisAngle(recoilAxisX, -kick * RECOIL_ELBOW_ANGLE);
-    rig.rightForeArm.quaternion.multiply(recoilQuat);
-  }
 }
 
 // Loads the one character model we have twice — once as the player (its
@@ -1852,36 +1686,12 @@ function loadFighter(
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
-      let rightShoulder: THREE.Object3D | null = null;
-      let leftArm: THREE.Object3D | null = null;
-      let leftForeArm: THREE.Object3D | null = null;
-      let leftHand: THREE.Object3D | null = null;
-      let leftShoulder: THREE.Object3D | null = null;
-      // The torso chain the arms hang off of — locked alongside the arms
-      // themselves (see armLock below) so a mocap clip that twists the
-      // spine (RifleIdle2's look-around motion, for instance) can't swing
-      // the whole gun-holding assembly out of its held pose. Hips keeps
-      // its own translation free either way (armLock only ever touches
-      // quaternions), so the breathing sway still comes through.
-      let hips: THREE.Object3D | null = null;
-      let spine: THREE.Object3D | null = null;
-      let spine01: THREE.Object3D | null = null;
-      let spine02: THREE.Object3D | null = null;
       const materials: THREE.MeshStandardMaterial[] = [];
 
       model.traverse((o) => {
         if (o.name === "RightArm") rightArm = o;
         if (o.name === "RightForeArm") rightForeArm = o;
         if (o.name === "RightHand") rightHand = o;
-        if (o.name === "RightShoulder") rightShoulder = o;
-        if (o.name === "LeftArm") leftArm = o;
-        if (o.name === "LeftForeArm") leftForeArm = o;
-        if (o.name === "LeftHand") leftHand = o;
-        if (o.name === "LeftShoulder") leftShoulder = o;
-        if (o.name === "Hips") hips = o;
-        if (o.name === "Spine") spine = o;
-        if (o.name === "Spine01") spine01 = o;
-        if (o.name === "Spine02") spine02 = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
@@ -1903,7 +1713,6 @@ function loadFighter(
       let mixer: THREE.AnimationMixer | null = null;
       let idleAction: THREE.AnimationAction | null = null;
       let runAction: THREE.AnimationAction | null = null;
-      let rifleIdle2Action: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
         // "Idle2" is a real motion-captured breathing idle (retargeted from
@@ -1918,52 +1727,9 @@ function loadFighter(
           runAction.play();
           runAction.setEffectiveWeight(0);
         }
-        const rifleIdle2Clip = gltf.animations.find((c) => c.name === "RifleIdle2");
-        if (rifleIdle2Clip) {
-          rifleIdle2Action = mixer.clipAction(rifleIdle2Clip);
-          rifleIdle2Action.play();
-          rifleIdle2Action.setEffectiveWeight(0);
-        }
       }
 
-      // "RifleIdle" is left over from an earlier feature (a real two-handed
-      // rifle-holding pose, retargeted from Mixamo) — sampled once here with
-      // a throwaway mixer (so it doesn't blend against idleAction/runAction,
-      // which are already playing on the real one) purely to capture a
-      // stable arm pose for when the gun is equipped. This never touches
-      // locomotion; legs/hips keep coming from Idle2/Running as before.
-      const armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[] = [];
-      // The torso chain from this same reference pose, captured separately
-      // from the arms — only applied while genuinely standing still (see
-      // applyTorsoLock/updateArmedStandIdle), not while moving. Running's
-      // natural hip/spine sway still needs to come through unlocked, but
-      // RifleIdle2's spine-twisting look-around motion would otherwise swing
-      // the whole gun-holding arm assembly along with it while idle.
-      const torsoLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[] = [];
-      let gunHandLocal = new THREE.Vector3(0.3, 0, 0.3);
-      const rifleIdleClip = gltf.animations.find((c) => c.name === "RifleIdle");
-      if (rifleIdleClip && rightHand && leftHand) {
-        const rh = rightHand as THREE.Object3D;
-        const lh = leftHand as THREE.Object3D;
-        const tempMixer = new THREE.AnimationMixer(model);
-        const tempAction = tempMixer.clipAction(rifleIdleClip);
-        tempAction.play();
-        tempMixer.update(0);
-        model.updateWorldMatrix(true, true);
-        const armChain: (THREE.Object3D | null)[] = [rightShoulder, rightArm, rightForeArm, rightHand, leftShoulder, leftArm, leftForeArm, leftHand];
-        for (const bone of armChain) {
-          if (bone) armLock.push({ bone, quat: bone.quaternion.clone() });
-        }
-        const torsoChain: (THREE.Object3D | null)[] = [hips, spine, spine01, spine02];
-        for (const bone of torsoChain) {
-          if (bone) torsoLock.push({ bone, quat: bone.quaternion.clone() });
-        }
-        const invRightHand = new THREE.Matrix4().copy(rh.matrixWorld).invert();
-        gunHandLocal = lh.getWorldPosition(new THREE.Vector3()).applyMatrix4(invRightHand);
-        tempAction.stop();
-      }
-
-      onLoaded({ root, mixer, idleAction, runAction, rifleIdle2Action, rightArm, rightForeArm, rightHand, armLock, torsoLock, gunHandLocal, materials });
+      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -1986,14 +1752,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const [runActive, setRunActive] = useState(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
-  // Aim reticle color/glow is updated directly via ref every tick (like the
-  // joystick knob above) rather than through React state, since it changes
-  // every frame the camera moves.
-  const crosshairRef = useRef<HTMLDivElement>(null);
   // One floating "?" mark per guard bot (bot1..bot5), screen-projected and
-  // positioned directly via ref each tick (same reasoning as the crosshair
-  // above) — shown for the brief alert telegraph right before a dormant
-  // guard wakes up and starts chasing.
+  // positioned directly via ref each tick (same reasoning as the joystick
+  // knob above) — shown for the brief alert telegraph right before a
+  // dormant guard wakes up and starts chasing.
   const alertRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
   // buttons) orbits the camera around the player, independent of movement.
@@ -2008,7 +1770,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
   const [playerHp, setPlayerHp] = useState(100);
   const [botHps, setBotHps] = useState<number[]>([100, 100, 100, 100, 100, 100]);
-  const [gunEquipped, setGunEquipped] = useState(false);
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
@@ -2399,10 +2160,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let bot5: FighterRig | null = null;
     let boss: FighterRig | null = null;
 
-    // Preloaded here (rather than at the moment bot 1 dies) so it's very
-    // likely already resolved by the time the player actually earns it.
-    const gunPrototype = loadGunPrototype();
-
     loadFighter(scene, 0xffffff, (rig) => {
       if (disposed) return;
       rig.root.position.set(0, 0, 3);
@@ -2442,20 +2199,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       rig.root.rotation.y = Math.PI;
       bot5 = rig;
     });
-    // The Boss stands guard in Room 6, already armed — unlike the player,
-    // who has to earn the gun with a kill first.
+    // The Boss stands guard in Room 6, fighting bare-handed like everyone
+    // else — just tougher and hitting harder.
     loadFighter(scene, BOSS_TINT, (rig) => {
       if (disposed) return;
       rig.root.position.set(BOSS_SPAWN.x, 0, BOSS_SPAWN.z);
       rig.root.rotation.y = Math.PI;
       boss = rig;
-      if (rig.rightHand) {
-        const hand = rig.rightHand;
-        const gunHandLocal = rig.gunHandLocal;
-        gunPrototype.then((proto) => {
-          createGunAttachment(hand, proto, gunHandLocal);
-        });
-      }
     });
 
     const resize = () => {
@@ -2475,7 +2225,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let playerHpLocal = 100;
     let playerCooldown = 0;
     let playerPunchT = -1;
-    let playerFireT = -1;
     // Smoothed horizontal ground velocity — movement eases toward the
     // joystick-derived target instead of snapping to it, which is what
     // gives the accel/decel and the turning its weight.
@@ -2504,34 +2253,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       stuckT: 0,
       avoidSign: 1 as 1 | -1,
     }));
-    let playerDamage = PLAYER_DAMAGE;
-    let playerAttackRange = ATTACK_RANGE;
-    let gunAttached = false;
-    let playerRifleIdleActive = false;
     let playerDeathT = -1;
     let pendingResult: "win" | "lose" | null = null;
     let resultRevealT = 0;
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
 
-    // Short-lived tracer lines from the gun to its target, spawned per shot
-    // and cleaned up once their life runs out.
-    const tracerMaterial = new THREE.LineBasicMaterial({ color: 0xfff6c9, transparent: true, opacity: 0.9 });
-    const activeTracers: { line: THREE.Line; life: number }[] = [];
-    const spawnTracer = (fromRig: FighterRig, toRig: FighterRig) => {
-      const from = fromRig.root.position.clone();
-      from.y += 1.3; // roughly gun/chest height, not the root/feet
-      const to = toRig.root.position.clone();
-      to.y += 1.0; // roughly torso height
-      const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
-      const line = new THREE.Line(geo, tracerMaterial);
-      scene.add(line);
-      activeTracers.push({ line, life: TRACER_DURATION });
-    };
-
-    // Applies damage to one bot by index, handling its death (topple pose,
-    // one-time gun equip on the very first kill regardless of which bot it
-    // is) and the overall win condition (every bot dead).
+    // Applies damage to one bot by index, handling its death (topple pose)
+    // and the overall win condition (every bot dead).
     const damageBot = (idx: number, amount: number) => {
       const st = botStates[idx];
       if (st.dead) return;
@@ -2544,17 +2273,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       if (st.hp <= 0) {
         st.dead = true;
         st.deathT = 0;
-        if (!gunAttached && player?.rightHand) {
-          gunAttached = true;
-          setGunEquipped(true);
-          playerDamage = GUN_DAMAGE;
-          playerAttackRange = GUN_RANGE;
-          const hand = player.rightHand;
-          const gunHandLocal = player.gunHandLocal;
-          gunPrototype.then((proto) => {
-            createGunAttachment(hand, proto, gunHandLocal);
-          });
-        }
         if (botStates.every((s) => s.dead)) {
           ended = true;
           pendingResult = "win";
@@ -2572,31 +2290,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       bot4?.mixer?.update(dt);
       bot5?.mixer?.update(dt);
       boss?.mixer?.update(dt);
-      // Locks both arms to the RifleIdle pose every tick once the gun is
-      // equipped, overriding whatever Idle2/Running/RifleIdle2 just set —
-      // otherwise each clip would keep pulling the arms back toward its
-      // own independent pose every frame, and the gun's attachment (a
-      // fixed offset from the hand, tuned for exactly this pose) would
-      // drift out of the character's grip the moment some other clip's
-      // hand orientation took over. The Boss is armed from the moment it
-      // spawns, so it always gets the lock too — and since it's also
-      // always in the standing-still RifleIdle2 state (see below), its
-      // torso gets locked right here as well, not just its arms.
-      if (gunAttached && player) applyArmLock(player);
-      if (boss) {
-        applyArmLock(boss);
-        applyTorsoLock(boss);
-      }
-
-      for (let i = activeTracers.length - 1; i >= 0; i--) {
-        const tr = activeTracers[i];
-        tr.life -= dt;
-        if (tr.life <= 0) {
-          scene.remove(tr.line);
-          tr.line.geometry.dispose();
-          activeTracers.splice(i, 1);
-        }
-      }
 
       const rigs = [bot1, bot2, bot3, bot4, bot5, boss];
       for (let i = 0; i < 6; i++) {
@@ -2697,27 +2390,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // continuously off actual speed so there's no hard on/off cut.
         const speedFrac = clamp(playerSpeedNow / PLAYER_MAX_SPEED, 0, 1.15);
         updateLocomotionAnim(player, speedFrac, playerSpeedNow);
-        // Genuinely standing still (not just between steps) with the gun
-        // equipped — play the real rifle-idle animation for the body
-        // instead of Idle2 (the arm chain still gets pinned by applyArmLock
-        // above regardless, so the gun stays gripped correctly either way).
-        // The torso also gets locked here, but only in this standing-still
-        // case — RifleIdle2's look-around motion twists the spine, and
-        // without this the gun-holding arms (rigidly following that spine)
-        // would swing along with it. Running's own natural hip/spine sway
-        // stays free, since that lock is skipped while actually moving.
-        playerRifleIdleActive = gunAttached && playerSpeedNow <= 0.05;
-        updateArmedStandIdle(player, playerRifleIdleActive);
-        if (playerRifleIdleActive) applyTorsoLock(player);
 
-        // All four bots act independently and simultaneously — every bot
-        // still alive chases the player and can land its own hit, rather
-        // than only "the current" one taking its turn. Track the nearest
-        // alive bot (melee target) and, once armed, whichever alive bot the
-        // aim reticle is currently over (ranged target) as we go.
+        // All bots act independently and simultaneously — every one still
+        // alive chases the player and can land its own hit, rather than
+        // only "the current" one taking its turn. Track the nearest alive
+        // one as we go, as the player's own melee target.
         let nearestIdx = -1;
         let nearestDist = Infinity;
-        let aimedIdx = -1;
         for (let i = 0; i < 6; i++) {
           const rig = rigs[i];
           const st = botStates[i];
@@ -2741,24 +2420,21 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
           if (st.isBoss) {
             // The Boss holds its ground in Room 6 — it never chases, but
-            // its gun reaches far further than a melee bot's fists do, and
-            // it opens fire the instant the player is within that range.
-            // Always standing still and always armed, so it just always
-            // plays the real rifle-idle animation rather than a static lock.
-            updateArmedStandIdle(rig, true);
+            // it throws a heavier punch than a regular bot the instant the
+            // player gets within melee reach.
+            updateLocomotionAnim(rig, 0, 0);
             rig.root.rotation.y = Math.atan2(dx, dz);
 
             st.cooldown = Math.max(0, st.cooldown - dt);
-            if (dist <= BOSS_RANGE && st.cooldown <= 0) {
+            if (dist <= ATTACK_RANGE && st.cooldown <= 0) {
               playerHpLocal = Math.max(0, playerHpLocal - BOSS_DAMAGE);
               setPlayerHp(playerHpLocal);
-              st.cooldown = BOSS_FIRE_COOLDOWN;
+              st.cooldown = BOSS_ATTACK_COOLDOWN;
               st.punchT = 0;
-              spawnTracer(rig, player);
             }
             if (st.punchT >= 0) {
-              applyFirePose(rig, st.punchT);
-              st.punchT = st.punchT + dt > RECOIL_DURATION ? -1 : st.punchT + dt;
+              applyPunchPose(rig, st.punchT);
+              st.punchT = st.punchT + dt > PUNCH_DURATION ? -1 : st.punchT + dt;
             }
           } else if (!st.awake) {
             // Dormant guard: rather than freezing on one spot, it wanders a
@@ -2842,38 +2518,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             nearestDist = dist;
             nearestIdx = i;
           }
-
-          // Free Fire-style aim check (once armed): project this bot's
-          // chest position through the camera and see how close it lands
-          // to the fixed screen-center crosshair.
-          if (gunAttached && aimedIdx === -1) {
-            const aimPoint = rig.root.position.clone();
-            aimPoint.y += AIM_TARGET_HEIGHT;
-            aimPoint.project(camera);
-            if (aimPoint.z < 1) {
-              const w = container.clientWidth;
-              const h = container.clientHeight;
-              const px = (aimPoint.x + 1) * 0.5 * w;
-              const py = (1 - aimPoint.y) * 0.5 * h;
-              if (Math.abs(px - w / 2) <= AIM_TOLERANCE_X_PX && Math.abs(py - h / 2) <= AIM_TOLERANCE_Y_PX) {
-                aimedIdx = i;
-              }
-            }
-          }
-        }
-
-        if (crosshairRef.current && gunAttached) {
-          const aimedNow = aimedIdx !== -1;
-          crosshairRef.current.style.borderColor = aimedNow ? "#ff3b30" : "rgba(255,255,255,0.85)";
-          crosshairRef.current.style.boxShadow = aimedNow ? "0 0 10px 3px rgba(255,59,48,0.75)" : "0 0 0 1px rgba(0,0,0,0.3)";
         }
 
         // While stationary, the player's body keeps whatever facing it had
         // from its last movement — free-look camera drags orbit the view
         // around the character without spinning the character itself
         // (matching Free Fire: panning the screen doesn't turn your body).
-        // Aim/hit detection is already purely camera-based (see above), so
-        // where the shot lands never depended on this facing anyway.
 
         playerCooldown = Math.max(0, playerCooldown - dt);
 
@@ -2883,35 +2533,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             // The attack always plays — pose, cooldown, the works — on
             // press, whether or not a bot is actually in range right now;
             // the character's hands respond the same way regardless. Only
-            // the damage (and, in the gun phase, the tracer) is
-            // conditional on a bot actually being in range to hit.
-            // Snap the body to face wherever the aim/camera is pointed the
-            // instant an attack fires — gun or bare-handed punch, doesn't
-            // matter — so the character always visibly faces the attack
-            // direction rather than whatever it happened to face before.
+            // the damage is conditional on a bot actually being in range.
+            // Snap the body to face wherever the camera is pointed the
+            // instant the punch fires, so it always visibly faces the
+            // attack direction rather than whatever it happened to face
+            // before.
             player.root.rotation.y = cameraYaw.current;
-            if (gunAttached) {
-              // The shot always fires (cooldown, recoil pose) on press,
-              // but only actually damages a bot if the reticle was red
-              // (i.e. aimed at that bot) AND it's in range — the shot has
-              // to be aimed, not just in range.
-              playerCooldown = PLAYER_FIRE_COOLDOWN;
-              playerFireT = 0;
-              if (aimedIdx !== -1) {
-                const targetRig = rigs[aimedIdx]!;
-                const tdx = player.root.position.x - targetRig.root.position.x;
-                const tdz = player.root.position.z - targetRig.root.position.z;
-                if (Math.hypot(tdx, tdz) <= playerAttackRange) {
-                  spawnTracer(player, targetRig);
-                  damageBot(aimedIdx, playerDamage);
-                }
-              }
-            } else {
-              playerCooldown = PLAYER_ATTACK_COOLDOWN;
-              playerPunchT = 0;
-              if (nearestIdx !== -1 && nearestDist <= playerAttackRange) {
-                damageBot(nearestIdx, playerDamage);
-              }
+            playerCooldown = PLAYER_ATTACK_COOLDOWN;
+            playerPunchT = 0;
+            if (nearestIdx !== -1 && nearestDist <= ATTACK_RANGE) {
+              damageBot(nearestIdx, PLAYER_DAMAGE);
             }
           }
         }
@@ -2919,10 +2550,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         if (playerPunchT >= 0) {
           applyPunchPose(player, playerPunchT);
           playerPunchT = playerPunchT + dt > PUNCH_DURATION ? -1 : playerPunchT + dt;
-        }
-        if (playerFireT >= 0) {
-          applyFirePose(player, playerFireT);
-          playerFireT = playerFireT + dt > RECOIL_DURATION ? -1 : playerFireT + dt;
         }
 
         if (playerHpLocal <= 0) {
@@ -3055,43 +2682,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
       />
 
-      {/* Aim reticle — once the gun is equipped. Fixed at screen center;
-          turns red (via crosshairRef, updated every tick) when a bot is
-          under it. */}
-      {gunEquipped && (
-        <div
-          ref={crosshairRef}
-          style={{
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            width: 28,
-            height: 28,
-            marginLeft: -14,
-            marginTop: -14,
-            borderRadius: "50%",
-            border: "2px solid rgba(255,255,255,0.85)",
-            boxShadow: "0 0 0 1px rgba(0,0,0,0.3)",
-            pointerEvents: "none",
-            zIndex: 5,
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              width: 4,
-              height: 4,
-              marginLeft: -2,
-              marginTop: -2,
-              borderRadius: "50%",
-              background: "rgba(255,255,255,0.9)",
-            }}
-          />
-        </div>
-      )}
-
       {/* Guard alert marks — a "?" popping up over a dormant guard's head
           for a beat right before it wakes and attacks, positioned each
           tick via alertRefs (screen-projected from its 3D position),
@@ -3122,7 +2712,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       {/* Health bars */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
         <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
-          YOU{gunEquipped ? " 🔫 GUN" : ""}
+          YOU
         </div>
         <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
