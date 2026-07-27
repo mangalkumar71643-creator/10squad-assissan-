@@ -1532,6 +1532,18 @@ const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
 // end at +0.95) — the trigger-hand grip (just behind the mag well, in front
 // of the stock) is roughly (0.15, 0, 0).
 const GUN_GRIP_LOCAL = new THREE.Vector3(0.15, 0, 0);
+// There are no finger bones on this rig (RightHand/LeftHand are leaf
+// bones — the hand mesh is a single fixed, static shape), so the fingers
+// can't actually curl around the grip/foregrip. This nudges the gun's
+// position, in RightHand's own local space, so the grip sits inside the
+// hand's existing curl instead of floating just outside it — the closest
+// approximation of a "held" look this rig can produce.
+const GUN_RIGHTHAND_NUDGE = new THREE.Vector3(0, 0, 0);
+// Same idea, but nudges specifically where the foregrip aims for on
+// LeftHand — tuned separately since the visible gap there (barrel resting
+// above the fingers instead of inside their curl) is a different offset
+// than the grip-hand one above.
+const GUN_FOREGRIP_TARGET_NUDGE = new THREE.Vector3(0, 14, 0);
 const GUN_MUZZLE_AXIS = new THREE.Vector3(-1, 0, 0);
 // A real rifle is roughly this long; the rest of the transform is derived
 // from that, not guessed independently.
@@ -1579,7 +1591,8 @@ function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D, gu
   gun.quaternion.setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
   gun.position.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gun.quaternion).multiplyScalar(-1);
   const foregripWorld = GUN_FOREGRIP_LOCAL.clone().multiplyScalar(scale).applyQuaternion(gun.quaternion).add(gun.position);
-  gun.position.add(gunHandLocal.clone().sub(foregripWorld));
+  gun.position.add(gunHandLocal.clone().add(GUN_FOREGRIP_TARGET_NUDGE).sub(foregripWorld));
+  gun.position.add(GUN_RIGHTHAND_NUDGE);
   hand.add(gun);
   return gun;
 }
