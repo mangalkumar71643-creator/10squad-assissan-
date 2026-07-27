@@ -1458,9 +1458,9 @@ const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
 // Recoil kick, played on the firing arm — much subtler than a punch swing,
 // since the gun is doing the "hitting" now, not the fist.
-const RECOIL_DURATION = 0.15;
-const RECOIL_SHOULDER_ANGLE = 0.35;
-const RECOIL_ELBOW_ANGLE = 0.5;
+const RECOIL_DURATION = 0.18;
+const RECOIL_SHOULDER_ANGLE = 0.85;
+const RECOIL_ELBOW_ANGLE = 1.05;
 // How long a tracer stays visible before it's removed.
 const TRACER_DURATION = 0.08;
 // Roughly chest height — tracers aim here instead of at the root/feet.
@@ -1600,10 +1600,26 @@ function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D, gu
 // Kicks a fighter's right arm back to sell a rifle shot's recoil, layered
 // on top of whatever the idle clip set that frame — much subtler than the
 // old punch swing, since the gun is doing the hitting now, not the fist.
+// Composed as an axis-angle quaternion and post-multiplied onto whatever
+// the arm-lock already set that frame, rather than mutating `.rotation.x`
+// directly — with the arms locked into the two-handed grip pose (which has
+// real rotation on more than one Euler axis), reassigning just the X
+// component of the Euler decomposition doesn't read as "swing forward" the
+// way it would from a near-neutral pose; it comes out as a barely-visible
+// twist instead. Local-axis quaternion composition doesn't have that
+// interaction with whatever's already on the other axes.
+const fireRecoilAxis = new THREE.Vector3(0, 0, 1);
+const fireRecoilQuat = new THREE.Quaternion();
 function applyFirePose(rig: FighterRig, t: number) {
   const kick = Math.sin(clamp(t / RECOIL_DURATION, 0, 1) * Math.PI);
-  if (rig.rightArm) rig.rightArm.rotation.x -= kick * RECOIL_SHOULDER_ANGLE;
-  if (rig.rightForeArm) rig.rightForeArm.rotation.x -= kick * RECOIL_ELBOW_ANGLE;
+  if (rig.rightArm) {
+    fireRecoilQuat.setFromAxisAngle(fireRecoilAxis, -kick * RECOIL_SHOULDER_ANGLE);
+    rig.rightArm.quaternion.multiply(fireRecoilQuat);
+  }
+  if (rig.rightForeArm) {
+    fireRecoilQuat.setFromAxisAngle(fireRecoilAxis, -kick * RECOIL_ELBOW_ANGLE);
+    rig.rightForeArm.quaternion.multiply(fireRecoilQuat);
+  }
 }
 
 // A point roughly at the gun's muzzle tip, in the raw (unscaled, unrotated)
