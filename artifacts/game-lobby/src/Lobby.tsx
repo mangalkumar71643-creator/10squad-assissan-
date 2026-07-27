@@ -1513,6 +1513,71 @@ const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
   { x: ROOM6_POS.x, z: ROOM6_POS.z + ROOM6_DEPTH / 2, dirX: 0, dirZ: -1 }, // room6's only door
 ];
 
+// A rifle model held in the hand, purely for looks — combat stays
+// hand-to-hand (punches), this doesn't add a fire mechanic. Every fighter's
+// default idle is now MeshyRifleIdle (see loadFighter), which already poses
+// both arms as if gripping a rifle, so the gun just needs to be parented to
+// RightHand at a fixed local offset instead of needing the old arm-lock/
+// torso-lock system (that existed only because the melee Idle2 clip used to
+// be the default and the rifle pose was a separate conditional overlay).
+//
+// The raw model's long axis is local X, muzzle at -X (sampling its
+// cross-section per X-slice found a thin, symmetric tip there, versus a
+// wide magazine-well bulge around x=-0.16..0.48 and a slightly wider stock
+// end at +0.95) — the trigger-hand grip (just behind the mag well, in front
+// of the stock) is roughly (0.15, 0, 0).
+const GUN_GRIP_LOCAL = new THREE.Vector3(0.15, 0, 0);
+const GUN_MUZZLE_AXIS = new THREE.Vector3(-1, 0, 0);
+// A real rifle is roughly this long; the rest of the transform is derived
+// from that, not guessed independently.
+const GUN_TARGET_LENGTH = 0.85;
+// Where the muzzle should point, in RightHand-local space, at the
+// MeshyRifleIdle pose — measured directly (character-forward transformed
+// into RightHand's local frame at that pose), then negated: the raw
+// measured direction pointed the muzzle in-frame toward the body/back
+// instead of forward, confirmed visually before flipping it.
+const GUN_MUZZLE_TARGET_LOCAL = new THREE.Vector3(-0.5977578227502827, 0.7971310783913765, -0.08525041626442081);
+// A point on the handguard, between the grip and the muzzle, in the raw
+// mesh's own local space — where the off-hand should actually be gripping.
+const GUN_FOREGRIP_LOCAL = new THREE.Vector3(-0.4, 0, 0);
+
+// The real rifle model is a static (unskinned) mesh, so one glTF load is
+// shared and cloned for whichever fighter needs it.
+let gunPrototypePromise: Promise<THREE.Object3D> | null = null;
+function loadGunPrototype(): Promise<THREE.Object3D> {
+  if (!gunPrototypePromise) {
+    gunPrototypePromise = new Promise((resolve, reject) => {
+      new GLTFLoader().load(
+        "/characters/rifle.glb",
+        (gltf) => resolve(gltf.scene),
+        undefined,
+        reject,
+      );
+    });
+  }
+  return gunPrototypePromise;
+}
+
+// Parents a clone of the shared gun model onto a fighter's RightHand bone,
+// sized and oriented so the barrel points forward (see
+// GUN_MUZZLE_TARGET_LOCAL), nudged in position (not rotation) so the
+// foregrip lands where the off-hand already sits in the idle pose (see
+// gunHandLocal, captured once at load time).
+function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D, gunHandLocal: THREE.Vector3): THREE.Object3D {
+  const worldScale = new THREE.Vector3();
+  hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
+  const gun = prototype.clone(true);
+  const rawLength = 1.906;
+  const scale = (GUN_TARGET_LENGTH / rawLength) / (worldScale.x || 1);
+  gun.scale.setScalar(scale);
+  gun.quaternion.setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
+  gun.position.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gun.quaternion).multiplyScalar(-1);
+  const foregripWorld = GUN_FOREGRIP_LOCAL.clone().multiplyScalar(scale).applyQuaternion(gun.quaternion).add(gun.position);
+  gun.position.add(gunHandLocal.clone().sub(foregripWorld));
+  hand.add(gun);
+  return gun;
+}
+
 // Swings a fighter's right arm forward and back (bind-pose-relative, layered
 // on top of whatever the idle clip set that frame) — there's no punch clip
 // baked into the rig, so this drives the arm bones directly.
@@ -1655,7 +1720,31 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  // LeftHand's position at the MeshyRifleIdle pose, expressed in
+  // RightHand-local space — used once, at gun-attach time, to nudge the
+  // gun's position (not its rotation, which is tuned separately for how it
+  // should look) so a point along the barrel actually coincides with where
+  // the off-hand really is, instead of leaving a visible gap between the
+  // support hand and the foregrip.
+  gunHandLocal: THREE.Vector3;
+  // Both arms (shoulder through hand), captured once at the MeshyRifleIdle
+  // pose and re-applied every tick regardless of idle/run blend — without
+  // this, the Running clip's natural sprint arm-swing carries the held gun
+  // along with it, swinging it out of the grip (or out of view entirely)
+  // instead of staying carried in front of the body like a real held rifle.
+  // Legs/hips/torso keep animating normally from Idle/Running; only these
+  // arm bones are pinned.
+  armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[];
   materials: THREE.MeshStandardMaterial[];
+}
+
+// Re-applies each locked arm bone's captured MeshyRifleIdle-pose quaternion
+// after the mixer has (re)computed the full-body Idle/Run blend for this
+// frame — see FighterRig.armLock.
+function applyArmLock(rig: FighterRig) {
+  for (const { bone, quat } of rig.armLock) {
+    bone.quaternion.copy(quat);
+  }
 }
 
 // Loads the one character model we have twice — once as the player (its
@@ -1686,12 +1775,22 @@ function loadFighter(
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
+      let rightShoulder: THREE.Object3D | null = null;
+      let leftArm: THREE.Object3D | null = null;
+      let leftForeArm: THREE.Object3D | null = null;
+      let leftHand: THREE.Object3D | null = null;
+      let leftShoulder: THREE.Object3D | null = null;
       const materials: THREE.MeshStandardMaterial[] = [];
 
       model.traverse((o) => {
         if (o.name === "RightArm") rightArm = o;
         if (o.name === "RightForeArm") rightForeArm = o;
         if (o.name === "RightHand") rightHand = o;
+        if (o.name === "RightShoulder") rightShoulder = o;
+        if (o.name === "LeftArm") leftArm = o;
+        if (o.name === "LeftForeArm") leftForeArm = o;
+        if (o.name === "LeftHand") leftHand = o;
+        if (o.name === "LeftShoulder") leftShoulder = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
@@ -1715,10 +1814,11 @@ function loadFighter(
       let runAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
-        // "Idle2" is a real motion-captured breathing idle (retargeted from
-        // a Mixamo clip) — prefer it over the rig's own baked-in idle when
-        // present, since it's the one meant to actually ship.
-        const idleClip = gltf.animations.find((c) => c.name === "Idle2") ?? gltf.animations.find((c) => c.name.includes("Idle")) ?? gltf.animations[0];
+        // "MeshyRifleIdle" is a real idle clip generated directly against
+        // this same rig (matching bone names, no retargeting needed) — no
+        // gun mesh or weapon logic attached, just the pose/animation
+        // itself, in place of the older "Idle2" breathing idle.
+        const idleClip = gltf.animations.find((c) => c.name === "MeshyRifleIdle") ?? gltf.animations.find((c) => c.name === "Idle2") ?? gltf.animations.find((c) => c.name.includes("Idle")) ?? gltf.animations[0];
         idleAction = mixer.clipAction(idleClip);
         idleAction.play();
         const runClip = gltf.animations.find((c) => c.name === "Running");
@@ -1727,9 +1827,28 @@ function loadFighter(
           runAction.play();
           runAction.setEffectiveWeight(0);
         }
+        // Sample the idle pose once at t=0 to measure where LeftHand
+        // actually sits relative to RightHand — used to close the gap
+        // between the support hand and the gun's foregrip (see
+        // createGunAttachment). idleAction is already on the real mixer, so
+        // this doesn't need a separate throwaway one.
+        mixer.update(0);
+        model.updateWorldMatrix(true, true);
+      }
+      let gunHandLocal = new THREE.Vector3(0.3, 0, 0.3);
+      const armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[] = [];
+      if (rightHand && leftHand) {
+        const rh = rightHand as THREE.Object3D;
+        const lh = leftHand as THREE.Object3D;
+        const invRightHand = new THREE.Matrix4().copy(rh.matrixWorld).invert();
+        gunHandLocal = lh.getWorldPosition(new THREE.Vector3()).applyMatrix4(invRightHand);
+        const armChain: (THREE.Object3D | null)[] = [rightShoulder, rightArm, rightForeArm, rightHand, leftShoulder, leftArm, leftForeArm, leftHand];
+        for (const bone of armChain) {
+          if (bone) armLock.push({ bone, quat: bone.quaternion.clone() });
+        }
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, materials });
+      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, gunHandLocal, armLock, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -2160,11 +2279,23 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let bot5: FighterRig | null = null;
     let boss: FighterRig | null = null;
 
+    // Preloaded here so it's very likely already resolved by the time each
+    // fighter's rig finishes loading — every fighter is armed on spawn now,
+    // it's purely a held prop (combat itself stays hand-to-hand).
+    const gunPrototype = loadGunPrototype();
+    const equipGun = (rig: FighterRig) => {
+      if (!rig.rightHand) return;
+      gunPrototype.then((proto) => {
+        createGunAttachment(rig.rightHand as THREE.Object3D, proto, rig.gunHandLocal);
+      });
+    };
+
     loadFighter(scene, 0xffffff, (rig) => {
       if (disposed) return;
       rig.root.position.set(0, 0, 3);
       rig.root.rotation.y = Math.PI; // face into the dungeon at the start
       player = rig;
+      equipGun(rig);
     });
     // Each bot stands guard inside its own room, dormant until the player
     // actually walks in (see GUARD_POS / the alert check in the tick loop)
@@ -2174,38 +2305,44 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       rig.root.position.set(BOT1_SPAWN.x, 0, BOT1_SPAWN.z);
       rig.root.rotation.y = Math.PI;
       bot1 = rig;
+      equipGun(rig);
     });
     loadFighter(scene, BOT2_TINT, (rig) => {
       if (disposed) return;
       rig.root.position.set(BOT2_SPAWN.x, 0, BOT2_SPAWN.z);
       rig.root.rotation.y = Math.PI;
       bot2 = rig;
+      equipGun(rig);
     });
     loadFighter(scene, BOT3_TINT, (rig) => {
       if (disposed) return;
       rig.root.position.set(BOT3_SPAWN.x, 0, BOT3_SPAWN.z);
       rig.root.rotation.y = Math.PI;
       bot3 = rig;
+      equipGun(rig);
     });
     loadFighter(scene, BOT4_TINT, (rig) => {
       if (disposed) return;
       rig.root.position.set(BOT4_SPAWN.x, 0, BOT4_SPAWN.z);
       rig.root.rotation.y = Math.PI;
       bot4 = rig;
+      equipGun(rig);
     });
     loadFighter(scene, BOT5_TINT, (rig) => {
       if (disposed) return;
       rig.root.position.set(BOT5_SPAWN.x, 0, BOT5_SPAWN.z);
       rig.root.rotation.y = Math.PI;
       bot5 = rig;
+      equipGun(rig);
     });
-    // The Boss stands guard in Room 6, fighting bare-handed like everyone
-    // else — just tougher and hitting harder.
+    // The Boss stands guard in Room 6 — tougher and hitting harder, still
+    // fighting bare-handed like everyone else, just holding a rifle too.
     loadFighter(scene, BOSS_TINT, (rig) => {
       if (disposed) return;
       rig.root.position.set(BOSS_SPAWN.x, 0, BOSS_SPAWN.z);
       rig.root.rotation.y = Math.PI;
       boss = rig;
+      equipGun(rig);
     });
 
     const resize = () => {
@@ -2290,6 +2427,18 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       bot4?.mixer?.update(dt);
       bot5?.mixer?.update(dt);
       boss?.mixer?.update(dt);
+      // Re-pin both arms to the held-rifle pose every tick, after the mixer
+      // has (re)computed this frame's Idle/Run blend — otherwise Running's
+      // natural sprint arm-swing carries the held gun off wildly (see
+      // FighterRig.armLock). Punch's additive swing (further down) still
+      // layers on top of this normally.
+      if (player) applyArmLock(player);
+      if (bot1) applyArmLock(bot1);
+      if (bot2) applyArmLock(bot2);
+      if (bot3) applyArmLock(bot3);
+      if (bot4) applyArmLock(bot4);
+      if (bot5) applyArmLock(bot5);
+      if (boss) applyArmLock(boss);
 
       const rigs = [bot1, bot2, bot3, bot4, bot5, boss];
       for (let i = 0; i < 6; i++) {
