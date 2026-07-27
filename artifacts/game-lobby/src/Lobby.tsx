@@ -1514,12 +1514,11 @@ const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
 ];
 
 // A rifle model held in the hand, purely for looks — combat stays
-// hand-to-hand (punches), this doesn't add a fire mechanic. Every fighter's
-// default idle is now MeshyRifleIdle (see loadFighter), which already poses
-// both arms as if gripping a rifle, so the gun just needs to be parented to
-// RightHand at a fixed local offset instead of needing the old arm-lock/
-// torso-lock system (that existed only because the melee Idle2 clip used to
-// be the default and the rifle pose was a separate conditional overlay).
+// hand-to-hand (punches), this doesn't add a fire mechanic. The default
+// idle stays Idle2 (see loadFighter); both arms are separately locked every
+// tick to a rifle-holding pose sampled from the unused "MeshyRifleIdle" clip
+// still grafted into the glb (see FighterRig.armLock), so the gun looks held
+// regardless of what the rest of the body's Idle2/Running blend is doing.
 //
 // The raw model's long axis is local X, muzzle at -X (sampling its
 // cross-section per X-slice found a thin, symmetric tip there, versus a
@@ -1814,11 +1813,10 @@ function loadFighter(
       let runAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
-        // "MeshyRifleIdle" is a real idle clip generated directly against
-        // this same rig (matching bone names, no retargeting needed) — no
-        // gun mesh or weapon logic attached, just the pose/animation
-        // itself, in place of the older "Idle2" breathing idle.
-        const idleClip = gltf.animations.find((c) => c.name === "MeshyRifleIdle") ?? gltf.animations.find((c) => c.name === "Idle2") ?? gltf.animations.find((c) => c.name.includes("Idle")) ?? gltf.animations[0];
+        // "Idle2" is a real motion-captured breathing idle (retargeted from
+        // a Mixamo clip) — prefer it over the rig's own baked-in idle when
+        // present, since it's the one meant to actually ship.
+        const idleClip = gltf.animations.find((c) => c.name === "Idle2") ?? gltf.animations.find((c) => c.name.includes("Idle")) ?? gltf.animations[0];
         idleAction = mixer.clipAction(idleClip);
         idleAction.play();
         const runClip = gltf.animations.find((c) => c.name === "Running");
@@ -1827,26 +1825,37 @@ function loadFighter(
           runAction.play();
           runAction.setEffectiveWeight(0);
         }
-        // Sample the idle pose once at t=0 to measure where LeftHand
-        // actually sits relative to RightHand — used to close the gap
-        // between the support hand and the gun's foregrip (see
-        // createGunAttachment). idleAction is already on the real mixer, so
-        // this doesn't need a separate throwaway one.
-        mixer.update(0);
-        model.updateWorldMatrix(true, true);
       }
+
+      // "MeshyRifleIdle" is left over from an earlier feature (a real
+      // rifle-holding pose) — sampled once here with a throwaway mixer (so
+      // it doesn't blend against idleAction/runAction, which are already
+      // playing on the real one) purely to capture a stable arm pose for
+      // when the gun is equipped. This never touches locomotion; legs/hips
+      // keep coming from Idle2/Running as before.
       let gunHandLocal = new THREE.Vector3(0.3, 0, 0.3);
       const armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[] = [];
-      if (rightHand && leftHand) {
+      const rifleIdleClip = gltf.animations.find((c) => c.name === "MeshyRifleIdle");
+      if (rifleIdleClip && rightHand && leftHand) {
         const rh = rightHand as THREE.Object3D;
         const lh = leftHand as THREE.Object3D;
-        const invRightHand = new THREE.Matrix4().copy(rh.matrixWorld).invert();
-        gunHandLocal = lh.getWorldPosition(new THREE.Vector3()).applyMatrix4(invRightHand);
+        const tempMixer = new THREE.AnimationMixer(model);
+        const tempAction = tempMixer.clipAction(rifleIdleClip);
+        tempAction.play();
+        tempMixer.update(0);
+        model.updateWorldMatrix(true, true);
         const armChain: (THREE.Object3D | null)[] = [rightShoulder, rightArm, rightForeArm, rightHand, leftShoulder, leftArm, leftForeArm, leftHand];
         for (const bone of armChain) {
           if (bone) armLock.push({ bone, quat: bone.quaternion.clone() });
         }
+        const invRightHand = new THREE.Matrix4().copy(rh.matrixWorld).invert();
+        gunHandLocal = lh.getWorldPosition(new THREE.Vector3()).applyMatrix4(invRightHand);
+        tempAction.stop();
       }
+      // Reset the pose back to Idle2's frame 0 — the throwaway mixer above
+      // left the rig posed as MeshyRifleIdle, which would otherwise be what
+      // briefly renders before the real mixer's first tick.
+      mixer?.update(0);
 
       onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, gunHandLocal, armLock, materials });
     },
