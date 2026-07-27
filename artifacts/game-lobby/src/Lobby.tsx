@@ -1195,7 +1195,7 @@ const PLAYER_ACCEL_RATE = 9; // per-second damping rate speeding up
 const PLAYER_DECEL_RATE = 15; // per-second damping rate slowing down (snappier stop than start)
 const PLAYER_TURN_RATE = 11; // per-second damping rate turning to face the move direction
 const BOT_SPEED = 1.9;
-const ATTACK_RANGE = 1.3;
+const GUN_RANGE = 14; // a shootout distance, not a melee reach
 const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
 
 // A sci-fi outpost room off to the side of the arena — four walls around a
@@ -1456,9 +1456,15 @@ const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
-const PUNCH_DURATION = 0.35;
-const PUNCH_SWING_ANGLE = 1.4;
-const PUNCH_ELBOW_ANGLE = 0.9;
+// Recoil kick, played on the firing arm — much subtler than a punch swing,
+// since the gun is doing the "hitting" now, not the fist.
+const RECOIL_DURATION = 0.15;
+const RECOIL_SHOULDER_ANGLE = 0.35;
+const RECOIL_ELBOW_ANGLE = 0.5;
+// How long a tracer stays visible before it's removed.
+const TRACER_DURATION = 0.08;
+// Roughly chest height — tracers aim here instead of at the root/feet.
+const TRACER_TARGET_HEIGHT = 1.3;
 const BOT1_TINT = 0xff6b5e;
 const BOT2_TINT = 0xffb703;
 const BOT3_TINT = 0x8a5cff;
@@ -1487,8 +1493,8 @@ const PATROL_ARRIVE_DIST = 0.4;
 // something closer to an unhurried, restrained walk.
 const PATROL_RUN_WEIGHT = 0.42;
 // The Boss — a tougher fifth enemy stationed in Room 6 rather than roaming
-// with the other four. It doesn't chase; it stands its ground and throws
-// punches the moment the player comes within reach.
+// with the other four. It doesn't chase; it stands its ground, already
+// armed, and opens fire the moment the player comes within range.
 const BOSS_TINT = 0xb3122b;
 const BOSS_SPAWN = { x: ROOM6_POS.x, z: ROOM6_POS.z };
 const BOSS_HP = 220;
@@ -1513,12 +1519,12 @@ const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
   { x: ROOM6_POS.x, z: ROOM6_POS.z + ROOM6_DEPTH / 2, dirX: 0, dirZ: -1 }, // room6's only door
 ];
 
-// A rifle model held in the hand, purely for looks — combat stays
-// hand-to-hand (punches), this doesn't add a fire mechanic. It's parented
-// rigidly to RightHand at a fixed local offset/rotation (see
+// A rifle model held in the hand — every fighter actually shoots with it
+// (see the fire logic in the tick loop and applyFirePose/spawnTracer). It's
+// parented rigidly to RightHand at a fixed local offset/rotation (see
 // createGunAttachment) — no arm-lock, so it just follows whatever pose
-// Idle2/Running/punches naturally put the arm in, rather than forcing a
-// fixed rifle-holding stance onto the character.
+// Idle2/Running naturally put the arm in at rest, with only a brief recoil
+// kick layered on top when it fires.
 //
 // The raw model's long axis is local X, muzzle at -X (sampling its
 // cross-section per X-slice found a thin, symmetric tip there, versus a
@@ -1574,13 +1580,50 @@ function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): T
   return gun;
 }
 
-// Swings a fighter's right arm forward and back (bind-pose-relative, layered
-// on top of whatever the idle clip set that frame) — there's no punch clip
-// baked into the rig, so this drives the arm bones directly.
-function applyPunchPose(rig: FighterRig, t: number) {
-  const swing = Math.sin(clamp(t / PUNCH_DURATION, 0, 1) * Math.PI);
-  if (rig.rightArm) rig.rightArm.rotation.x -= swing * PUNCH_SWING_ANGLE;
-  if (rig.rightForeArm) rig.rightForeArm.rotation.x -= swing * PUNCH_ELBOW_ANGLE;
+// Kicks a fighter's right arm back to sell a rifle shot's recoil, layered
+// on top of whatever the idle clip set that frame — much subtler than the
+// old punch swing, since the gun is doing the hitting now, not the fist.
+function applyFirePose(rig: FighterRig, t: number) {
+  const kick = Math.sin(clamp(t / RECOIL_DURATION, 0, 1) * Math.PI);
+  if (rig.rightArm) rig.rightArm.rotation.x -= kick * RECOIL_SHOULDER_ANGLE;
+  if (rig.rightForeArm) rig.rightForeArm.rotation.x -= kick * RECOIL_ELBOW_ANGLE;
+}
+
+// A point roughly at the gun's muzzle tip, in the raw (unscaled, unrotated)
+// mesh's own local space — see the muzzle-at-local- -X measurement above.
+const MUZZLE_TIP_LOCAL = new THREE.Vector3(-0.95, 0, 0);
+
+// A short-lived bright line from the gun's muzzle to whatever it just hit
+// (or, on a miss, straight out to GUN_RANGE) — spawned per shot and ticked
+// down by updateTracers until its lifetime runs out, at which point it's
+// removed and disposed.
+interface Tracer {
+  line: THREE.Line;
+  t: number;
+}
+
+function spawnTracer(scene: THREE.Scene, gun: THREE.Object3D | null, from: THREE.Vector3, to: THREE.Vector3): Tracer {
+  const start = gun ? MUZZLE_TIP_LOCAL.clone().applyMatrix4(gun.matrixWorld) : from;
+  const geometry = new THREE.BufferGeometry().setFromPoints([start, to]);
+  const material = new THREE.LineBasicMaterial({ color: 0xfff59d, transparent: true, opacity: 1 });
+  const line = new THREE.Line(geometry, material);
+  scene.add(line);
+  return { line, t: 0 };
+}
+
+function updateTracers(tracers: Tracer[], dt: number) {
+  for (let i = tracers.length - 1; i >= 0; i--) {
+    const tracer = tracers[i];
+    tracer.t += dt;
+    if (tracer.t >= TRACER_DURATION) {
+      tracer.line.geometry.dispose();
+      (tracer.line.material as THREE.Material).dispose();
+      tracer.line.parent?.remove(tracer.line);
+      tracers.splice(i, 1);
+    } else {
+      (tracer.line.material as THREE.LineBasicMaterial).opacity = 1 - tracer.t / TRACER_DURATION;
+    }
+  }
 }
 
 // The rig ships two real motion-captured clips grafted into the same
@@ -1716,6 +1759,10 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  // Set once the shared gun model resolves and gets parented to RightHand
+  // (see equipGun) — used to find the muzzle's current world position when
+  // firing, so the tracer actually starts from the gun instead of the hand.
+  gun: THREE.Object3D | null;
   materials: THREE.MeshStandardMaterial[];
 }
 
@@ -1738,8 +1785,8 @@ function loadFighter(
       model.scale.setScalar(scale);
       model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
 
-      // There's no punch animation baked into either clip, so the arm
-      // bones are still grabbed here and swung by hand (see the punch
+      // There's no recoil animation baked into either clip, so the arm
+      // bones are still grabbed here and kicked back by hand (see the fire
       // logic in CombatArena's tick loop) — but locomotion itself now
       // comes from the real "Running" mocap clip grafted into this glb
       // (see loadCombatAssets / the merge that produced it), not a
@@ -1790,7 +1837,7 @@ function loadFighter(
         }
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, materials });
+      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, gun: null, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -2223,12 +2270,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     // Preloaded here so it's very likely already resolved by the time each
     // fighter's rig finishes loading — every fighter is armed on spawn now,
-    // it's purely a held prop (combat itself stays hand-to-hand).
+    // it's the weapon every fighter actually shoots with (see the fire
+    // logic in the tick loop below).
     const gunPrototype = loadGunPrototype();
     const equipGun = (rig: FighterRig) => {
       if (!rig.rightHand) return;
       gunPrototype.then((proto) => {
-        createGunAttachment(rig.rightHand as THREE.Object3D, proto);
+        rig.gun = createGunAttachment(rig.rightHand as THREE.Object3D, proto);
       });
     };
 
@@ -2303,7 +2351,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const clock = new THREE.Clock();
     let playerHpLocal = 100;
     let playerCooldown = 0;
-    let playerPunchT = -1;
+    let playerFireT = -1;
     // Smoothed horizontal ground velocity — movement eases toward the
     // joystick-derived target instead of snapping to it, which is what
     // gives the accel/decel and the turning its weight.
@@ -2320,7 +2368,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const botStates = botMaxHp.map((hp, i) => ({
       hp,
       cooldown: 0,
-      punchT: -1,
+      fireT: -1,
       deathT: -1,
       dead: false,
       isBoss: i === 5,
@@ -2332,6 +2380,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       stuckT: 0,
       avoidSign: 1 as 1 | -1,
     }));
+    // Short-lived tracer lines from a gun to its target, spawned per shot
+    // and cleaned up once their life runs out (see spawnTracer/updateTracers).
+    const tracers: Tracer[] = [];
     let playerDeathT = -1;
     let pendingResult: "win" | "lose" | null = null;
     let resultRevealT = 0;
@@ -2369,6 +2420,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       bot4?.mixer?.update(dt);
       bot5?.mixer?.update(dt);
       boss?.mixer?.update(dt);
+      updateTracers(tracers, dt);
 
       const rigs = [bot1, bot2, bot3, bot4, bot5, boss];
       for (let i = 0; i < 6; i++) {
@@ -2499,21 +2551,22 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
           if (st.isBoss) {
             // The Boss holds its ground in Room 6 — it never chases, but
-            // it throws a heavier punch than a regular bot the instant the
-            // player gets within melee reach.
+            // opens fire the instant the player comes within range.
             updateLocomotionAnim(rig, 0, 0);
             rig.root.rotation.y = Math.atan2(dx, dz);
 
             st.cooldown = Math.max(0, st.cooldown - dt);
-            if (dist <= ATTACK_RANGE && st.cooldown <= 0) {
+            if (dist <= GUN_RANGE && st.cooldown <= 0) {
               playerHpLocal = Math.max(0, playerHpLocal - BOSS_DAMAGE);
               setPlayerHp(playerHpLocal);
               st.cooldown = BOSS_ATTACK_COOLDOWN;
-              st.punchT = 0;
+              st.fireT = 0;
+              const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
+              tracers.push(spawnTracer(scene, rig.gun, rig.root.position, targetPoint));
             }
-            if (st.punchT >= 0) {
-              applyPunchPose(rig, st.punchT);
-              st.punchT = st.punchT + dt > PUNCH_DURATION ? -1 : st.punchT + dt;
+            if (st.fireT >= 0) {
+              applyFirePose(rig, st.fireT);
+              st.fireT = st.fireT + dt > RECOIL_DURATION ? -1 : st.fireT + dt;
             }
           } else if (!st.awake) {
             // Dormant guard: rather than freezing on one spot, it wanders a
@@ -2572,7 +2625,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
               alertRefs.current[i]!.style.display = "none";
             }
           } else {
-            if (dist > ATTACK_RANGE * 0.85) {
+            if (dist > GUN_RANGE * 0.85) {
               moveWithAvoidance(rig, st, dx / dist, dz / dist, BOT_SPEED, dt);
               updateLocomotionAnim(rig, 1, BOT_SPEED);
             } else {
@@ -2581,15 +2634,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             rig.root.rotation.y = Math.atan2(dx, dz);
 
             st.cooldown = Math.max(0, st.cooldown - dt);
-            if (dist <= ATTACK_RANGE && st.cooldown <= 0) {
+            if (dist <= GUN_RANGE && st.cooldown <= 0) {
               playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
               setPlayerHp(playerHpLocal);
               st.cooldown = BOT_ATTACK_COOLDOWN;
-              st.punchT = 0;
+              st.fireT = 0;
+              const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
+              tracers.push(spawnTracer(scene, rig.gun, rig.root.position, targetPoint));
             }
-            if (st.punchT >= 0) {
-              applyPunchPose(rig, st.punchT);
-              st.punchT = st.punchT + dt > PUNCH_DURATION ? -1 : st.punchT + dt;
+            if (st.fireT >= 0) {
+              applyFirePose(rig, st.fireT);
+              st.fireT = st.fireT + dt > RECOIL_DURATION ? -1 : st.fireT + dt;
             }
           }
 
@@ -2609,26 +2664,35 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         if (attackRequested.current) {
           attackRequested.current = false;
           if (playerCooldown <= 0) {
-            // The attack always plays — pose, cooldown, the works — on
-            // press, whether or not a bot is actually in range right now;
-            // the character's hands respond the same way regardless. Only
-            // the damage is conditional on a bot actually being in range.
-            // Snap the body to face wherever the camera is pointed the
-            // instant the punch fires, so it always visibly faces the
-            // attack direction rather than whatever it happened to face
-            // before.
+            // The shot always fires — recoil, cooldown, tracer, the works —
+            // on press, whether or not a bot is actually in range right
+            // now; the character's hands respond the same way regardless.
+            // Only the damage is conditional on a bot actually being in
+            // range. Snap the body to face wherever the camera is pointed
+            // the instant it fires, so it always visibly faces the shot
+            // direction rather than whatever it happened to face before.
             player.root.rotation.y = cameraYaw.current;
             playerCooldown = PLAYER_ATTACK_COOLDOWN;
-            playerPunchT = 0;
-            if (nearestIdx !== -1 && nearestDist <= ATTACK_RANGE) {
+            playerFireT = 0;
+            const aimYaw = cameraYaw.current;
+            const targetPoint =
+              nearestIdx !== -1 && nearestDist <= GUN_RANGE
+                ? new THREE.Vector3(rigs[nearestIdx]!.root.position.x, TRACER_TARGET_HEIGHT, rigs[nearestIdx]!.root.position.z)
+                : new THREE.Vector3(
+                    player.root.position.x + Math.sin(aimYaw) * GUN_RANGE,
+                    TRACER_TARGET_HEIGHT,
+                    player.root.position.z + Math.cos(aimYaw) * GUN_RANGE,
+                  );
+            tracers.push(spawnTracer(scene, player.gun, player.root.position, targetPoint));
+            if (nearestIdx !== -1 && nearestDist <= GUN_RANGE) {
               damageBot(nearestIdx, PLAYER_DAMAGE);
             }
           }
         }
 
-        if (playerPunchT >= 0) {
-          applyPunchPose(player, playerPunchT);
-          playerPunchT = playerPunchT + dt > PUNCH_DURATION ? -1 : playerPunchT + dt;
+        if (playerFireT >= 0) {
+          applyFirePose(player, playerFireT);
+          playerFireT = playerFireT + dt > RECOIL_DURATION ? -1 : playerFireT + dt;
         }
 
         if (playerHpLocal <= 0) {
@@ -2940,13 +3004,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         />
       </div>
 
-      {/* Attack button */}
+      {/* Fire button */}
       <button
         onPointerDown={(e) => {
           e.preventDefault();
           attackRequested.current = true;
         }}
-        aria-label="Attack"
+        aria-label="Fire"
         style={{
           position: "absolute",
           right: "7%",
@@ -2965,7 +3029,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           cursor: "pointer",
         }}
       >
-        ATTACK
+        FIRE
       </button>
 
       {/* Run toggle button */}
