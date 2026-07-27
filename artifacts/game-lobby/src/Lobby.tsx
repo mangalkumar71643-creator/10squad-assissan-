@@ -1533,10 +1533,10 @@ const GUN_MUZZLE_AXIS = new THREE.Vector3(-1, 0, 0);
 const GUN_TARGET_LENGTH = 0.85;
 // Where the muzzle should point, in RightHand-local space, at the
 // MeshyRifleIdle pose — measured directly (character-forward transformed
-// into RightHand's local frame at that pose) rather than guessed, since
-// this pose's arm orientation is different from the older RifleIdle-locked
-// pose the value used to be tuned against.
-const GUN_MUZZLE_TARGET_LOCAL = new THREE.Vector3(0.5977578227502827, -0.7971310783913765, 0.08525041626442081);
+// into RightHand's local frame at that pose), then negated: the raw
+// measured direction pointed the muzzle in-frame toward the body/back
+// instead of forward, confirmed visually before flipping it.
+const GUN_MUZZLE_TARGET_LOCAL = new THREE.Vector3(-0.5977578227502827, 0.7971310783913765, -0.08525041626442081);
 // A point on the handguard, between the grip and the muzzle, in the raw
 // mesh's own local space — where the off-hand should actually be gripping.
 const GUN_FOREGRIP_LOCAL = new THREE.Vector3(-0.4, 0, 0);
