@@ -1882,14 +1882,17 @@ function loadFighter(
 
       let mixer: THREE.AnimationMixer | null = null;
       let idleAction: THREE.AnimationAction | null = null;
-      // This rig only carries one real baked clip (everything else in the
-      // export is a zero-track leftover) — there's no separate run clip to
-      // blend against, so runAction stays null and locomotion is root-
-      // position movement only (see updateLocomotionAnim's early return).
+      // There's no separate run clip grafted into this glb yet — locomotion
+      // is root-position movement only for now (see updateLocomotionAnim's
+      // early return when runAction is null).
       const runAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
-        const idleClip = gltf.animations.find((c) => c.tracks.length > 0) ?? gltf.animations[0];
+        // "IdleBreathing" is a real breathing-idle mocap clip retargeted
+        // onto this rig's skeleton (see the merge that grafted it into
+        // this glb) — prefer it over the rig's own baked-in rest pose
+        // ("mixamo.com", a near-static frozen frame) when present.
+        const idleClip = gltf.animations.find((c) => c.name === "IdleBreathing") ?? gltf.animations.find((c) => c.tracks.length > 0) ?? gltf.animations[0];
         idleAction = mixer.clipAction(idleClip);
         idleAction.play();
       }
