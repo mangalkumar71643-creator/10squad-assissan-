@@ -1457,18 +1457,21 @@ const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
 // A real firing/recoil animation ("RifleFire", grafted into the glb — see
-// the merge that added it) plays on every shot, sped up to fit inside this
-// window — shorter than the clip's own native length so rapid-fire shots
-// (even the player's 0.55s cooldown) don't feel sluggish. Comfortably
-// under every fighter's attack cooldown (player 0.55s, boss 1.1s, bots
-// 1.3s), so one shot's fire pose always finishes before the next can
-// start.
-const FIRE_ANIM_DURATION = 0.4;
+// the merge that added it) plays on every shot, at its own native mocap
+// pace (no artificial speed-up) — an earlier version compressed this into
+// a fixed 0.4s window via timeScale, which made the motion look jerky
+// instead of a clean recoil. Auto-fire (holding the FIRE button) can
+// legitimately retrigger a shot before the previous one's animation
+// finishes (the player's 0.55s cooldown is shorter than this), which
+// simply restarts the clip from frame 0 — reads as continuous recoil
+// rather than a glitch, the same way a real automatic weapon's cycle
+// never fully completes between rounds.
+const FIRE_ANIM_DURATION = 1.1667;
 // How much of FIRE_ANIM_DURATION is spent blending in from / back out to
 // whatever the idle/run blend already had that frame, rather than cutting
 // straight to/from the fire clip.
-const FIRE_FADE_IN = 0.06;
-const FIRE_FADE_OUT = 0.15;
+const FIRE_FADE_IN = 0.15;
+const FIRE_FADE_OUT = 0.4;
 // How long a tracer stays visible before it's removed.
 const TRACER_DURATION = 0.08;
 // Roughly chest height — tracers aim here instead of at the root/feet.
@@ -1944,9 +1947,6 @@ function loadFighter(
           fireAction = mixer.clipAction(fireClip);
           fireAction.setLoop(THREE.LoopOnce, 1);
           fireAction.clampWhenFinished = true;
-          // Sped up to fit inside FIRE_ANIM_DURATION regardless of the
-          // clip's own native length.
-          fireAction.timeScale = fireClip.duration / FIRE_ANIM_DURATION;
           fireAction.play();
           fireAction.setEffectiveWeight(0);
         }
@@ -2806,8 +2806,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
         playerCooldown = Math.max(0, playerCooldown - dt);
 
+        // Auto-fire: attackRequested stays true for as long as the FIRE
+        // button is held (set on pointer down, cleared on pointer up/
+        // leave/cancel — see the button below), rather than being
+        // consumed after one shot, so holding it down keeps firing every
+        // time the cooldown clears until the finger lifts.
         if (attackRequested.current) {
-          attackRequested.current = false;
           if (playerCooldown <= 0) {
             // The shot always fires — recoil, cooldown, tracer, the works —
             // on press, whether or not a bot is actually in range right
@@ -3150,11 +3154,22 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         />
       </div>
 
-      {/* Fire button */}
+      {/* Fire button — auto-fires for as long as it's held down (see the
+          attackRequested consumption in the tick loop), not just once per
+          tap. setPointerCapture keeps the up/cancel events firing on this
+          button even if the finger slides off it while held, so a drag-off
+          reliably stops the fire instead of leaving it stuck on. */}
       <button
         onPointerDown={(e) => {
           e.preventDefault();
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
           attackRequested.current = true;
+        }}
+        onPointerUp={() => {
+          attackRequested.current = false;
+        }}
+        onPointerCancel={() => {
+          attackRequested.current = false;
         }}
         aria-label="Fire"
         style={{
