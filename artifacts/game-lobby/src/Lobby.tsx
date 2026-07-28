@@ -1520,11 +1520,10 @@ const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
 ];
 
 // A rifle model held in the hand — every fighter actually shoots with it
-// (see the fire logic in the tick loop and applyFirePose/spawnTracer),
-// held two-handed the way a real carry pose looks (matched against a
-// reference screenshot): both arms locked to the "RifleIdle" mocap pose
-// (see FighterRig.armLock) every tick, gun parented to RightHand and
-// nudged so the off-hand actually lands on the foregrip (see gunHandLocal).
+// (see the fire logic in the tick loop and applyFirePose/spawnTracer). This
+// rig has real per-finger joints (unlike the old one), so the grip hand's
+// fingers actually curl around it (see curlGunGripFingers) instead of it
+// just resting against a fixed open palm.
 //
 // The raw model's long axis is local X, muzzle at -X (sampling its
 // cross-section per X-slice found a thin, symmetric tip there, versus a
@@ -1532,30 +1531,16 @@ const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
 // end at +0.95) — the trigger-hand grip (just behind the mag well, in front
 // of the stock) is roughly (0.15, 0, 0).
 const GUN_GRIP_LOCAL = new THREE.Vector3(0.15, 0, 0);
-// There are no finger bones on this rig (RightHand/LeftHand are leaf
-// bones — the hand mesh is a single fixed, static shape), so the fingers
-// can't actually curl around the grip/foregrip. This nudges the gun's
-// position, in RightHand's own local space, so the grip sits inside the
-// hand's existing curl instead of floating just outside it — the closest
-// approximation of a "held" look this rig can produce.
-const GUN_RIGHTHAND_NUDGE = new THREE.Vector3(0, 0, 0);
-// Same idea, but nudges specifically where the foregrip aims for on
-// LeftHand — tuned separately since the visible gap there (barrel resting
-// above the fingers instead of inside their curl) is a different offset
-// than the grip-hand one above.
-const GUN_FOREGRIP_TARGET_NUDGE = new THREE.Vector3(0, 14, 0);
 const GUN_MUZZLE_AXIS = new THREE.Vector3(-1, 0, 0);
 // A real rifle is roughly this long; the rest of the transform is derived
 // from that, not guessed independently.
 const GUN_TARGET_LENGTH = 0.85;
-// Where the muzzle should point, in RightHand-local space, at the
-// RifleIdle-locked pose — measured directly (character-forward transformed
-// into RightHand's local frame at that pose), negated if it comes out
-// pointing toward the body instead of forward (confirmed visually).
-const GUN_MUZZLE_TARGET_LOCAL = new THREE.Vector3(0, 1, 0);
-// A point on the handguard, between the grip and the muzzle, in the raw
-// mesh's own local space — where the off-hand should actually be gripping.
-const GUN_FOREGRIP_LOCAL = new THREE.Vector3(-0.4, 0, 0);
+// Where the muzzle should point, in RightHand-local space, at the idle
+// pose's frame 0 — measured directly (character-forward transformed into
+// RightHand's local frame at that pose) and confirmed correct via a
+// side-profile screenshot (no negation needed on this rig, unlike the old
+// one, which needed the target flipped).
+const GUN_MUZZLE_TARGET_LOCAL = new THREE.Vector3(-0.9149642106580734, -0.08833199808839635, 0.39374858445429767);
 
 // The real rifle model is a static (unskinned) mesh, so one glTF load is
 // shared and cloned for whichever fighter needs it.
@@ -1576,12 +1561,12 @@ function loadGunPrototype(): Promise<THREE.Object3D> {
 
 // Parents a clone of the shared gun model onto a fighter's RightHand bone,
 // sized and oriented so the barrel points forward (see
-// GUN_MUZZLE_TARGET_LOCAL), nudged in position (not rotation) so the
-// foregrip lands where the off-hand already sits in the locked pose (see
-// gunHandLocal, captured once at load time) — with both arms locked to the
-// same "RifleIdle" pose every tick, the hand-to-hand relationship never
-// changes, so this only needs solving once, at attach time.
-function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D, gunHandLocal: THREE.Vector3): THREE.Object3D {
+// GUN_MUZZLE_TARGET_LOCAL) — a plain rigid one-handed attachment; there's
+// no equivalent two-handed pose clip on this rig to lock the off-hand to,
+// so the two-handed look instead comes from actually curling both hands'
+// fingers around the grip/foregrip (see curlGunGripFingers), not from
+// moving the off-hand's arm bones.
+function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): THREE.Object3D {
   const worldScale = new THREE.Vector3();
   hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
   const gun = prototype.clone(true);
@@ -1590,11 +1575,34 @@ function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D, gu
   gun.scale.setScalar(scale);
   gun.quaternion.setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
   gun.position.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gun.quaternion).multiplyScalar(-1);
-  const foregripWorld = GUN_FOREGRIP_LOCAL.clone().multiplyScalar(scale).applyQuaternion(gun.quaternion).add(gun.position);
-  gun.position.add(gunHandLocal.clone().add(GUN_FOREGRIP_TARGET_NUDGE).sub(foregripWorld));
-  gun.position.add(GUN_RIGHTHAND_NUDGE);
   hand.add(gun);
   return gun;
+}
+
+// Curls a hand's finger joints in around the gun grip/foregrip — each
+// joint gets a fixed rotation about its local Z axis, applied once at
+// gun-attach time. This only needs to run once (not every tick): the
+// rig's single baked clip doesn't touch the finger bones at all, so
+// there's nothing to fight frame to frame, and re-applying it every tick
+// would just keep curling the fingers further closed. `mirror` flips the
+// rotation sign for the off-hand, whose finger bones are mirrored across
+// the skeleton's centerline.
+const FINGER_CURL_AXIS = new THREE.Vector3(0, 0, 1);
+const FINGER_CURL_ANGLES: Record<string, number> = {
+  Index1: 0.55, Index2: 0.7, Index3: 0.6,
+  Middle1: 0.6, Middle2: 0.75, Middle3: 0.65,
+  Ring1: 0.65, Ring2: 0.8, Ring3: 0.7,
+  Pinky1: 0.7, Pinky2: 0.85, Pinky3: 0.75,
+  Thumb1: 0.2, Thumb2: 0.4, Thumb3: 0.35,
+};
+const fingerCurlQuat = new THREE.Quaternion();
+function curlGunGripFingers(fingers: Record<string, THREE.Object3D>, mirror: 1 | -1) {
+  for (const [joint, angle] of Object.entries(FINGER_CURL_ANGLES)) {
+    const bone = fingers[joint];
+    if (!bone) continue;
+    fingerCurlQuat.setFromAxisAngle(FINGER_CURL_AXIS, angle * mirror);
+    bone.quaternion.multiply(fingerCurlQuat);
+  }
 }
 
 // Kicks a fighter's right arm back to sell a rifle shot's recoil, layered
@@ -1792,35 +1800,18 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  leftHand: THREE.Object3D | null;
   // Set once the shared gun model resolves and gets parented to RightHand
   // (see equipGun) — used to find the muzzle's current world position when
   // firing, so the tracer actually starts from the gun instead of the hand.
   gun: THREE.Object3D | null;
-  // LeftHand's position at the RifleIdle pose, expressed in RightHand-local
-  // space — used once, at gun-attach time, to nudge the gun's position (not
-  // its rotation, which is tuned separately) so a point along the barrel
-  // actually coincides with where the off-hand really is, instead of
-  // leaving a visible gap between the support hand and the foregrip.
-  gunHandLocal: THREE.Vector3;
-  // Both arms (shoulder through hand), captured once from the "RifleIdle"
-  // clip — a real two-handed rifle-holding mocap pose still grafted into
-  // the glb (both hands stay close together and stable throughout) — and
-  // re-applied every tick regardless of the Idle2/Running blend, so the gun
-  // reads as a proper two-handed carry (see the reference the grip was
-  // matched against) instead of dangling from one hand with the arms doing
-  // whatever the base locomotion clip has them doing. Legs/hips/torso keep
-  // animating normally from Idle2/Running; only these arm bones are pinned.
-  armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[];
+  // Real per-finger joints on this rig (mixamorig standard skeleton),
+  // keyed by e.g. "Index1"/"Thumb2" — curled once around the grip/foregrip
+  // at gun-attach time (see curlGunGripFingers) rather than every tick,
+  // since the rig's single baked clip never touches them.
+  rightFingers: Record<string, THREE.Object3D>;
+  leftFingers: Record<string, THREE.Object3D>;
   materials: THREE.MeshStandardMaterial[];
-}
-
-// Re-applies each locked arm bone's captured RifleIdle-pose quaternion
-// after the mixer has (re)computed the full-body Idle/Run blend for this
-// frame — see FighterRig.armLock.
-function applyArmLock(rig: FighterRig) {
-  for (const { bone, quat } of rig.armLock) {
-    bone.quaternion.copy(quat);
-  }
 }
 
 // Loads the one character model we have twice — once as the player (its
@@ -1842,31 +1833,29 @@ function loadFighter(
       model.scale.setScalar(scale);
       model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
 
-      // There's no recoil animation baked into either clip, so the arm
+      // There's no recoil animation baked into this rig's clip, so the arm
       // bones are still grabbed here and kicked back by hand (see the fire
-      // logic in CombatArena's tick loop) — but locomotion itself now
-      // comes from the real "Running" mocap clip grafted into this glb
-      // (see loadCombatAssets / the merge that produced it), not a
-      // hand-guessed sine/IK system.
+      // logic in CombatArena's tick loop). This is a standard Mixamo
+      // skeleton (mixamorig-prefixed bone names), including real per-
+      // finger joints on both hands — captured below so the gun's grip
+      // hand can actually curl around it (see curlGunGripFingers).
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
-      let rightShoulder: THREE.Object3D | null = null;
-      let leftArm: THREE.Object3D | null = null;
-      let leftForeArm: THREE.Object3D | null = null;
       let leftHand: THREE.Object3D | null = null;
-      let leftShoulder: THREE.Object3D | null = null;
+      const rightFingers: Record<string, THREE.Object3D> = {};
+      const leftFingers: Record<string, THREE.Object3D> = {};
       const materials: THREE.MeshStandardMaterial[] = [];
 
       model.traverse((o) => {
-        if (o.name === "RightArm") rightArm = o;
-        if (o.name === "RightForeArm") rightForeArm = o;
-        if (o.name === "RightHand") rightHand = o;
-        if (o.name === "RightShoulder") rightShoulder = o;
-        if (o.name === "LeftArm") leftArm = o;
-        if (o.name === "LeftForeArm") leftForeArm = o;
-        if (o.name === "LeftHand") leftHand = o;
-        if (o.name === "LeftShoulder") leftShoulder = o;
+        if (o.name === "mixamorigRightArm") rightArm = o;
+        if (o.name === "mixamorigRightForeArm") rightForeArm = o;
+        if (o.name === "mixamorigRightHand") rightHand = o;
+        if (o.name === "mixamorigLeftHand") leftHand = o;
+        const rightFinger = o.name.match(/^mixamorigRightHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
+        if (rightFinger) rightFingers[`${rightFinger[1]}${rightFinger[2]}`] = o;
+        const leftFinger = o.name.match(/^mixamorigLeftHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
+        if (leftFinger) leftFingers[`${leftFinger[1]}${leftFinger[2]}`] = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
@@ -1887,55 +1876,19 @@ function loadFighter(
 
       let mixer: THREE.AnimationMixer | null = null;
       let idleAction: THREE.AnimationAction | null = null;
-      let runAction: THREE.AnimationAction | null = null;
+      // This rig only carries one real baked clip (everything else in the
+      // export is a zero-track leftover) — there's no separate run clip to
+      // blend against, so runAction stays null and locomotion is root-
+      // position movement only (see updateLocomotionAnim's early return).
+      const runAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
-        // "Idle2" is a real motion-captured breathing idle (retargeted from
-        // a Mixamo clip) — prefer it over the rig's own baked-in idle when
-        // present, since it's the one meant to actually ship.
-        const idleClip = gltf.animations.find((c) => c.name === "Idle2") ?? gltf.animations.find((c) => c.name.includes("Idle")) ?? gltf.animations[0];
+        const idleClip = gltf.animations.find((c) => c.tracks.length > 0) ?? gltf.animations[0];
         idleAction = mixer.clipAction(idleClip);
         idleAction.play();
-        const runClip = gltf.animations.find((c) => c.name === "Running");
-        if (runClip) {
-          runAction = mixer.clipAction(runClip);
-          runAction.play();
-          runAction.setEffectiveWeight(0);
-        }
       }
 
-      // "RifleIdle" is left over from an earlier feature — a real two-
-      // handed rifle-holding pose, retargeted from Mixamo, where both hands
-      // stay close together and stable throughout the clip — sampled once
-      // here with a throwaway mixer (so it doesn't blend against
-      // idleAction/runAction, which are already playing on the real one)
-      // purely to capture a stable two-handed grip pose for the gun. This
-      // never touches locomotion; legs/hips keep coming from Idle2/Running.
-      const armLock: { bone: THREE.Object3D; quat: THREE.Quaternion }[] = [];
-      let gunHandLocal = new THREE.Vector3(0.3, 0, 0.3);
-      const rifleIdleClip = gltf.animations.find((c) => c.name === "RifleIdle");
-      if (rifleIdleClip && rightHand && leftHand) {
-        const rh = rightHand as THREE.Object3D;
-        const lh = leftHand as THREE.Object3D;
-        const tempMixer = new THREE.AnimationMixer(model);
-        const tempAction = tempMixer.clipAction(rifleIdleClip);
-        tempAction.play();
-        tempMixer.update(0);
-        model.updateWorldMatrix(true, true);
-        const armChain: (THREE.Object3D | null)[] = [rightShoulder, rightArm, rightForeArm, rightHand, leftShoulder, leftArm, leftForeArm, leftHand];
-        for (const bone of armChain) {
-          if (bone) armLock.push({ bone, quat: bone.quaternion.clone() });
-        }
-        const invRightHand = new THREE.Matrix4().copy(rh.matrixWorld).invert();
-        gunHandLocal = lh.getWorldPosition(new THREE.Vector3()).applyMatrix4(invRightHand);
-        tempAction.stop();
-      }
-      // Reset the pose back to Idle2's frame 0 — the throwaway mixer above
-      // left the rig posed as RifleIdle, which would otherwise be what
-      // briefly renders before the real mixer's first tick.
-      mixer?.update(0);
-
-      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, gun: null, gunHandLocal, armLock, materials });
+      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, leftHand, gun: null, rightFingers, leftFingers, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -2374,7 +2327,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const equipGun = (rig: FighterRig) => {
       if (!rig.rightHand) return;
       gunPrototype.then((proto) => {
-        rig.gun = createGunAttachment(rig.rightHand as THREE.Object3D, proto, rig.gunHandLocal);
+        rig.gun = createGunAttachment(rig.rightHand as THREE.Object3D, proto);
+        curlGunGripFingers(rig.rightFingers, 1);
+        curlGunGripFingers(rig.leftFingers, -1);
       });
     };
 
@@ -2519,18 +2474,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       bot5?.mixer?.update(dt);
       boss?.mixer?.update(dt);
       updateTracers(tracers, dt);
-      // Re-pin both arms to the two-handed rifle-hold pose every tick,
-      // after the mixer has (re)computed this frame's Idle2/Running blend —
-      // otherwise Running's natural sprint arm-swing carries the held gun
-      // off wildly (see FighterRig.armLock). The recoil kick (further down)
-      // still layers on top of this normally.
-      if (player) applyArmLock(player);
-      if (bot1) applyArmLock(bot1);
-      if (bot2) applyArmLock(bot2);
-      if (bot3) applyArmLock(bot3);
-      if (bot4) applyArmLock(bot4);
-      if (bot5) applyArmLock(bot5);
-      if (boss) applyArmLock(boss);
 
       const rigs = [bot1, bot2, bot3, bot4, bot5, boss];
       for (let i = 0; i < 6; i++) {
