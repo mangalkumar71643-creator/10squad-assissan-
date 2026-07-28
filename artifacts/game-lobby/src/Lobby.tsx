@@ -1456,11 +1456,19 @@ const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
-// Recoil kick, played on the firing arm — much subtler than a punch swing,
-// since the gun is doing the "hitting" now, not the fist.
-const RECOIL_DURATION = 0.18;
-const RECOIL_SHOULDER_ANGLE = 0.85;
-const RECOIL_ELBOW_ANGLE = 1.05;
+// A real firing/recoil animation ("RifleFire", grafted into the glb — see
+// the merge that added it) plays on every shot, sped up to fit inside this
+// window — shorter than the clip's own native length so rapid-fire shots
+// (even the player's 0.55s cooldown) don't feel sluggish. Comfortably
+// under every fighter's attack cooldown (player 0.55s, boss 1.1s, bots
+// 1.3s), so one shot's fire pose always finishes before the next can
+// start.
+const FIRE_ANIM_DURATION = 0.4;
+// How much of FIRE_ANIM_DURATION is spent blending in from / back out to
+// whatever the idle/run blend already had that frame, rather than cutting
+// straight to/from the fire clip.
+const FIRE_FADE_IN = 0.06;
+const FIRE_FADE_OUT = 0.15;
 // How long a tracer stays visible before it's removed.
 const TRACER_DURATION = 0.08;
 // Roughly chest height — tracers aim here instead of at the root/feet.
@@ -1622,29 +1630,28 @@ function curlGunGripFingers(fingers: Record<string, THREE.Object3D>, mirror: 1 |
   }
 }
 
-// Kicks a fighter's right arm back to sell a rifle shot's recoil, layered
-// on top of whatever the idle clip set that frame — much subtler than the
-// old punch swing, since the gun is doing the hitting now, not the fist.
-// Composed as an axis-angle quaternion and post-multiplied onto whatever
-// the arm-lock already set that frame, rather than mutating `.rotation.x`
-// directly — with the arms locked into the two-handed grip pose (which has
-// real rotation on more than one Euler axis), reassigning just the X
-// component of the Euler decomposition doesn't read as "swing forward" the
-// way it would from a near-neutral pose; it comes out as a barely-visible
-// twist instead. Local-axis quaternion composition doesn't have that
-// interaction with whatever's already on the other axes.
-const fireRecoilAxis = new THREE.Vector3(0, 0, 1);
-const fireRecoilQuat = new THREE.Quaternion();
+// Blends in the real "RifleFire" mocap clip (see the merge that grafted it
+// into the glb) over whatever idle/run weights updateLocomotionAnim just
+// set for this frame — replaces the old hand-tuned axis-angle recoil kick
+// entirely now that a real firing animation exists. `rig.fireAction` is
+// reset and (re)started once, right when the shot is fired (see the fire
+// trigger sites in the tick loop); this runs every tick afterward purely
+// to manage the crossfade weight while it plays out. Scaling the existing
+// idle/run weights down by (1 - w), rather than just setting fireAction's
+// weight alongside them unscaled, keeps the three actions properly
+// normalized (summing to ~1) regardless of whether the fighter happens to
+// be standing still or mid-run when the shot goes off.
 function applyFirePose(rig: FighterRig, t: number) {
-  const kick = Math.sin(clamp(t / RECOIL_DURATION, 0, 1) * Math.PI);
-  if (rig.rightArm) {
-    fireRecoilQuat.setFromAxisAngle(fireRecoilAxis, -kick * RECOIL_SHOULDER_ANGLE);
-    rig.rightArm.quaternion.multiply(fireRecoilQuat);
-  }
-  if (rig.rightForeArm) {
-    fireRecoilQuat.setFromAxisAngle(fireRecoilAxis, -kick * RECOIL_ELBOW_ANGLE);
-    rig.rightForeArm.quaternion.multiply(fireRecoilQuat);
-  }
+  if (!rig.fireAction) return;
+  const w =
+    t < FIRE_FADE_IN
+      ? t / FIRE_FADE_IN
+      : t > FIRE_ANIM_DURATION - FIRE_FADE_OUT
+        ? clamp((FIRE_ANIM_DURATION - t) / FIRE_FADE_OUT, 0, 1)
+        : 1;
+  rig.fireAction.setEffectiveWeight(w);
+  if (rig.idleAction) rig.idleAction.setEffectiveWeight(rig.idleAction.getEffectiveWeight() * (1 - w));
+  if (rig.runAction) rig.runAction.setEffectiveWeight(rig.runAction.getEffectiveWeight() * (1 - w));
 }
 
 // A point roughly at the gun's muzzle tip, in the raw (unscaled, unrotated)
@@ -1814,6 +1821,10 @@ interface FighterRig {
   // the old hand-guessed sine/IK locomotion entirely.
   idleAction: THREE.AnimationAction | null;
   runAction: THREE.AnimationAction | null;
+  // The real "RifleFire" mocap clip — reset and (re)started once per shot
+  // (see the fire trigger sites in the tick loop), crossfaded against
+  // idle/run every tick afterward while it plays out (see applyFirePose).
+  fireAction: THREE.AnimationAction | null;
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
@@ -1901,6 +1912,7 @@ function loadFighter(
       let mixer: THREE.AnimationMixer | null = null;
       let idleAction: THREE.AnimationAction | null = null;
       let runAction: THREE.AnimationAction | null = null;
+      let fireAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
         // "RifleIdle" is a real two-handed rifle-holding mocap clip
@@ -1919,6 +1931,24 @@ function loadFighter(
           runAction = mixer.clipAction(runClip);
           runAction.play();
           runAction.setEffectiveWeight(0);
+        }
+        // "RifleFire" is a real firing/recoil mocap clip — played once per
+        // shot (LoopOnce + clampWhenFinished, so it holds its last frame
+        // rather than looping), crossfaded in over idle/run by
+        // applyFirePose. Kept at weight 0 and already playing here so the
+        // mixer has it bound and ready; each shot just resets its time
+        // back to 0 (see the fire trigger sites in the tick loop) rather
+        // than creating a new action.
+        const fireClip = gltf.animations.find((c) => c.name === "RifleFire");
+        if (fireClip) {
+          fireAction = mixer.clipAction(fireClip);
+          fireAction.setLoop(THREE.LoopOnce, 1);
+          fireAction.clampWhenFinished = true;
+          // Sped up to fit inside FIRE_ANIM_DURATION regardless of the
+          // clip's own native length.
+          fireAction.timeScale = fireClip.duration / FIRE_ANIM_DURATION;
+          fireAction.play();
+          fireAction.setEffectiveWeight(0);
         }
       }
 
@@ -1948,7 +1978,7 @@ function loadFighter(
       // first tick.
       mixer?.update(0);
 
-      onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, leftHand, gun: null, rightFingers, leftFingers, offHandLocal, materials });
+      onLoaded({ root, mixer, idleAction, runAction, fireAction, rightArm, rightForeArm, rightHand, leftHand, gun: null, rightFingers, leftFingers, offHandLocal, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -2674,12 +2704,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
               setPlayerHp(playerHpLocal);
               st.cooldown = BOSS_ATTACK_COOLDOWN;
               st.fireT = 0;
+              rig.fireAction?.reset().play();
               const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
               tracers.push(spawnTracer(scene, rig.gun, rig.root.position, targetPoint));
             }
             if (st.fireT >= 0) {
               applyFirePose(rig, st.fireT);
-              st.fireT = st.fireT + dt > RECOIL_DURATION ? -1 : st.fireT + dt;
+              st.fireT = st.fireT + dt > FIRE_ANIM_DURATION ? -1 : st.fireT + dt;
             }
           } else if (!st.awake) {
             // Dormant guard: rather than freezing on one spot, it wanders a
@@ -2752,12 +2783,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
               setPlayerHp(playerHpLocal);
               st.cooldown = BOT_ATTACK_COOLDOWN;
               st.fireT = 0;
+              rig.fireAction?.reset().play();
               const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
               tracers.push(spawnTracer(scene, rig.gun, rig.root.position, targetPoint));
             }
             if (st.fireT >= 0) {
               applyFirePose(rig, st.fireT);
-              st.fireT = st.fireT + dt > RECOIL_DURATION ? -1 : st.fireT + dt;
+              st.fireT = st.fireT + dt > FIRE_ANIM_DURATION ? -1 : st.fireT + dt;
             }
           }
 
@@ -2787,6 +2819,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             player.root.rotation.y = cameraYaw.current;
             playerCooldown = PLAYER_ATTACK_COOLDOWN;
             playerFireT = 0;
+            player.fireAction?.reset().play();
             const aimYaw = cameraYaw.current;
             const targetPoint =
               nearestIdx !== -1 && nearestDist <= GUN_RANGE
@@ -2805,7 +2838,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
         if (playerFireT >= 0) {
           applyFirePose(player, playerFireT);
-          playerFireT = playerFireT + dt > RECOIL_DURATION ? -1 : playerFireT + dt;
+          playerFireT = playerFireT + dt > FIRE_ANIM_DURATION ? -1 : playerFireT + dt;
         }
 
         if (playerHpLocal <= 0) {
