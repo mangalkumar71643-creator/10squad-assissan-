@@ -1567,6 +1567,12 @@ function loadGunPrototype(): Promise<THREE.Object3D> {
 // fingers around the grip/foregrip (see curlGunGripFingers), not from
 // moving the off-hand's arm bones.
 function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): THREE.Object3D {
+  // hand.matrixWorld isn't guaranteed current here — this runs as soon as
+  // the shared gun prototype resolves, which can be before the scene has
+  // ever been rendered (matrixWorld only recomputes on render or an
+  // explicit update), so a stale identity-scale matrix would silently
+  // undo this rig's ~0.0094 model scale and shrink the gun to a speck.
+  hand.updateWorldMatrix(true, false);
   const worldScale = new THREE.Vector3();
   hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
   const gun = prototype.clone(true);
