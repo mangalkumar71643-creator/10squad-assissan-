@@ -1882,19 +1882,22 @@ function loadFighter(
 
       let mixer: THREE.AnimationMixer | null = null;
       let idleAction: THREE.AnimationAction | null = null;
-      // There's no separate run clip grafted into this glb yet — locomotion
-      // is root-position movement only for now (see updateLocomotionAnim's
-      // early return when runAction is null).
-      const runAction: THREE.AnimationAction | null = null;
+      let runAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
-        // "IdleBreathing" is a real breathing-idle mocap clip retargeted
-        // onto this rig's skeleton (see the merge that grafted it into
-        // this glb) — prefer it over the rig's own baked-in rest pose
+        // "IdleBreathing" and "Running" are real mocap clips retargeted
+        // onto this rig's skeleton (see the merges that grafted them into
+        // this glb) — prefer them over the rig's own baked-in rest pose
         // ("mixamo.com", a near-static frozen frame) when present.
         const idleClip = gltf.animations.find((c) => c.name === "IdleBreathing") ?? gltf.animations.find((c) => c.tracks.length > 0) ?? gltf.animations[0];
         idleAction = mixer.clipAction(idleClip);
         idleAction.play();
+        const runClip = gltf.animations.find((c) => c.name === "Running");
+        if (runClip) {
+          runAction = mixer.clipAction(runClip);
+          runAction.play();
+          runAction.setEffectiveWeight(0);
+        }
       }
 
       onLoaded({ root, mixer, idleAction, runAction, rightArm, rightForeArm, rightHand, leftHand, gun: null, rightFingers, leftFingers, materials });
