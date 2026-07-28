@@ -1910,7 +1910,11 @@ function loadFighter(
         const idleClip = gltf.animations.find((c) => c.name === "RifleIdle") ?? gltf.animations.find((c) => c.name === "IdleBreathing") ?? gltf.animations.find((c) => c.tracks.length > 0) ?? gltf.animations[0];
         idleAction = mixer.clipAction(idleClip);
         idleAction.play();
-        const runClip = gltf.animations.find((c) => c.name === "Running");
+        // "RifleRun" keeps the gun held up while sprinting (retargeted
+        // from Mixamo) — every fighter is armed on spawn, so this is
+        // preferred over the plain "Running" clip's normal arm swing,
+        // which used to leave the held gun looking disconnected mid-run.
+        const runClip = gltf.animations.find((c) => c.name === "RifleRun") ?? gltf.animations.find((c) => c.name === "Running");
         if (runClip) {
           runAction = mixer.clipAction(runClip);
           runAction.play();
