@@ -1544,6 +1544,11 @@ const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
 // in this mesh, so its own bounding-box center is used directly as the
 // hand target instead of a hand-tuned point.
 const GUN_GRIP_LOCAL = new THREE.Vector3(0, -10.43, 18.33);
+// A point on the handguard, between the grip and the muzzle, in the raw
+// mesh's own local space — where the off-hand should actually be gripping
+// (see updateOffHandReach, which bends the off-hand's forearm to reach
+// this point every tick).
+const GUN_FOREGRIP_LOCAL = new THREE.Vector3(0, -9.76, 2.01);
 const GUN_MUZZLE_AXIS = new THREE.Vector3(0, 0, -1);
 // A real SMG is roughly this long; the rest of the transform is derived
 // from that, not guessed independently.
@@ -1600,6 +1605,47 @@ function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): T
   gun.position.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gun.quaternion).multiplyScalar(-1);
   hand.add(gun);
   return gun;
+}
+
+// Rotates `bone` (in place, preserving its parent's current orientation)
+// so the ray from `bone` to `child` points at `targetWorld` instead of
+// wherever the baked animation clip currently has it — a single-joint
+// aim, not a full two-bone IK solve, but enough to visibly plant the
+// off-hand's forearm toward the gun's foregrip instead of leaving it
+// hanging wherever RifleIdle's own arm pose happens to put it (that pose
+// doesn't reach out along the barrel the way a real two-handed grip
+// would — see GUN_MUZZLE_TARGET_LOCAL's comment). Computed in world
+// space and converted back into the bone's own local space, since
+// `bone.quaternion` is relative to its parent, not the world.
+const reachDelta = new THREE.Quaternion();
+const reachParentWorldQuat = new THREE.Quaternion();
+const reachBoneWorldQuat = new THREE.Quaternion();
+const reachBonePos = new THREE.Vector3();
+const reachChildPos = new THREE.Vector3();
+function pointBoneToward(bone: THREE.Object3D, child: THREE.Object3D, targetWorld: THREE.Vector3) {
+  bone.updateWorldMatrix(true, false);
+  child.updateWorldMatrix(true, false);
+  bone.getWorldPosition(reachBonePos);
+  child.getWorldPosition(reachChildPos);
+  const currentDir = reachChildPos.clone().sub(reachBonePos).normalize();
+  const targetDir = targetWorld.clone().sub(reachBonePos).normalize();
+  reachDelta.setFromUnitVectors(currentDir, targetDir);
+  bone.getWorldQuaternion(reachBoneWorldQuat);
+  bone.parent!.getWorldQuaternion(reachParentWorldQuat);
+  const newWorldQuat = reachDelta.multiply(reachBoneWorldQuat);
+  bone.quaternion.copy(reachParentWorldQuat.invert().multiply(newWorldQuat));
+}
+
+// Bends a fighter's off-hand forearm, every tick, so the off-hand
+// visibly reaches for the gun's foregrip (see pointBoneToward) — has to
+// run every tick, not just once at gun-attach time, since the idle/run/
+// fire mocap clips keep re-driving LeftForeArm's rotation on every
+// mixer.update, which would otherwise immediately undo a one-time snap.
+function updateOffHandReach(rig: FighterRig) {
+  if (!rig.gun || !rig.leftForeArm || !rig.leftHand) return;
+  rig.gun.updateWorldMatrix(true, false);
+  const foregripWorld = GUN_FOREGRIP_LOCAL.clone().applyMatrix4(rig.gun.matrixWorld);
+  pointBoneToward(rig.leftForeArm, rig.leftHand, foregripWorld);
 }
 
 // Curls a hand's finger joints in around the gun grip/foregrip — each
@@ -1827,6 +1873,7 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  leftForeArm: THREE.Object3D | null;
   leftHand: THREE.Object3D | null;
   // Set once the shared gun model resolves and gets parented to RightHand
   // (see equipGun) — used to find the muzzle's current world position when
@@ -1867,6 +1914,7 @@ function loadFighter(
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
+      let leftForeArm: THREE.Object3D | null = null;
       let leftHand: THREE.Object3D | null = null;
       const rightFingers: Record<string, THREE.Object3D> = {};
       const leftFingers: Record<string, THREE.Object3D> = {};
@@ -1876,6 +1924,7 @@ function loadFighter(
         if (o.name === "mixamorigRightArm") rightArm = o;
         if (o.name === "mixamorigRightForeArm") rightForeArm = o;
         if (o.name === "mixamorigRightHand") rightHand = o;
+        if (o.name === "mixamorigLeftForeArm") leftForeArm = o;
         if (o.name === "mixamorigLeftHand") leftHand = o;
         const rightFinger = o.name.match(/^mixamorigRightHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
         if (rightFinger) rightFingers[`${rightFinger[1]}${rightFinger[2]}`] = o;
@@ -1938,7 +1987,7 @@ function loadFighter(
         }
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, fireAction, rightArm, rightForeArm, rightHand, leftHand, gun: null, rightFingers, leftFingers, materials });
+      onLoaded({ root, mixer, idleAction, runAction, fireAction, rightArm, rightForeArm, rightHand, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -2523,6 +2572,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       bot4?.mixer?.update(dt);
       bot5?.mixer?.update(dt);
       boss?.mixer?.update(dt);
+      // Re-bend the off-hand toward the gun's foregrip after the mixer has
+      // (re)applied this frame's idle/run/fire pose — see
+      // updateOffHandReach.
+      if (player) updateOffHandReach(player);
+      if (bot1) updateOffHandReach(bot1);
+      if (bot2) updateOffHandReach(bot2);
+      if (bot3) updateOffHandReach(bot3);
+      if (bot4) updateOffHandReach(bot4);
+      if (bot5) updateOffHandReach(bot5);
+      if (boss) updateOffHandReach(boss);
       updateTracers(tracers, dt);
 
       const rigs = [bot1, bot2, bot3, bot4, bot5, boss];
