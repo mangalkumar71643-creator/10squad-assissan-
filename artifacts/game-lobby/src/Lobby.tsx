@@ -1490,6 +1490,7 @@ const GUARD_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS];
 const GUARD_ALERT_RADIUS = 6;
 const ALERT_TELEGRAPH_DURATION = 0.7;
 const ALERT_MARK_HEIGHT = 2.15; // just above a guard's head
+const HP_BAR_HEIGHT = 1.95; // just above the head, below the alert mark
 // While dormant, a guard doesn't just freeze on one spot — it wanders a
 // short walking loop around its post (left/right/forward/back at random),
 // well within its room's walls, until the player's entry wakes it up.
@@ -2096,6 +2097,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   // knob above) — shown for the brief alert telegraph right before a
   // dormant guard wakes up and starts chasing.
   const alertRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
+  // Per-enemy floating health bar, positioned directly via ref each tick
+  // the same way (screen-projected from that fighter's 3D head position)
+  // instead of the old fixed corner list — index 5 is the Boss. The fill
+  // width still comes from botHps/React state (only changes on a hit, not
+  // every frame), just the position is imperative.
+  const hpBarRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
   // buttons) orbits the camera around the player, independent of movement.
   // Horizontal drag turns cameraYaw; vertical drag adds to cameraPitch,
@@ -2673,6 +2680,28 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           applyDeathPose(rig, st.deathT);
           st.deathT += dt;
         }
+        // Float this fighter's health bar above its own head instead of a
+        // fixed corner list — same screen-projection approach as the alert
+        // marker above, hidden once dead or once it's behind the camera.
+        const barEl = hpBarRefs.current[i];
+        if (barEl) {
+          if (rig && !st.dead) {
+            const markPoint = rig.root.position.clone();
+            markPoint.y += HP_BAR_HEIGHT;
+            markPoint.project(camera);
+            if (markPoint.z < 1) {
+              const w = container.clientWidth;
+              const h = container.clientHeight;
+              barEl.style.display = "block";
+              barEl.style.left = `${(markPoint.x + 1) * 0.5 * w}px`;
+              barEl.style.top = `${(1 - markPoint.y) * 0.5 * h}px`;
+            } else {
+              barEl.style.display = "none";
+            }
+          } else {
+            barEl.style.display = "none";
+          }
+        }
       }
       if (player && playerDeathT >= 0) {
         applyDeathPose(player, playerDeathT);
@@ -3111,21 +3140,52 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
         </div>
       </div>
-      {/* All four bots plus the Boss fight at once now, so each gets its own
-          compact bar instead of a single shared one — dimmed out once that
-          one is down. */}
-      <div style={{ position: "absolute", top: 16, right: 16, width: "min(38%, 260px)" }}>
-        {botHps.map((hp, i) => (
-          <div key={i} style={{ marginBottom: i < botHps.length - 1 ? 6 : 0, opacity: hp > 0 ? 1 : 0.35 }}>
-            <div style={{ color: i === 5 ? "#ff8a8a" : "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 11, letterSpacing: "0.08em", marginBottom: 2, textAlign: "right" }}>
-              {i === 5 ? "BOSS" : `BOT ${i + 1}`}
-            </div>
-            <div style={{ height: i === 5 ? 9 : 7, borderRadius: 4, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${hp}%`, marginLeft: `${100 - hp}%`, background: i === 5 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff8a6b,#ff5e4e)", transition: "width 150ms ease-out, margin-left 150ms ease-out" }} />
-            </div>
+      {/* Each bot/Boss's own health bar floats directly over its head in
+          the 3D view instead of a fixed corner list — positioned each
+          tick via hpBarRefs (screen-projected from its 3D position, same
+          approach as the alert marker above), hidden once that fighter is
+          dead or off-screen. Width still comes from botHps/React state. */}
+      {botHps.map((hp, i) => (
+        <div
+          key={i}
+          ref={(el) => {
+            hpBarRefs.current[i] = el;
+          }}
+          style={{
+            position: "absolute",
+            display: "none",
+            transform: "translate(-50%, -100%)",
+            width: i === 5 ? 90 : 64,
+            pointerEvents: "none",
+            zIndex: 6,
+          }}
+        >
+          <div
+            style={{
+              color: i === 5 ? "#ff8a8a" : "#dce8f5",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 10,
+              letterSpacing: "0.08em",
+              marginBottom: 2,
+              textAlign: "center",
+              textShadow: "0 0 4px rgba(0,0,0,0.9)",
+            }}
+          >
+            {i === 5 ? "BOSS" : `BOT ${i + 1}`}
           </div>
-        ))}
-      </div>
+          <div style={{ height: i === 5 ? 8 : 6, borderRadius: 3, background: "rgba(0,0,0,0.45)", border: "1px solid rgba(255,255,255,0.25)", overflow: "hidden" }}>
+            <div
+              style={{
+                height: "100%",
+                width: `${hp}%`,
+                background: i === 5 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff8a6b,#ff5e4e)",
+                transition: "width 150ms ease-out",
+              }}
+            />
+          </div>
+        </div>
+      ))}
 
       <button
         onClick={onExit}
