@@ -2682,10 +2682,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
         // Float this fighter's health bar above its own head instead of a
         // fixed corner list — same screen-projection approach as the alert
-        // marker above, hidden once dead or once it's behind the camera.
+        // marker above, hidden once dead, once it's behind the camera, or
+        // while it's still above half health (only worth calling out once
+        // a fighter is actually hurting).
         const barEl = hpBarRefs.current[i];
         if (barEl) {
-          if (rig && !st.dead) {
+          if (rig && !st.dead && st.hp / botMaxHp[i] <= 0.5) {
             const markPoint = rig.root.position.clone();
             markPoint.y += HP_BAR_HEIGHT;
             markPoint.project(camera);
