@@ -16,7 +16,26 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        debug {
+            // Committed on purpose (it's a debug-only key, never used for
+            // release): pins the debug signing identity so every build
+            // from this repo — from any machine or CI — produces an APK
+            // signed the same way. Without this, Gradle falls back to a
+            // per-machine ~/.android/debug.keystore that's regenerated
+            // with a new random key the first time it's missing, so a
+            // build from a fresh checkout wouldn't be installable as an
+            // update over a previously distributed debug APK.
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
