@@ -1545,10 +1545,18 @@ const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
 // hand target instead of a hand-tuned point.
 const GUN_GRIP_LOCAL = new THREE.Vector3(0, -10.43, 18.33);
 // A point on the handguard, between the grip and the muzzle, in the raw
-// mesh's own local space — where the off-hand should actually be gripping
-// (see updateOffHandReach, which bends the off-hand's forearm to reach
-// this point every tick).
+// mesh's own local space — this SMG's own named "Grip" part measured
+// directly; kept for reference/tuning even though updateOffHandReach no
+// longer targets it (see GUN_OFFHAND_TARGET_LOCAL).
 const GUN_FOREGRIP_LOCAL = new THREE.Vector3(0, -9.76, 2.01);
+// Where the off-hand actually reaches for (see updateOffHandReach) — much
+// further forward than GUN_FOREGRIP_LOCAL. That point sits only ~11cm
+// from the main grip on this short SMG, which put both hands so close
+// together they read as one bunched-up fist instead of a two-handed
+// hold; interpolated most of the way from the grip toward the muzzle tip
+// (see MUZZLE_TIP_LOCAL) gives the classic "rear hand on the trigger,
+// front hand out near the muzzle" look the reference grip has.
+const GUN_OFFHAND_TARGET_LOCAL = new THREE.Vector3(0, -10.43, 18.33).lerp(new THREE.Vector3(0, 0, -31.4), 0.75);
 const GUN_MUZZLE_AXIS = new THREE.Vector3(0, 0, -1);
 // A real SMG is roughly this long; the rest of the transform is derived
 // from that, not guessed independently.
@@ -1636,16 +1644,86 @@ function pointBoneToward(bone: THREE.Object3D, child: THREE.Object3D, targetWorl
   bone.quaternion.copy(reachParentWorldQuat.invert().multiply(newWorldQuat));
 }
 
-// Bends a fighter's off-hand forearm, every tick, so the off-hand
-// visibly reaches for the gun's foregrip (see pointBoneToward) — has to
-// run every tick, not just once at gun-attach time, since the idle/run/
-// fire mocap clips keep re-driving LeftForeArm's rotation on every
-// mixer.update, which would otherwise immediately undo a one-time snap.
+// A real two-bone IK solve (law of cosines for the elbow bend, then
+// pointBoneToward twice — once to swing the upper arm so the elbow
+// lands where the math says it must, once to bend the forearm the rest
+// of the way onto the target) instead of rotating only the forearm.
+// Rotating just the forearm can only ever place the hand somewhere on a
+// sphere centered on the (fixed-position) elbow, and if the real target
+// is farther from the elbow than the forearm is long, it physically
+// can't reach — the hand just points at the target and stops short,
+// which is exactly why the off-hand used to land back near the grip
+// hand instead of out at the foregrip. Swinging the shoulder first
+// moves the elbow itself out along the target direction so the
+// remaining forearm-only correction actually has enough reach.
+const ikShoulderPos = new THREE.Vector3();
+const ikElbowPos = new THREE.Vector3();
+const ikHandPos = new THREE.Vector3();
+const ikTargetDir = new THREE.Vector3();
+const ikPoleDir = new THREE.Vector3();
+const ikBendAxis = new THREE.Vector3();
+const ikDesiredElbowPos = new THREE.Vector3();
+function solveTwoBoneIK(shoulder: THREE.Object3D, elbow: THREE.Object3D, hand: THREE.Object3D, targetWorld: THREE.Vector3, poleWorld: THREE.Vector3) {
+  shoulder.updateWorldMatrix(true, false);
+  elbow.updateWorldMatrix(true, false);
+  hand.updateWorldMatrix(true, false);
+  shoulder.getWorldPosition(ikShoulderPos);
+  elbow.getWorldPosition(ikElbowPos);
+  hand.getWorldPosition(ikHandPos);
+
+  const upperLen = ikShoulderPos.distanceTo(ikElbowPos);
+  const foreLen = ikElbowPos.distanceTo(ikHandPos);
+
+  ikTargetDir.copy(targetWorld).sub(ikShoulderPos);
+  let targetDist = ikTargetDir.length();
+  const maxReach = upperLen + foreLen - 0.001;
+  const minReach = Math.abs(upperLen - foreLen) + 0.001;
+  targetDist = clamp(targetDist, minReach, maxReach);
+  ikTargetDir.normalize();
+
+  // Angle at the shoulder, between shoulder->target and shoulder->elbow,
+  // once the elbow is bent to actually put the hand on the target.
+  const cosShoulderAngle = clamp(
+    (upperLen * upperLen + targetDist * targetDist - foreLen * foreLen) / (2 * upperLen * targetDist),
+    -1, 1,
+  );
+  const shoulderAngle = Math.acos(cosShoulderAngle);
+
+  // The pole vector picks which side the elbow bends toward — without
+  // it the shoulder angle alone leaves the bend direction undefined
+  // (any point on a cone around the target direction would satisfy the
+  // law of cosines).
+  ikPoleDir.copy(poleWorld).sub(ikShoulderPos);
+  ikBendAxis.crossVectors(ikTargetDir, ikPoleDir);
+  if (ikBendAxis.lengthSq() < 1e-8) ikBendAxis.set(1, 0, 0);
+  ikBendAxis.normalize();
+
+  ikDesiredElbowPos.copy(ikTargetDir).applyAxisAngle(ikBendAxis, shoulderAngle).multiplyScalar(upperLen).add(ikShoulderPos);
+
+  pointBoneToward(shoulder, elbow, ikDesiredElbowPos);
+  pointBoneToward(elbow, hand, targetWorld);
+}
+
+// Bends a fighter's off-hand (shoulder + elbow), every tick, so the
+// off-hand visibly reaches all the way to the gun's foregrip (see
+// solveTwoBoneIK) — has to run every tick, not just once at gun-attach
+// time, since the idle/run/fire mocap clips keep re-driving these arm
+// bones' rotations on every mixer.update, which would otherwise
+// immediately undo a one-time snap.
+const offHandForward = new THREE.Vector3();
+const offHandPoleWorld = new THREE.Vector3();
 function updateOffHandReach(rig: FighterRig) {
-  if (!rig.gun || !rig.leftForeArm || !rig.leftHand) return;
+  if (!rig.gun || !rig.leftArm || !rig.leftForeArm || !rig.leftHand) return;
   rig.gun.updateWorldMatrix(true, false);
-  const foregripWorld = GUN_FOREGRIP_LOCAL.clone().applyMatrix4(rig.gun.matrixWorld);
-  pointBoneToward(rig.leftForeArm, rig.leftHand, foregripWorld);
+  const foregripWorld = GUN_OFFHAND_TARGET_LOCAL.clone().applyMatrix4(rig.gun.matrixWorld);
+  rig.leftArm.updateWorldMatrix(true, false);
+  rig.leftArm.getWorldPosition(offHandPoleWorld);
+  offHandForward.set(Math.sin(rig.root.rotation.y), 0, Math.cos(rig.root.rotation.y));
+  // Elbow bends down and slightly forward from the shoulder, like a
+  // natural two-handed grip, instead of an arbitrary/undefined direction.
+  offHandPoleWorld.y -= 1;
+  offHandPoleWorld.addScaledVector(offHandForward, 0.3);
+  solveTwoBoneIK(rig.leftArm, rig.leftForeArm, rig.leftHand, foregripWorld, offHandPoleWorld);
 }
 
 // Curls a hand's finger joints in around the gun grip/foregrip — each
@@ -1873,6 +1951,7 @@ interface FighterRig {
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
+  leftArm: THREE.Object3D | null;
   leftForeArm: THREE.Object3D | null;
   leftHand: THREE.Object3D | null;
   // Set once the shared gun model resolves and gets parented to RightHand
@@ -1914,6 +1993,7 @@ function loadFighter(
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
       let rightHand: THREE.Object3D | null = null;
+      let leftArm: THREE.Object3D | null = null;
       let leftForeArm: THREE.Object3D | null = null;
       let leftHand: THREE.Object3D | null = null;
       const rightFingers: Record<string, THREE.Object3D> = {};
@@ -1924,6 +2004,7 @@ function loadFighter(
         if (o.name === "mixamorigRightArm") rightArm = o;
         if (o.name === "mixamorigRightForeArm") rightForeArm = o;
         if (o.name === "mixamorigRightHand") rightHand = o;
+        if (o.name === "mixamorigLeftArm") leftArm = o;
         if (o.name === "mixamorigLeftForeArm") leftForeArm = o;
         if (o.name === "mixamorigLeftHand") leftHand = o;
         const rightFinger = o.name.match(/^mixamorigRightHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
@@ -1987,7 +2068,7 @@ function loadFighter(
         }
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, fireAction, rightArm, rightForeArm, rightHand, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
+      onLoaded({ root, mixer, idleAction, runAction, fireAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
