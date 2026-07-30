@@ -2446,7 +2446,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // load-bearing collision of their own.
     const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3, side: THREE.DoubleSide });
     const holeShaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.9, side: THREE.DoubleSide });
-    const stairMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.6, metalness: 0.35 });
+    // Bright enough (and lightly self-lit) to actually read as steps
+    // against the shaft's dark walls — the darker gray used everywhere
+    // else in the level disappeared completely into the shadow down
+    // there with no direct light reaching it.
+    const stairMat = new THREE.MeshStandardMaterial({ color: 0x8a929c, emissive: 0x2a3138, emissiveIntensity: 0.6, roughness: 0.5, metalness: 0.3 });
     const stairEdgeMat = new THREE.LineBasicMaterial({ color: 0xff9a4a });
     // A hollow square frame (four border strips), not a solid plane — a
     // solid glowing square here would just paper over the stairs inside
@@ -2512,6 +2516,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY);
       const dir = ROOM_TUNNEL_DIR[i];
       addStairsInHole(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY, dir.x, dir.z);
+      // Nothing else reaches down into the shaft otherwise (it sits
+      // below the room's own ambient light and above the tunnel's floor
+      // strip), which is exactly why the stairs were reading as a flat
+      // black pit — this lights them from inside the shaft itself.
+      const shaftLight = new THREE.PointLight(0x9fd8ff, 1.2, 5, 2);
+      shaftLight.position.set(ROOM_STAIRS_DOWN_POS[i].x, (0 + tunnelCeilingY) / 2, ROOM_STAIRS_DOWN_POS[i].z);
+      scene.add(shaftLight);
     }
 
     // The tunnel itself — every wall in the level, mirrored at TUNNEL_Y
