@@ -1401,7 +1401,7 @@ const EXTRA_CRATES: Obstacle[] = [
 // the house" the way it was asked for, rather than tucked in a corner.
 const TUNNEL_Y = -3.5;
 const TUNNEL_WALL_HEIGHT = 2.2;
-const HOLE_HALF_SIZE = 1.4; // square, not round — half-extent, so 2.8 units per side
+const HOLE_HALF_SIZE = 1.1; // square, not round — half-extent, so 2.2 units per side
 const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
 // The stairway's walkable footprint: a run of real steps descending from
 // the house floor (y=0) all the way to the tunnel floor (y=TUNNEL_Y),
@@ -1411,7 +1411,7 @@ const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
 // height-follow logic pick the player up a little before the first step
 // and hold them a little after the last one, so there's no seam.
 const RAMP_HALF_WIDTH = HOLE_INNER_SIZE / 2;
-const RAMP_RUN_LENGTH = 6;
+const RAMP_RUN_LENGTH = 4.5;
 const RAMP_BAND = 0.5;
 const ROOM_STAIRS_DOWN_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS, ROOM6_POS];
 const TUNNEL_STOPS = ROOM_STAIRS_DOWN_POS.map((p) => ({ x: p.x, z: p.z }));
