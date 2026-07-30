@@ -1621,12 +1621,29 @@ const BOT2_TINT = 0xffb703;
 const BOT3_TINT = 0x8a5cff;
 const BOT4_TINT = 0x4dff9e;
 const BOT5_TINT = 0x4dd0ff;
-const BOT1_SPAWN = { x: ROOM_POS.x, z: ROOM_POS.z };
-const BOT2_SPAWN = { x: ROOM2_POS.x, z: ROOM2_POS.z };
-const BOT3_SPAWN = { x: ROOM3_POS.x, z: ROOM3_POS.z };
-const BOT4_SPAWN = { x: ROOM4_POS.x, z: ROOM4_POS.z };
-const BOT5_SPAWN = { x: ROOM5_POS.x, z: ROOM5_POS.z };
-const GUARD_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS];
+// Guards stand and patrol off to the side of their room's own center, not
+// on top of it — the stairs down to the tunnel sit exactly at that center
+// (see ROOM_STAIRS_DOWN_POS), and standing/fighting right there used to
+// carry the player through the stairway's height-follow zone (see
+// RAMP_HALF_WIDTH/RAMP_RUN_LENGTH) mid-fight, sinking them partway into
+// the floor even though they never meant to go downstairs. Offsetting
+// perpendicular to that house's own descent direction (see
+// ROOM_TUNNEL_DIR), by more than the stairway's half-width plus the full
+// patrol wander radius, keeps the whole guard post clear of that zone.
+const GUARD_OFFSET = 6;
+function guardOffsetFor(i: number) {
+  const dir = ROOM_TUNNEL_DIR[i];
+  return { x: -dir.z * GUARD_OFFSET, z: dir.x * GUARD_OFFSET };
+}
+const GUARD_POS = ROOM_POSITIONS.map((pos, i) => {
+  const off = guardOffsetFor(i);
+  return { x: pos.x + off.x, z: pos.z + off.z };
+});
+const BOT1_SPAWN = GUARD_POS[0];
+const BOT2_SPAWN = GUARD_POS[1];
+const BOT3_SPAWN = GUARD_POS[2];
+const BOT4_SPAWN = GUARD_POS[3];
+const BOT5_SPAWN = GUARD_POS[4];
 const GUARD_ALERT_RADIUS = 6;
 const ALERT_TELEGRAPH_DURATION = 0.7;
 const ALERT_MARK_HEIGHT = 2.15; // just above a guard's head
@@ -1648,7 +1665,11 @@ const PATROL_RUN_WEIGHT = 0.42;
 // with the other four. It doesn't chase; it stands its ground, already
 // armed, and opens fire the moment the player comes within range.
 const BOSS_TINT = 0xb3122b;
-const BOSS_SPAWN = { x: ROOM6_POS.x, z: ROOM6_POS.z };
+// Same reasoning as GUARD_POS above — Room 6 also has its own stairs down
+// at ROOM6_POS's exact center, so the boss (index 5 in ROOM_TUNNEL_DIR)
+// gets the same clear-of-the-stairs offset instead of standing right on it.
+const BOSS_SPAWN_OFFSET = guardOffsetFor(5);
+const BOSS_SPAWN = { x: ROOM6_POS.x + BOSS_SPAWN_OFFSET.x, z: ROOM6_POS.z + BOSS_SPAWN_OFFSET.z };
 const BOSS_HP = 220;
 const BOSS_DAMAGE = 14;
 const BOSS_ATTACK_COOLDOWN = 1.1;
