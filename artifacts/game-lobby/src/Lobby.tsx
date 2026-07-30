@@ -2406,31 +2406,41 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       buildRoom(pos);
     }
 
-    // A plain hole in the floor marking each end of a tunnel transition
-    // (see ROOM_STAIRS_DOWN_POS/TUNNEL_STOPS and the tick loop's
-    // proximity check) — a dark opening with a glowing rim to read as
-    // "drop through here", instead of a full staircase prop that was
-    // oversized for what's actually just a position+Y jump with no real
-    // per-step physics behind it.
-    const holeMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
+    // A hole in the floor marking each end of a tunnel transition (see
+    // ROOM_STAIRS_DOWN_POS/TUNNEL_STOPS and the tick loop's proximity
+    // check) — sized and shaped like a real stairwell opening (a glowing
+    // frame around a set of steps sized to fit it exactly), not the
+    // separate oversized staircase prop from before or the plain flat
+    // hole after that. The actual floor change is still a position+Y
+    // jump, not real per-step physics, so the steps are just there to
+    // look right and to walk over on the way to the trigger — not
+    // load-bearing collision of their own.
     const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3, side: THREE.DoubleSide });
     const holeShaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.9, side: THREE.DoubleSide });
+    const stairMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.6, metalness: 0.35 });
+    const stairEdgeMat = new THREE.LineBasicMaterial({ color: 0xff9a4a });
     const HOLE_HALF_SIZE = 1.4; // square, not round — half-extent, so 2.8 units per side
     const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
-    function addFloorHole(x: number, y: number, z: number) {
-      const rim = new THREE.Mesh(new THREE.PlaneGeometry(HOLE_HALF_SIZE * 2, HOLE_HALF_SIZE * 2), holeRimMat);
-      rim.rotation.x = -Math.PI / 2;
-      rim.position.set(x, y + 0.015, z);
-      scene.add(rim);
-      const hole = new THREE.Mesh(new THREE.PlaneGeometry(HOLE_INNER_SIZE, HOLE_INNER_SIZE), holeMat);
-      hole.rotation.x = -Math.PI / 2;
-      hole.position.set(x, y + 0.02, z);
-      scene.add(hole);
+    // A hollow square frame (four border strips), not a solid plane — a
+    // solid glowing square here would just paper over the stairs inside
+    // it instead of framing the opening around them.
+    function addFloorHoleRim(x: number, y: number, z: number) {
+      const outer = HOLE_HALF_SIZE * 2;
+      const borderWidth = (outer - HOLE_INNER_SIZE) / 2;
+      const addStrip = (ox: number, oz: number, w: number, d: number) => {
+        const strip = new THREE.Mesh(new THREE.PlaneGeometry(w, d), holeRimMat);
+        strip.rotation.x = -Math.PI / 2;
+        strip.position.set(x + ox, y + 0.015, z + oz);
+        scene.add(strip);
+      };
+      addStrip(-(HOLE_INNER_SIZE / 2 + borderWidth / 2), 0, borderWidth, outer);
+      addStrip(HOLE_INNER_SIZE / 2 + borderWidth / 2, 0, borderWidth, outer);
+      addStrip(0, -(HOLE_INNER_SIZE / 2 + borderWidth / 2), HOLE_INNER_SIZE, borderWidth);
+      addStrip(0, HOLE_INNER_SIZE / 2 + borderWidth / 2, HOLE_INNER_SIZE, borderWidth);
     }
-    // The actual shaft between a house's floor and the tunnel ceiling
-    // below it — four dark wall panels around the hole's inner square, so
-    // looking into it reads as a real opening with depth instead of a
-    // flat painted decal.
+    // The shaft between a house's floor and the tunnel ceiling below it —
+    // four dark wall panels around the hole's inner square, doubling as
+    // the stairwell's side walls.
     function addHoleShaft(x: number, z: number, topY: number, bottomY: number) {
       const height = topY - bottomY;
       const midY = (topY + bottomY) / 2;
@@ -2444,13 +2454,37 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addWall(0, -HOLE_INNER_SIZE / 2, HOLE_INNER_SIZE, 0.05);
       addWall(0, HOLE_INNER_SIZE / 2, HOLE_INNER_SIZE, 0.05);
     }
-    // One hole down through each house's own center, its matching hole up
-    // at that same spot underground (in the ceiling there), and the real
-    // shaft connecting the two.
+    // Real steps filling the shaft's exact footprint (HOLE_INNER_SIZE
+    // square) and height (topY to bottomY), descending along (dirX, dirZ)
+    // — the direction that house's tunnel connection actually runs (see
+    // ROOM_TUNNEL_DIR) — so it reads as one natural staircase leading
+    // down into the tunnel, sized to the opening instead of overflowing
+    // it.
+    function addStairsInHole(x: number, z: number, topY: number, bottomY: number, dirX: number, dirZ: number) {
+      const steps = 5;
+      const stepHeight = (topY - bottomY) / steps;
+      const stepDepth = HOLE_INNER_SIZE / steps;
+      const yaw = Math.atan2(dirX, dirZ);
+      for (let i = 0; i < steps; i++) {
+        const stepCenterY = topY - stepHeight * (i + 0.5);
+        const along = -HOLE_INNER_SIZE / 2 + stepDepth * (i + 0.5);
+        const step = new THREE.Mesh(new THREE.BoxGeometry(HOLE_INNER_SIZE, stepHeight, stepDepth), stairMat);
+        step.position.set(x + Math.sin(yaw) * along, stepCenterY, z + Math.cos(yaw) * along);
+        step.rotation.y = yaw;
+        step.add(new THREE.LineSegments(new THREE.EdgesGeometry(step.geometry), stairEdgeMat));
+        scene.add(step);
+      }
+    }
+    // One hole+rim down through each house's own center, its matching rim
+    // up at that same spot underground (in the ceiling there), the real
+    // shaft connecting the two, and the staircase filling it.
     for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
-      addFloorHole(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z);
-      addFloorHole(TUNNEL_STOPS[i].x, TUNNEL_Y + TUNNEL_WALL_HEIGHT, TUNNEL_STOPS[i].z);
-      addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, TUNNEL_Y + TUNNEL_WALL_HEIGHT);
+      const tunnelCeilingY = TUNNEL_Y + TUNNEL_WALL_HEIGHT;
+      addFloorHoleRim(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z);
+      addFloorHoleRim(TUNNEL_STOPS[i].x, tunnelCeilingY, TUNNEL_STOPS[i].z);
+      addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY);
+      const dir = ROOM_TUNNEL_DIR[i];
+      addStairsInHole(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY, dir.x, dir.z);
     }
 
     // The tunnel itself — every wall in the level, mirrored at TUNNEL_Y
