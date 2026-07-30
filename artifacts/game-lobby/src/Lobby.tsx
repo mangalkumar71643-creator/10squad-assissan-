@@ -1448,6 +1448,57 @@ function resolveObstacleCollisions(pos: { x: number; z: number }) {
   }
 }
 
+// Whether the straight segment from (x1,z1) to (x2,z2) crosses this
+// obstacle's footprint — a standard slab test against its axis-aligned
+// rectangle, walked with the segment's own parametric range so a hit
+// outside [0,1] (before the start or past the end) doesn't count. Uses
+// the bare halfX/halfZ, not the movement-collision `pad` — that padding
+// exists to keep a fighter's body from clipping into a wall, not to
+// decide whether a bullet's sightline is blocked.
+function segmentHitsObstacle(x1: number, z1: number, x2: number, z2: number, ob: Obstacle): boolean {
+  const minX = ob.x - ob.halfX;
+  const maxX = ob.x + ob.halfX;
+  const minZ = ob.z - ob.halfZ;
+  const maxZ = ob.z + ob.halfZ;
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  let tmin = 0;
+  let tmax = 1;
+  if (Math.abs(dx) < 1e-9) {
+    if (x1 < minX || x1 > maxX) return false;
+  } else {
+    let t1 = (minX - x1) / dx;
+    let t2 = (maxX - x1) / dx;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+  if (Math.abs(dz) < 1e-9) {
+    if (z1 < minZ || z1 > maxZ) return false;
+  } else {
+    let t1 = (minZ - z1) / dz;
+    let t2 = (maxZ - z1) / dz;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+  return true;
+}
+
+// Whether a shot fired from (x1,z1) toward (x2,z2) actually has a clear
+// path — walls are modelled as gapped segments (see roomWallObstacles;
+// each door opening is a real gap in the geometry, not a separate flag),
+// so this needs no special-casing for doors: a shot through an open
+// doorway simply never intersects any obstacle's rectangle.
+function hasLineOfSight(x1: number, z1: number, x2: number, z2: number): boolean {
+  for (const ob of OBSTACLES) {
+    if (segmentHitsObstacle(x1, z1, x2, z2, ob)) return false;
+  }
+  return true;
+}
+
 const PLAYER_DAMAGE = 14;
 const BOT_DAMAGE = 10;
 const PLAYER_ATTACK_COOLDOWN = 0.55;
@@ -2854,7 +2905,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             rig.root.rotation.y = Math.atan2(dx, dz);
 
             st.cooldown = Math.max(0, st.cooldown - dt);
-            if (dist <= GUN_RANGE && st.cooldown <= 0) {
+            if (dist <= GUN_RANGE && st.cooldown <= 0 && hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z)) {
               playerHpLocal = Math.max(0, playerHpLocal - BOSS_DAMAGE);
               setPlayerHp(playerHpLocal);
               st.cooldown = BOSS_ATTACK_COOLDOWN;
@@ -2924,7 +2975,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
               alertRefs.current[i]!.style.display = "none";
             }
           } else {
-            if (dist > GUN_RANGE * 0.85) {
+            // A wall between here and the player blocks the shot (see
+            // hasLineOfSight) same as it blocks a real bullet — so being
+            // "in range" by distance alone isn't enough to stop and camp;
+            // keep closing the gap (moveWithAvoidance's existing stuck
+            // detection routes it around the wall) until there's an
+            // actual clear line to fire down.
+            const canSeePlayer = hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z);
+            if (dist > GUN_RANGE * 0.85 || !canSeePlayer) {
               moveWithAvoidance(rig, st, dx / dist, dz / dist, BOT_SPEED, dt);
               updateLocomotionAnim(rig, 1, BOT_SPEED);
             } else {
@@ -2933,7 +2991,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             rig.root.rotation.y = Math.atan2(dx, dz);
 
             st.cooldown = Math.max(0, st.cooldown - dt);
-            if (dist <= GUN_RANGE && st.cooldown <= 0) {
+            if (dist <= GUN_RANGE && st.cooldown <= 0 && canSeePlayer) {
               playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
               setPlayerHp(playerHpLocal);
               st.cooldown = BOT_ATTACK_COOLDOWN;
@@ -2948,7 +3006,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             }
           }
 
-          if (dist < nearestDist) {
+          // Only a bot the player can actually see counts as a target — a
+          // closer bot hidden behind a wall shouldn't steal the auto-aim
+          // (or the shot's damage) from a farther one actually in view.
+          if (dist < nearestDist && hasLineOfSight(player.root.position.x, player.root.position.z, rig.root.position.x, rig.root.position.z)) {
             nearestDist = dist;
             nearestIdx = i;
           }
