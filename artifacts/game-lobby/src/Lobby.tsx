@@ -1204,15 +1204,20 @@ const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters 
 // a floor grate, hazard stripes and a wall screen to match the reference
 // sci-fi interior. Placed well away from the default spawn points so it
 // doesn't interfere with the immediate spawn-adjacent fight.
-const ROOM_SIZE = 10;
+const ROOM_SIZE = 20; // doubled from the original 10 — rooms 1-5 only, room 6 has its own fixed ROOM6_WIDTH/ROOM6_DEPTH
 const ROOM_WALL_HEIGHT = 2.5;
 const ROOM_WALL_THICKNESS = 0.6;
 const ROOM_DOOR_WIDTH = 2;
 const ROOM_POS = { x: 60, z: -50 };
-const ROOM2_POS = { x: 60, z: -150 }; // a second, identical room 100 units north of the first
-const ROOM3_POS = { x: 60, z: -200 }; // a third, identical room 50 units north of the second
-const ROOM4_POS = { x: ROOM3_POS.x + 50, z: ROOM3_POS.z }; // a fourth room, 50 units east of the third (off the main line)
-const ROOM5_POS = { x: ROOM4_POS.x, z: ROOM4_POS.z - 50 }; // a fifth room, 50 units north of the fourth (branching again, not a straight extension of corridor3)
+// Room 2-5 centers are pushed out by the same amount ROOM_SIZE grew (5 extra
+// half-extent per room facing a corridor), so every corridor's actual open
+// length (see CORRIDOR_Z_NEAR/FAR etc. below) stays exactly what it was
+// before the rooms doubled in size, instead of shrinking as the bigger
+// rooms eat into the gap.
+const ROOM2_POS = { x: 60, z: -160 }; // a second, identical room, corridor length unchanged from before the resize
+const ROOM3_POS = { x: 60, z: -220 }; // a third, identical room, corridor length unchanged from before the resize
+const ROOM4_POS = { x: ROOM3_POS.x + 60, z: ROOM3_POS.z }; // a fourth room, off the main line — corridor length unchanged from before the resize
+const ROOM5_POS = { x: ROOM4_POS.x, z: ROOM4_POS.z - 60 }; // a fifth room, branching again — corridor length unchanged from before the resize
 const ROOM_POSITIONS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS];
 const ROOM_SEG_WIDTH = (ROOM_SIZE - ROOM_DOOR_WIDTH) / 2;
 const ROOM_SEG_OFFSET = ROOM_DOOR_WIDTH / 2 + ROOM_SEG_WIDTH / 2;
