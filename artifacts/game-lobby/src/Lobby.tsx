@@ -2319,7 +2319,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const crateMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.7, metalness: 0.3 });
     const crateEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
     const crateAccentMat = new THREE.MeshStandardMaterial({ color: 0xd8402c, emissive: 0xd8402c, emissiveIntensity: 0.5, roughness: 0.5 });
-    const grateMat = new THREE.MeshStandardMaterial({ map: createGrateTexture(), roughness: 0.5, metalness: 0.5 });
     const hazardMat = new THREE.MeshStandardMaterial({ map: createHazardStripeTexture(), roughness: 0.8 });
     const screenMat = new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6be2ff, emissiveIntensity: 0.9, roughness: 0.3 });
     const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x232a32, roughness: 0.6, metalness: 0.35, side: THREE.DoubleSide });
@@ -2370,11 +2369,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addCrate(pos.x + 2.75, pos.z - 2, 1, 2, 1.5, -0.4);
       addCrate(pos.x + 2, pos.z + 2.75, 1, 2, 1.5, 0.8);
 
-      // A recessed vent grate flush with the floor in the room's center.
-      const grate = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), grateMat);
-      grate.rotation.x = -Math.PI / 2;
-      grate.position.set(pos.x, 0.02, pos.z);
-      scene.add(grate);
+      // No floor decal at the room's exact center anymore — that's now the
+      // tunnel-hole's spot (see addFloorHole), and a separate decal there
+      // z-fought with it, reading as a flickering, jagged edge.
 
       // Hazard-stripe floor decal at the entrance threshold.
       const hazard = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_DOOR_WIDTH, 2), hazardMat);
@@ -2417,22 +2414,43 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // per-step physics behind it.
     const holeMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
     const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3, side: THREE.DoubleSide });
+    const holeShaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.9, side: THREE.DoubleSide });
     const HOLE_HALF_SIZE = 1.4; // square, not round — half-extent, so 2.8 units per side
+    const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
     function addFloorHole(x: number, y: number, z: number) {
       const rim = new THREE.Mesh(new THREE.PlaneGeometry(HOLE_HALF_SIZE * 2, HOLE_HALF_SIZE * 2), holeRimMat);
       rim.rotation.x = -Math.PI / 2;
       rim.position.set(x, y + 0.015, z);
       scene.add(rim);
-      const hole = new THREE.Mesh(new THREE.PlaneGeometry(HOLE_HALF_SIZE * 2 - 0.4, HOLE_HALF_SIZE * 2 - 0.4), holeMat);
+      const hole = new THREE.Mesh(new THREE.PlaneGeometry(HOLE_INNER_SIZE, HOLE_INNER_SIZE), holeMat);
       hole.rotation.x = -Math.PI / 2;
       hole.position.set(x, y + 0.02, z);
       scene.add(hole);
     }
-    // One hole down through each house's own center, and its matching
-    // hole up at that same spot underground (in the ceiling there).
+    // The actual shaft between a house's floor and the tunnel ceiling
+    // below it — four dark wall panels around the hole's inner square, so
+    // looking into it reads as a real opening with depth instead of a
+    // flat painted decal.
+    function addHoleShaft(x: number, z: number, topY: number, bottomY: number) {
+      const height = topY - bottomY;
+      const midY = (topY + bottomY) / 2;
+      const addWall = (ox: number, oz: number, w: number, d: number) => {
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(w, height, d), holeShaftMat);
+        wall.position.set(x + ox, midY, z + oz);
+        scene.add(wall);
+      };
+      addWall(-HOLE_INNER_SIZE / 2, 0, 0.05, HOLE_INNER_SIZE);
+      addWall(HOLE_INNER_SIZE / 2, 0, 0.05, HOLE_INNER_SIZE);
+      addWall(0, -HOLE_INNER_SIZE / 2, HOLE_INNER_SIZE, 0.05);
+      addWall(0, HOLE_INNER_SIZE / 2, HOLE_INNER_SIZE, 0.05);
+    }
+    // One hole down through each house's own center, its matching hole up
+    // at that same spot underground (in the ceiling there), and the real
+    // shaft connecting the two.
     for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
       addFloorHole(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z);
       addFloorHole(TUNNEL_STOPS[i].x, TUNNEL_Y + TUNNEL_WALL_HEIGHT, TUNNEL_STOPS[i].z);
+      addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, TUNNEL_Y + TUNNEL_WALL_HEIGHT);
     }
 
     // The tunnel itself — every wall in the level, mirrored at TUNNEL_Y
