@@ -1885,31 +1885,35 @@ function moveWithAvoidance(
   }
 }
 
-const DEATH_FALL_DURATION = 0.6;
-const DEATH_FADE_DELAY = 0.3;
+// "DeathFromBackHeadshot" is a real mocap collapse clip (retargeted from
+// Mixamo, same skeleton, grafted into the glb) — its length here must
+// match the merged clip's actual duration (see the merge that grafted it
+// in). Root motion (the stagger/fall itself) is baked into the Hips
+// bone's own keyframes, so playing the clip is enough; nothing needs to
+// drive rig.root's transform by hand anymore.
+const DEATH_ANIM_DURATION = 3.7;
+const DEATH_FADE_DELAY = 2.7;
 const DEATH_FADE_DURATION = 1.0;
-const DEATH_TOTAL_DURATION = DEATH_FALL_DURATION + DEATH_FADE_DURATION;
-// A full -90° tip rotates the whole body around the feet like a rigid
-// plank hinged at the ankles — the chest and head swing through a huge
-// arc, which read as a broken/glitchy pose. A much shallower stagger,
-// combined with sinking down (selling a knee-buckle collapse instead of
-// a stiff topple) and a slight asymmetric side lean (so it isn't a
-// perfectly symmetric fall), reads as a knockback stumble instead —
-// closer to how other third-person shooters sell a death without an
-// actual ragdoll or death animation clip.
-const DEATH_TILT_ANGLE = 0.62; // radians, ~35°
-const DEATH_SIDE_TILT = 0.22; // radians, ~13°
-const DEATH_SINK_DEPTH = 0.35; // world units
+const DEATH_TOTAL_DURATION = DEATH_ANIM_DURATION;
 
-// Staggers a defeated fighter into a knockback collapse and fades it out —
-// there's no death clip either, so this drives the root transform and
-// each mesh's material opacity directly instead.
+// Starts a defeated fighter's real death animation — cuts idle/run/fire
+// to silence (a terminal pose doesn't need to keep blending against
+// them) and plays the mocap collapse once, holding its last frame.
+function startDeath(rig: FighterRig) {
+  rig.idleAction?.setEffectiveWeight(0);
+  rig.runAction?.setEffectiveWeight(0);
+  rig.fireAction?.setEffectiveWeight(0);
+  if (rig.deathAction) {
+    rig.deathAction.reset();
+    rig.deathAction.setEffectiveWeight(1);
+    rig.deathAction.play();
+  }
+}
+
+// Fades a defeated fighter out once the death animation has had time to
+// land — the clip itself doesn't disappear the body, so this still
+// drives material opacity by hand.
 function applyDeathPose(rig: FighterRig, t: number) {
-  const fallP = clamp(t / DEATH_FALL_DURATION, 0, 1);
-  const eased = fallP * fallP * (3 - 2 * fallP); // smoothstep
-  rig.root.rotation.x = -eased * DEATH_TILT_ANGLE;
-  rig.root.rotation.z = eased * DEATH_SIDE_TILT;
-  rig.root.position.y = -eased * DEATH_SINK_DEPTH;
   const fadeP = clamp((t - DEATH_FADE_DELAY) / DEATH_FADE_DURATION, 0, 1);
   for (const mat of rig.materials) {
     mat.transparent = true;
@@ -1949,6 +1953,10 @@ interface FighterRig {
   // (see the fire trigger sites in the tick loop), crossfaded against
   // idle/run every tick afterward while it plays out (see applyFirePose).
   fireAction: THREE.AnimationAction | null;
+  // The real "DeathFromBackHeadshot" mocap clip — reset and (re)started
+  // once a fighter's HP hits zero (see startDeath), then just left to
+  // play out and hold its last frame (LoopOnce + clampWhenFinished).
+  deathAction: THREE.AnimationAction | null;
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
@@ -2034,6 +2042,7 @@ function loadFighter(
       let idleAction: THREE.AnimationAction | null = null;
       let runAction: THREE.AnimationAction | null = null;
       let fireAction: THREE.AnimationAction | null = null;
+      let deathAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
         // "RifleIdle" is a real two-handed rifle-holding mocap clip
@@ -2067,9 +2076,20 @@ function loadFighter(
           fireAction.play();
           fireAction.setEffectiveWeight(0);
         }
+        // "DeathFromBackHeadshot" — a real mocap collapse, played once on
+        // death (LoopOnce + clampWhenFinished) and left holding its last
+        // frame (see startDeath).
+        const deathClip = gltf.animations.find((c) => c.name === "DeathFromBackHeadshot");
+        if (deathClip) {
+          deathAction = mixer.clipAction(deathClip);
+          deathAction.setLoop(THREE.LoopOnce, 1);
+          deathAction.clampWhenFinished = true;
+          deathAction.play();
+          deathAction.setEffectiveWeight(0);
+        }
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, fireAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
+      onLoaded({ root, mixer, idleAction, runAction, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -2643,13 +2663,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       if (st.hp <= 0) {
         st.dead = true;
         st.deathT = 0;
+        const rig = [bot1, bot2, bot3, bot4, bot5, boss][idx];
+        if (rig) startDeath(rig);
         if (botStates.every((s) => s.dead)) {
           ended = true;
           pendingResult = "win";
         }
       }
     };
-
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const dt = Math.min(clock.getDelta(), 0.05);
@@ -2662,14 +2683,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       boss?.mixer?.update(dt);
       // Re-bend the off-hand toward the gun's foregrip after the mixer has
       // (re)applied this frame's idle/run/fire pose — see
-      // updateOffHandReach.
-      if (player) updateOffHandReach(player);
-      if (bot1) updateOffHandReach(bot1);
-      if (bot2) updateOffHandReach(bot2);
-      if (bot3) updateOffHandReach(bot3);
-      if (bot4) updateOffHandReach(bot4);
-      if (bot5) updateOffHandReach(bot5);
-      if (boss) updateOffHandReach(boss);
+      // updateOffHandReach. Skipped once a fighter is dead: the death clip
+      // already drives the arm bones for the collapse, and re-bending the
+      // off-hand onto the gun every frame would fight that pose (and just
+      // looks wrong — a dropped body shouldn't still be gripping the gun).
+      if (player && playerDeathT < 0) updateOffHandReach(player);
+      if (bot1 && botStates[0].deathT < 0) updateOffHandReach(bot1);
+      if (bot2 && botStates[1].deathT < 0) updateOffHandReach(bot2);
+      if (bot3 && botStates[2].deathT < 0) updateOffHandReach(bot3);
+      if (bot4 && botStates[3].deathT < 0) updateOffHandReach(bot4);
+      if (bot5 && botStates[4].deathT < 0) updateOffHandReach(bot5);
+      if (boss && botStates[5].deathT < 0) updateOffHandReach(boss);
       updateTracers(tracers, dt);
 
       const rigs = [bot1, bot2, bot3, bot4, bot5, boss];
@@ -2979,6 +3003,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         if (playerHpLocal <= 0) {
           ended = true;
           playerDeathT = 0;
+          startDeath(player);
           pendingResult = "lose";
         }
       }
