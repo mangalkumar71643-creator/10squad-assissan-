@@ -1388,40 +1388,52 @@ const EXTRA_CRATES: Obstacle[] = [
   { x: ROOM6_POS.x, z: ROOM6_POS.z + 10, halfX: 1, halfZ: 1, pad: ROOM_PAD }, // room6
 ];
 
-// A basement beneath Room 1, reached by a staircase inside it — placed at
-// its own spot well south of spawn (in otherwise-empty arena) rather than
-// literally underneath Room 1's world position, since stacking it there
-// would collide with Room 1's own floor. The "underground" feel comes
-// from a lower Y (see BASEMENT_Y) plus its own fully-enclosed walls/
-// ceiling; getting there is a same-scene position+Y jump triggered by
-// proximity to the stairs (see the tick loop), the same way every other
-// room-to-room transition here already works via a door gap, just
-// without a physical corridor joining the two spots.
-const BASEMENT_SIZE = 10; // matches ROOM_SIZE — same chase-camera clearance as every other room
-const BASEMENT_WALL_HEIGHT = 2.2;
-const BASEMENT_Y = -3.5;
-const BASEMENT_POS = { x: ROOM_POS.x, z: 150 };
-// Inside Room 1, near the west-south corner — clear of its crates (at
-// roughly x-2.5/z-2.5, x+2.75/z-2, x+2/z+2.75) and both door gaps.
-const STAIRS_DOWN_POS = { x: ROOM_POS.x - 3, z: ROOM_POS.z + 3 };
+// An underground tunnel joining every house — a real, continuously
+// walkable corridor at a lower Y (see TUNNEL_Y), placed in its own
+// stretch of otherwise-empty arena well south of spawn rather than
+// literally beneath the real rooms/corridors, since the obstacle system
+// only checks X/Z (see resolveObstacleCollisions) and stacking it at the
+// same X/Z would collide with them despite being at a different height.
+// A staircase inside each house drops the player onto that house's own
+// stop along the tunnel (a same-scene position+Y jump — see the tick
+// loop); from there the tunnel itself is walked normally to reach any
+// other house's stop and climb back up there instead.
+const TUNNEL_Y = -3.5;
+const TUNNEL_WALL_HEIGHT = 2.2;
+const TUNNEL_WIDTH = 3;
+const TUNNEL_X = 60;
+const TUNNEL_Z_START = 100;
+const TUNNEL_STOP_SPACING = 20;
 const STAIRS_TRIGGER_RADIUS = 1.1;
+// One entry per house, same order the tunnel stops run in. Rooms 1-5
+// share the same interior layout (crates in the same relative spots), so
+// the same west-south corner is clear in all of them; Room 6 is much
+// bigger with crates elsewhere, so it gets its own clear spot.
+const ROOM_STAIRS_DOWN_POS = [
+  { x: ROOM_POS.x - 3, z: ROOM_POS.z + 3 },
+  { x: ROOM2_POS.x - 3, z: ROOM2_POS.z + 3 },
+  { x: ROOM3_POS.x - 3, z: ROOM3_POS.z + 3 },
+  { x: ROOM4_POS.x - 3, z: ROOM4_POS.z + 3 },
+  { x: ROOM5_POS.x - 3, z: ROOM5_POS.z + 3 },
+  { x: ROOM6_POS.x - 17, z: ROOM6_POS.z - 13 },
+];
+const TUNNEL_STOPS = ROOM_STAIRS_DOWN_POS.map((_, i) => ({ x: TUNNEL_X, z: TUNNEL_Z_START + i * TUNNEL_STOP_SPACING }));
 // Where the player actually lands on each side — offset from the visible
 // staircase prop so climbing back up doesn't immediately re-trigger going
-// back down (see the tick loop's cooldown-free hysteresis).
-const BASEMENT_ENTRY_POS = { x: BASEMENT_POS.x, z: BASEMENT_POS.z };
-const STAIRS_UP_POS = { x: BASEMENT_POS.x - 2.5, z: BASEMENT_POS.z - 2.5 };
-const GROUND_REENTRY_POS = { x: STAIRS_DOWN_POS.x, z: STAIRS_DOWN_POS.z - 1.6 };
-const BASEMENT_WALLS: Obstacle[] = [
-  { x: BASEMENT_POS.x, z: BASEMENT_POS.z - BASEMENT_SIZE / 2, halfX: BASEMENT_SIZE / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD },
-  { x: BASEMENT_POS.x, z: BASEMENT_POS.z + BASEMENT_SIZE / 2, halfX: BASEMENT_SIZE / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD },
-  { x: BASEMENT_POS.x - BASEMENT_SIZE / 2, z: BASEMENT_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: BASEMENT_SIZE / 2, pad: ROOM_PAD },
-  { x: BASEMENT_POS.x + BASEMENT_SIZE / 2, z: BASEMENT_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: BASEMENT_SIZE / 2, pad: ROOM_PAD },
+// back down (same cooldown-free hysteresis on every pair).
+const ROOM_REENTRY_POS = ROOM_STAIRS_DOWN_POS.map((p) => ({ x: p.x, z: p.z - 1.6 }));
+const TUNNEL_REENTRY_POS = TUNNEL_STOPS.map((p) => ({ x: p.x, z: p.z + 1.6 }));
+const TUNNEL_Z_MIN = TUNNEL_Z_START - 5;
+const TUNNEL_Z_MAX = TUNNEL_STOPS[TUNNEL_STOPS.length - 1].z + 5;
+const TUNNEL_WALLS: Obstacle[] = [
+  { x: TUNNEL_X - TUNNEL_WIDTH / 2, z: (TUNNEL_Z_MIN + TUNNEL_Z_MAX) / 2, halfX: ROOM_WALL_THICKNESS / 2, halfZ: (TUNNEL_Z_MAX - TUNNEL_Z_MIN) / 2, pad: ROOM_PAD },
+  { x: TUNNEL_X + TUNNEL_WIDTH / 2, z: (TUNNEL_Z_MIN + TUNNEL_Z_MAX) / 2, halfX: ROOM_WALL_THICKNESS / 2, halfZ: (TUNNEL_Z_MAX - TUNNEL_Z_MIN) / 2, pad: ROOM_PAD },
 ];
 
 const OBSTACLES: Obstacle[] = [
   ...ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]),
   ...MIDROOM_WALLS,
-  ...BASEMENT_WALLS,
+  ...TUNNEL_WALLS,
   ...CORRIDOR_WALLS,
   ...CORRIDOR2_WALLS,
   ...CORRIDOR3_WALLS,
@@ -2398,36 +2410,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       buildRoom(pos);
     }
 
-    // A second story built on top of Room 1 only — a smaller inset box
-    // sitting right on the ground floor's roof with its own cap, purely
-    // decorative (no interior space, no collision) so the outpost reads
-    // as an actual two-story house from outside rather than a single-
-    // story room.
-    const upperMat = new THREE.MeshStandardMaterial({ color: 0x323c48, roughness: 0.5, metalness: 0.4 });
-    const upperRoofMat = new THREE.MeshStandardMaterial({ color: 0x1c2229, roughness: 0.6, metalness: 0.3 });
-    const upperWindowMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.1, roughness: 0.3 });
-    const UPPER_SIZE = ROOM_SIZE * 0.75;
-    const UPPER_HEIGHT = 2;
-    const upperBaseY = ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS; // right on top of Room 1's ceiling slab
-    const upperWalls = new THREE.Mesh(new THREE.BoxGeometry(UPPER_SIZE, UPPER_HEIGHT, UPPER_SIZE), upperMat);
-    upperWalls.position.set(ROOM_POS.x, upperBaseY + UPPER_HEIGHT / 2, ROOM_POS.z);
-    scene.add(upperWalls);
-    upperWalls.add(new THREE.LineSegments(new THREE.EdgesGeometry(upperWalls.geometry), roomEdgeMat));
-    const upperRoof = new THREE.Mesh(new THREE.BoxGeometry(UPPER_SIZE + 0.6, 0.3, UPPER_SIZE + 0.6), upperRoofMat);
-    upperRoof.position.set(ROOM_POS.x, upperBaseY + UPPER_HEIGHT + 0.15, ROOM_POS.z);
-    scene.add(upperRoof);
-    upperRoof.add(new THREE.LineSegments(new THREE.EdgesGeometry(upperRoof.geometry), roomEdgeMat));
-    const addUpperWindow = (x: number, z: number, sizeX: number, sizeZ: number) => {
-      const win = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.7, sizeZ), upperWindowMat);
-      win.position.set(x, upperBaseY + UPPER_HEIGHT / 2, z);
-      scene.add(win);
-    };
-    addUpperWindow(ROOM_POS.x - UPPER_SIZE / 2 - 0.03, ROOM_POS.z - 1.5, 0.06, 1.4);
-    addUpperWindow(ROOM_POS.x - UPPER_SIZE / 2 - 0.03, ROOM_POS.z + 1.5, 0.06, 1.4);
-    addUpperWindow(ROOM_POS.x + UPPER_SIZE / 2 + 0.03, ROOM_POS.z, 0.06, 1.4);
-
     // A simple stacked-box staircase — purely a visual prop marking each
-    // end of the basement transition (see STAIRS_DOWN_POS/STAIRS_UP_POS
+    // end of a tunnel transition (see ROOM_STAIRS_DOWN_POS/TUNNEL_STOPS
     // and the tick loop's proximity check); the actual floor change is a
     // position+Y jump, not real per-step physics, so these don't need
     // walkable collision of their own.
@@ -2450,33 +2434,43 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       group.rotation.y = rotY;
       scene.add(group);
     }
-    addStaircase(STAIRS_DOWN_POS.x, 0, STAIRS_DOWN_POS.z, Math.PI); // Room 1 — descends toward the room's south wall
-    addStaircase(STAIRS_UP_POS.x, BASEMENT_Y, STAIRS_UP_POS.z, 0); // basement — ascends toward its north wall
+    // One staircase down inside each house, and its matching staircase
+    // back up at that house's stop along the tunnel.
+    for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
+      addStaircase(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z, Math.PI);
+      addStaircase(TUNNEL_STOPS[i].x, TUNNEL_Y, TUNNEL_STOPS[i].z, 0);
+    }
 
-    // The basement itself — fully sealed (no door gaps; it's only ever
-    // reached via the stairs teleport, never walked into) at its own
-    // spot away from everything else (see BASEMENT_POS) and a lower Y
-    // for the underground feel.
-    const basementFloor = new THREE.Mesh(
-      new THREE.PlaneGeometry(BASEMENT_SIZE, BASEMENT_SIZE),
+    // The tunnel itself — one continuous sealed corridor (no door gaps;
+    // only ever entered via a stairs teleport) running the length of
+    // every stop, at its own spot away from everything else (see
+    // TUNNEL_X/TUNNEL_Z_START) and a lower Y for the underground feel.
+    const tunnelLength = TUNNEL_Z_MAX - TUNNEL_Z_MIN;
+    const tunnelCenterZ = (TUNNEL_Z_MIN + TUNNEL_Z_MAX) / 2;
+    const tunnelFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(TUNNEL_WIDTH, tunnelLength),
       new THREE.MeshStandardMaterial({ map: createFloorTexture(2, renderer.capabilities.getMaxAnisotropy()), roughness: 0.7, metalness: 0.25 }),
     );
-    basementFloor.rotation.x = -Math.PI / 2;
-    basementFloor.position.set(BASEMENT_POS.x, BASEMENT_Y, BASEMENT_POS.z);
-    scene.add(basementFloor);
-    for (const ob of BASEMENT_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, BASEMENT_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, BASEMENT_Y + BASEMENT_WALL_HEIGHT / 2, ob.z);
+    tunnelFloor.rotation.x = -Math.PI / 2;
+    tunnelFloor.position.set(TUNNEL_X, TUNNEL_Y, tunnelCenterZ);
+    scene.add(tunnelFloor);
+    for (const ob of TUNNEL_WALLS) {
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, TUNNEL_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
+      wallMesh.position.set(ob.x, TUNNEL_Y + TUNNEL_WALL_HEIGHT / 2, ob.z);
       scene.add(wallMesh);
       wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
     }
-    const basementCeiling = new THREE.Mesh(new THREE.BoxGeometry(BASEMENT_SIZE, ROOM_WALL_THICKNESS, BASEMENT_SIZE), ceilingMat);
-    basementCeiling.position.set(BASEMENT_POS.x, BASEMENT_Y + BASEMENT_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, BASEMENT_POS.z);
-    scene.add(basementCeiling);
-    basementCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(basementCeiling.geometry), roomEdgeMat));
-    const basementStrip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
-    basementStrip.position.set(BASEMENT_POS.x, BASEMENT_Y + BASEMENT_WALL_HEIGHT - 0.06, BASEMENT_POS.z);
-    scene.add(basementStrip);
+    const tunnelCeiling = new THREE.Mesh(new THREE.BoxGeometry(TUNNEL_WIDTH, ROOM_WALL_THICKNESS, tunnelLength), ceilingMat);
+    tunnelCeiling.position.set(TUNNEL_X, TUNNEL_Y + TUNNEL_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, tunnelCenterZ);
+    scene.add(tunnelCeiling);
+    tunnelCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(tunnelCeiling.geometry), roomEdgeMat));
+    // A light strip over each stop, so the tunnel doesn't read as one
+    // featureless dark corridor.
+    for (const stop of TUNNEL_STOPS) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(TUNNEL_WIDTH - 0.4, 0.08, 0.3), lightStripMat);
+      strip.position.set(TUNNEL_X, TUNNEL_Y + TUNNEL_WALL_HEIGHT - 0.06, stop.z);
+      scene.add(strip);
+    }
 
     // Covered corridor joining the two rooms' facing doors — same wall/
     // ceiling materials as the rooms so it reads as one connected structure.
@@ -2975,15 +2969,33 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         player.root.position.z = clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         resolveObstacleCollisions(player.root.position);
 
-        // Room 1's basement stairs — walking onto either end's trigger
-        // jumps the player to the other floor (position + Y), landing a
-        // step off that side's own trigger so immediately climbing back
-        // doesn't instantly bounce them back again (see GROUND_REENTRY_POS/
-        // BASEMENT_ENTRY_POS).
-        if (Math.hypot(player.root.position.x - STAIRS_DOWN_POS.x, player.root.position.z - STAIRS_DOWN_POS.z) < STAIRS_TRIGGER_RADIUS) {
-          player.root.position.set(BASEMENT_ENTRY_POS.x, BASEMENT_Y, BASEMENT_ENTRY_POS.z);
-        } else if (Math.hypot(player.root.position.x - STAIRS_UP_POS.x, player.root.position.z - STAIRS_UP_POS.z) < STAIRS_TRIGGER_RADIUS) {
-          player.root.position.set(GROUND_REENTRY_POS.x, 0, GROUND_REENTRY_POS.z);
+        // Each house's stairs down to the underground tunnel, and each
+        // tunnel stop's stairs back up to its house — walking onto either
+        // end's trigger jumps the player to the other side (position +
+        // Y), landing a step off that side's own trigger so immediately
+        // climbing back doesn't instantly bounce them back again (see
+        // ROOM_REENTRY_POS/TUNNEL_REENTRY_POS). Facing is also set
+        // explicitly on both sides — not just left as whatever it was
+        // walking in — since the landing spot is only actually clear of
+        // its own trigger in the direction that facing then points
+        // "forward" in: south (deeper into the tunnel, toward the next
+        // stop) after going down, north ("into" the house, matching every
+        // other room's entrance) after coming back up.
+        for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
+          const down = ROOM_STAIRS_DOWN_POS[i];
+          const stop = TUNNEL_STOPS[i];
+          if (Math.hypot(player.root.position.x - down.x, player.root.position.z - down.z) < STAIRS_TRIGGER_RADIUS) {
+            player.root.position.set(TUNNEL_REENTRY_POS[i].x, TUNNEL_Y, TUNNEL_REENTRY_POS[i].z);
+            player.root.rotation.y = 0;
+            cameraYaw.current = 0; // movement/free-look yaw — joystick-forward now heads south, deeper into the tunnel
+            break;
+          }
+          if (Math.hypot(player.root.position.x - stop.x, player.root.position.z - stop.z) < STAIRS_TRIGGER_RADIUS) {
+            player.root.position.set(ROOM_REENTRY_POS[i].x, 0, ROOM_REENTRY_POS[i].z);
+            player.root.rotation.y = Math.PI;
+            cameraYaw.current = Math.PI; // joystick-forward now heads north, further into the house
+            break;
+          }
         }
 
         // Slide each gate open as the player nears its door, closed again
