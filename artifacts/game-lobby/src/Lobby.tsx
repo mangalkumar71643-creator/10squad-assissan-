@@ -2409,40 +2409,29 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       buildRoom(pos);
     }
 
-    // A simple stacked-box staircase — purely a visual prop marking each
-    // end of a tunnel transition (see ROOM_STAIRS_DOWN_POS/TUNNEL_STOPS
-    // and the tick loop's proximity check); the actual floor change is a
-    // position+Y jump, not real per-step physics, so these don't need
-    // walkable collision of their own.
-    const stairMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.6, metalness: 0.35 });
-    const stairEdgeMat = new THREE.LineBasicMaterial({ color: 0xff9a4a });
-    function addStaircase(x: number, y: number, z: number, rotY: number) {
-      const steps = 7;
-      const stepHeight = 0.4;
-      const stepDepth = 0.5;
-      const stepWidth = 1.8;
-      const group = new THREE.Group();
-      for (let i = 0; i < steps; i++) {
-        const h = stepHeight * (i + 1);
-        const step = new THREE.Mesh(new THREE.BoxGeometry(stepWidth, h, stepDepth), stairMat);
-        step.position.set(0, h / 2, -stepDepth * (i + 0.5));
-        step.add(new THREE.LineSegments(new THREE.EdgesGeometry(step.geometry), stairEdgeMat));
-        group.add(step);
-      }
-      group.position.set(x, y, z);
-      group.rotation.y = rotY;
-      scene.add(group);
+    // A plain hole in the floor marking each end of a tunnel transition
+    // (see ROOM_STAIRS_DOWN_POS/TUNNEL_STOPS and the tick loop's
+    // proximity check) — a dark opening with a glowing rim to read as
+    // "drop through here", instead of a full staircase prop that was
+    // oversized for what's actually just a position+Y jump with no real
+    // per-step physics behind it.
+    const holeMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
+    const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3, side: THREE.DoubleSide });
+    function addFloorHole(x: number, y: number, z: number) {
+      const hole = new THREE.Mesh(new THREE.CircleGeometry(1.2, 24), holeMat);
+      hole.rotation.x = -Math.PI / 2;
+      hole.position.set(x, y + 0.015, z);
+      scene.add(hole);
+      const rim = new THREE.Mesh(new THREE.RingGeometry(1.2, 1.4, 24), holeRimMat);
+      rim.rotation.x = -Math.PI / 2;
+      rim.position.set(x, y + 0.02, z);
+      scene.add(rim);
     }
-    // One staircase down through each house's own center, and its
-    // matching staircase back up at that same spot underground — rotated
-    // to face along that house's actual tunnel connection (see
-    // ROOM_TUNNEL_DIR) so it visually reads as leading somewhere, not
-    // just an arbitrary prop.
+    // One hole down through each house's own center, and its matching
+    // hole up at that same spot underground (in the ceiling there).
     for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
-      const dir = ROOM_TUNNEL_DIR[i];
-      const dirYaw = Math.atan2(dir.x, dir.z);
-      addStaircase(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z, dirYaw + Math.PI);
-      addStaircase(TUNNEL_STOPS[i].x, TUNNEL_Y, TUNNEL_STOPS[i].z, dirYaw);
+      addFloorHole(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z);
+      addFloorHole(TUNNEL_STOPS[i].x, TUNNEL_Y + TUNNEL_WALL_HEIGHT, TUNNEL_STOPS[i].z);
     }
 
     // The tunnel itself — every wall in the level, mirrored at TUNNEL_Y
