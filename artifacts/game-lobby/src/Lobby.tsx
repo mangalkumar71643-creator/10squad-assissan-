@@ -1388,9 +1388,40 @@ const EXTRA_CRATES: Obstacle[] = [
   { x: ROOM6_POS.x, z: ROOM6_POS.z + 10, halfX: 1, halfZ: 1, pad: ROOM_PAD }, // room6
 ];
 
+// A basement beneath Room 1, reached by a staircase inside it — placed at
+// its own spot well south of spawn (in otherwise-empty arena) rather than
+// literally underneath Room 1's world position, since stacking it there
+// would collide with Room 1's own floor. The "underground" feel comes
+// from a lower Y (see BASEMENT_Y) plus its own fully-enclosed walls/
+// ceiling; getting there is a same-scene position+Y jump triggered by
+// proximity to the stairs (see the tick loop), the same way every other
+// room-to-room transition here already works via a door gap, just
+// without a physical corridor joining the two spots.
+const BASEMENT_SIZE = 10; // matches ROOM_SIZE — same chase-camera clearance as every other room
+const BASEMENT_WALL_HEIGHT = 2.2;
+const BASEMENT_Y = -3.5;
+const BASEMENT_POS = { x: ROOM_POS.x, z: 150 };
+// Inside Room 1, near the west-south corner — clear of its crates (at
+// roughly x-2.5/z-2.5, x+2.75/z-2, x+2/z+2.75) and both door gaps.
+const STAIRS_DOWN_POS = { x: ROOM_POS.x - 3, z: ROOM_POS.z + 3 };
+const STAIRS_TRIGGER_RADIUS = 1.1;
+// Where the player actually lands on each side — offset from the visible
+// staircase prop so climbing back up doesn't immediately re-trigger going
+// back down (see the tick loop's cooldown-free hysteresis).
+const BASEMENT_ENTRY_POS = { x: BASEMENT_POS.x, z: BASEMENT_POS.z };
+const STAIRS_UP_POS = { x: BASEMENT_POS.x - 2.5, z: BASEMENT_POS.z - 2.5 };
+const GROUND_REENTRY_POS = { x: STAIRS_DOWN_POS.x, z: STAIRS_DOWN_POS.z - 1.6 };
+const BASEMENT_WALLS: Obstacle[] = [
+  { x: BASEMENT_POS.x, z: BASEMENT_POS.z - BASEMENT_SIZE / 2, halfX: BASEMENT_SIZE / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD },
+  { x: BASEMENT_POS.x, z: BASEMENT_POS.z + BASEMENT_SIZE / 2, halfX: BASEMENT_SIZE / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD },
+  { x: BASEMENT_POS.x - BASEMENT_SIZE / 2, z: BASEMENT_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: BASEMENT_SIZE / 2, pad: ROOM_PAD },
+  { x: BASEMENT_POS.x + BASEMENT_SIZE / 2, z: BASEMENT_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: BASEMENT_SIZE / 2, pad: ROOM_PAD },
+];
+
 const OBSTACLES: Obstacle[] = [
   ...ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]),
   ...MIDROOM_WALLS,
+  ...BASEMENT_WALLS,
   ...CORRIDOR_WALLS,
   ...CORRIDOR2_WALLS,
   ...CORRIDOR3_WALLS,
@@ -2367,6 +2398,86 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       buildRoom(pos);
     }
 
+    // A second story built on top of Room 1 only — a smaller inset box
+    // sitting right on the ground floor's roof with its own cap, purely
+    // decorative (no interior space, no collision) so the outpost reads
+    // as an actual two-story house from outside rather than a single-
+    // story room.
+    const upperMat = new THREE.MeshStandardMaterial({ color: 0x323c48, roughness: 0.5, metalness: 0.4 });
+    const upperRoofMat = new THREE.MeshStandardMaterial({ color: 0x1c2229, roughness: 0.6, metalness: 0.3 });
+    const upperWindowMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.1, roughness: 0.3 });
+    const UPPER_SIZE = ROOM_SIZE * 0.75;
+    const UPPER_HEIGHT = 2;
+    const upperBaseY = ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS; // right on top of Room 1's ceiling slab
+    const upperWalls = new THREE.Mesh(new THREE.BoxGeometry(UPPER_SIZE, UPPER_HEIGHT, UPPER_SIZE), upperMat);
+    upperWalls.position.set(ROOM_POS.x, upperBaseY + UPPER_HEIGHT / 2, ROOM_POS.z);
+    scene.add(upperWalls);
+    upperWalls.add(new THREE.LineSegments(new THREE.EdgesGeometry(upperWalls.geometry), roomEdgeMat));
+    const upperRoof = new THREE.Mesh(new THREE.BoxGeometry(UPPER_SIZE + 0.6, 0.3, UPPER_SIZE + 0.6), upperRoofMat);
+    upperRoof.position.set(ROOM_POS.x, upperBaseY + UPPER_HEIGHT + 0.15, ROOM_POS.z);
+    scene.add(upperRoof);
+    upperRoof.add(new THREE.LineSegments(new THREE.EdgesGeometry(upperRoof.geometry), roomEdgeMat));
+    const addUpperWindow = (x: number, z: number, sizeX: number, sizeZ: number) => {
+      const win = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.7, sizeZ), upperWindowMat);
+      win.position.set(x, upperBaseY + UPPER_HEIGHT / 2, z);
+      scene.add(win);
+    };
+    addUpperWindow(ROOM_POS.x - UPPER_SIZE / 2 - 0.03, ROOM_POS.z - 1.5, 0.06, 1.4);
+    addUpperWindow(ROOM_POS.x - UPPER_SIZE / 2 - 0.03, ROOM_POS.z + 1.5, 0.06, 1.4);
+    addUpperWindow(ROOM_POS.x + UPPER_SIZE / 2 + 0.03, ROOM_POS.z, 0.06, 1.4);
+
+    // A simple stacked-box staircase — purely a visual prop marking each
+    // end of the basement transition (see STAIRS_DOWN_POS/STAIRS_UP_POS
+    // and the tick loop's proximity check); the actual floor change is a
+    // position+Y jump, not real per-step physics, so these don't need
+    // walkable collision of their own.
+    const stairMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.6, metalness: 0.35 });
+    const stairEdgeMat = new THREE.LineBasicMaterial({ color: 0xff9a4a });
+    function addStaircase(x: number, y: number, z: number, rotY: number) {
+      const steps = 7;
+      const stepHeight = 0.4;
+      const stepDepth = 0.5;
+      const stepWidth = 1.8;
+      const group = new THREE.Group();
+      for (let i = 0; i < steps; i++) {
+        const h = stepHeight * (i + 1);
+        const step = new THREE.Mesh(new THREE.BoxGeometry(stepWidth, h, stepDepth), stairMat);
+        step.position.set(0, h / 2, -stepDepth * (i + 0.5));
+        step.add(new THREE.LineSegments(new THREE.EdgesGeometry(step.geometry), stairEdgeMat));
+        group.add(step);
+      }
+      group.position.set(x, y, z);
+      group.rotation.y = rotY;
+      scene.add(group);
+    }
+    addStaircase(STAIRS_DOWN_POS.x, 0, STAIRS_DOWN_POS.z, Math.PI); // Room 1 — descends toward the room's south wall
+    addStaircase(STAIRS_UP_POS.x, BASEMENT_Y, STAIRS_UP_POS.z, 0); // basement — ascends toward its north wall
+
+    // The basement itself — fully sealed (no door gaps; it's only ever
+    // reached via the stairs teleport, never walked into) at its own
+    // spot away from everything else (see BASEMENT_POS) and a lower Y
+    // for the underground feel.
+    const basementFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(BASEMENT_SIZE, BASEMENT_SIZE),
+      new THREE.MeshStandardMaterial({ map: createFloorTexture(2, renderer.capabilities.getMaxAnisotropy()), roughness: 0.7, metalness: 0.25 }),
+    );
+    basementFloor.rotation.x = -Math.PI / 2;
+    basementFloor.position.set(BASEMENT_POS.x, BASEMENT_Y, BASEMENT_POS.z);
+    scene.add(basementFloor);
+    for (const ob of BASEMENT_WALLS) {
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, BASEMENT_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
+      wallMesh.position.set(ob.x, BASEMENT_Y + BASEMENT_WALL_HEIGHT / 2, ob.z);
+      scene.add(wallMesh);
+      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+    }
+    const basementCeiling = new THREE.Mesh(new THREE.BoxGeometry(BASEMENT_SIZE, ROOM_WALL_THICKNESS, BASEMENT_SIZE), ceilingMat);
+    basementCeiling.position.set(BASEMENT_POS.x, BASEMENT_Y + BASEMENT_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, BASEMENT_POS.z);
+    scene.add(basementCeiling);
+    basementCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(basementCeiling.geometry), roomEdgeMat));
+    const basementStrip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
+    basementStrip.position.set(BASEMENT_POS.x, BASEMENT_Y + BASEMENT_WALL_HEIGHT - 0.06, BASEMENT_POS.z);
+    scene.add(basementStrip);
+
     // Covered corridor joining the two rooms' facing doors — same wall/
     // ceiling materials as the rooms so it reads as one connected structure.
     // Built in two segments since MIDROOM sits in the middle of it.
@@ -2863,6 +2974,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         player.root.position.x = clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         player.root.position.z = clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         resolveObstacleCollisions(player.root.position);
+
+        // Room 1's basement stairs — walking onto either end's trigger
+        // jumps the player to the other floor (position + Y), landing a
+        // step off that side's own trigger so immediately climbing back
+        // doesn't instantly bounce them back again (see GROUND_REENTRY_POS/
+        // BASEMENT_ENTRY_POS).
+        if (Math.hypot(player.root.position.x - STAIRS_DOWN_POS.x, player.root.position.z - STAIRS_DOWN_POS.z) < STAIRS_TRIGGER_RADIUS) {
+          player.root.position.set(BASEMENT_ENTRY_POS.x, BASEMENT_Y, BASEMENT_ENTRY_POS.z);
+        } else if (Math.hypot(player.root.position.x - STAIRS_UP_POS.x, player.root.position.z - STAIRS_UP_POS.z) < STAIRS_TRIGGER_RADIUS) {
+          player.root.position.set(GROUND_REENTRY_POS.x, 0, GROUND_REENTRY_POS.z);
+        }
 
         // Slide each gate open as the player nears its door, closed again
         // once they've moved away.
