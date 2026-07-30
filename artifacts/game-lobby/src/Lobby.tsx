@@ -2417,15 +2417,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // per-step physics behind it.
     const holeMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
     const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3, side: THREE.DoubleSide });
+    const HOLE_HALF_SIZE = 1.4; // square, not round — half-extent, so 2.8 units per side
     function addFloorHole(x: number, y: number, z: number) {
-      const hole = new THREE.Mesh(new THREE.CircleGeometry(1.2, 24), holeMat);
-      hole.rotation.x = -Math.PI / 2;
-      hole.position.set(x, y + 0.015, z);
-      scene.add(hole);
-      const rim = new THREE.Mesh(new THREE.RingGeometry(1.2, 1.4, 24), holeRimMat);
+      const rim = new THREE.Mesh(new THREE.PlaneGeometry(HOLE_HALF_SIZE * 2, HOLE_HALF_SIZE * 2), holeRimMat);
       rim.rotation.x = -Math.PI / 2;
-      rim.position.set(x, y + 0.02, z);
+      rim.position.set(x, y + 0.015, z);
       scene.add(rim);
+      const hole = new THREE.Mesh(new THREE.PlaneGeometry(HOLE_HALF_SIZE * 2 - 0.4, HOLE_HALF_SIZE * 2 - 0.4), holeMat);
+      hole.rotation.x = -Math.PI / 2;
+      hole.position.set(x, y + 0.02, z);
+      scene.add(hole);
     }
     // One hole down through each house's own center, and its matching
     // hole up at that same spot underground (in the ceiling there).
