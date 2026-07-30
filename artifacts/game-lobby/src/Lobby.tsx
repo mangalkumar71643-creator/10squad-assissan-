@@ -3060,10 +3060,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           let dx = player.root.position.x - rig.root.position.x;
           let dz = player.root.position.z - rig.root.position.z;
           let dist = Math.hypot(dx, dz);
+          // Every distance/collision check above is X/Z only, so a player
+          // standing in the underground tunnel directly below a bot's
+          // room (same X/Z, ~3.5 units lower) would otherwise read as
+          // point-blank range — bots never change floor, so comparing Y
+          // is enough to tell whether the player is actually reachable.
+          const sameFloor = Math.abs(player.root.position.y - rig.root.position.y) < 1;
 
           // Keep fighters from walking through each other's bodies — push
           // the player back out to the minimum separation distance.
-          if (dist < BODY_SEPARATION) {
+          if (sameFloor && dist < BODY_SEPARATION) {
             const nx = dist > 0.0001 ? dx / dist : 0;
             const nz = dist > 0.0001 ? dz / dist : 1;
             player.root.position.x = clamp(rig.root.position.x + nx * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
@@ -3080,7 +3086,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             rig.root.rotation.y = Math.atan2(dx, dz);
 
             st.cooldown = Math.max(0, st.cooldown - dt);
-            if (dist <= GUN_RANGE && st.cooldown <= 0 && hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z)) {
+            if (sameFloor && dist <= GUN_RANGE && st.cooldown <= 0 && hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z)) {
               playerHpLocal = Math.max(0, playerHpLocal - BOSS_DAMAGE);
               setPlayerHp(playerHpLocal);
               st.cooldown = BOSS_ATTACK_COOLDOWN;
@@ -3156,7 +3162,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             // keep closing the gap (moveWithAvoidance's existing stuck
             // detection routes it around the wall) until there's an
             // actual clear line to fire down.
-            const canSeePlayer = hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z);
+            const canSeePlayer = sameFloor && hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z);
             if (dist > GUN_RANGE * 0.85 || !canSeePlayer) {
               moveWithAvoidance(rig, st, dx / dist, dz / dist, BOT_SPEED, dt);
               updateLocomotionAnim(rig, 1, BOT_SPEED);
@@ -3182,9 +3188,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           }
 
           // Only a bot the player can actually see counts as a target — a
-          // closer bot hidden behind a wall shouldn't steal the auto-aim
-          // (or the shot's damage) from a farther one actually in view.
-          if (dist < nearestDist && hasLineOfSight(player.root.position.x, player.root.position.z, rig.root.position.x, rig.root.position.z)) {
+          // closer bot hidden behind a wall (or on a different floor —
+          // see sameFloor) shouldn't steal the auto-aim (or the shot's
+          // damage) from a farther one actually in view.
+          if (sameFloor && dist < nearestDist && hasLineOfSight(player.root.position.x, player.root.position.z, rig.root.position.x, rig.root.position.z)) {
             nearestDist = dist;
             nearestIdx = i;
           }
