@@ -1402,6 +1402,8 @@ const EXTRA_CRATES: Obstacle[] = [
 const TUNNEL_Y = -3.5;
 const TUNNEL_WALL_HEIGHT = 2.2;
 const STAIRS_TRIGGER_RADIUS = 1.1;
+const HOLE_HALF_SIZE = 1.4; // square, not round — half-extent, so 2.8 units per side
+const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
 const ROOM_STAIRS_DOWN_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS, ROOM6_POS];
 const TUNNEL_STOPS = ROOM_STAIRS_DOWN_POS.map((p) => ({ x: p.x, z: p.z }));
 // Which way each house's tunnel connection actually runs, matching the
@@ -2301,11 +2303,38 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     key.position.set(3, 6, 4);
     scene.add(key);
 
+    // A real hole cut through the main floor at each house's stairwell
+    // (not just a decal on top of a solid floor) — otherwise standing at
+    // the hole and looking down would still hit this solid ground plane
+    // a few units below the room's own floor, instead of actually seeing
+    // down into the tunnel.
+    const groundShape = new THREE.Shape();
+    groundShape.moveTo(-ARENA_HALF, -ARENA_HALF);
+    groundShape.lineTo(ARENA_HALF, -ARENA_HALF);
+    groundShape.lineTo(ARENA_HALF, ARENA_HALF);
+    groundShape.lineTo(-ARENA_HALF, ARENA_HALF);
+    groundShape.lineTo(-ARENA_HALF, -ARENA_HALF);
+    for (const stop of ROOM_STAIRS_DOWN_POS) {
+      const lx = stop.x;
+      // Shape-local Y maps to world -Z after the rotateX(-PI/2) below
+      // (rotateX(θ) sends (x,y,z) to (x, z, -y) at θ=-90°), so this needs
+      // to be negated to land the hole at the house's actual world Z.
+      const lz = -stop.z;
+      const h = HOLE_INNER_SIZE / 2;
+      const hole = new THREE.Path();
+      hole.moveTo(lx - h, lz - h);
+      hole.lineTo(lx + h, lz - h);
+      hole.lineTo(lx + h, lz + h);
+      hole.lineTo(lx - h, lz + h);
+      hole.lineTo(lx - h, lz - h);
+      groundShape.holes.push(hole);
+    }
+    const groundGeo = new THREE.ShapeGeometry(groundShape);
+    groundGeo.rotateX(-Math.PI / 2);
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(ARENA_HALF * 2, ARENA_HALF * 2),
+      groundGeo,
       new THREE.MeshStandardMaterial({ map: createFloorTexture(FLOOR_REPEAT, renderer.capabilities.getMaxAnisotropy()), roughness: 0.6, metalness: 0.35 }),
     );
-    ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
     scene.add(new THREE.GridHelper(ARENA_HALF * 2, GRID_DIVISIONS, 0x6be2ff, 0x1c4560));
 
@@ -2419,8 +2448,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const holeShaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.9, side: THREE.DoubleSide });
     const stairMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.6, metalness: 0.35 });
     const stairEdgeMat = new THREE.LineBasicMaterial({ color: 0xff9a4a });
-    const HOLE_HALF_SIZE = 1.4; // square, not round — half-extent, so 2.8 units per side
-    const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
     // A hollow square frame (four border strips), not a solid plane — a
     // solid glowing square here would just paper over the stairs inside
     // it instead of framing the opening around them.
@@ -2519,8 +2546,39 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     undergroundFloor.rotation.x = -Math.PI / 2;
     undergroundFloor.position.set(undergroundCenterX, TUNNEL_Y, undergroundCenterZ);
     scene.add(undergroundFloor);
-    const undergroundCeiling = new THREE.Mesh(new THREE.BoxGeometry(undergroundWidth, ROOM_WALL_THICKNESS, undergroundDepth), ceilingMat);
-    undergroundCeiling.position.set(undergroundCenterX, TUNNEL_Y + TUNNEL_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, undergroundCenterZ);
+    // A real hole cut through the ceiling slab at each house's stop (not
+    // just a decal sitting on top of a solid slab) — otherwise standing
+    // at the hole up on the surface, the view straight down would hit
+    // this solid ceiling a few units below instead of actually seeing
+    // into the tunnel.
+    const ceilingShape = new THREE.Shape();
+    const halfW = undergroundWidth / 2;
+    const halfD = undergroundDepth / 2;
+    ceilingShape.moveTo(-halfW, -halfD);
+    ceilingShape.lineTo(halfW, -halfD);
+    ceilingShape.lineTo(halfW, halfD);
+    ceilingShape.lineTo(-halfW, halfD);
+    ceilingShape.lineTo(-halfW, -halfD);
+    for (const stop of TUNNEL_STOPS) {
+      const lx = stop.x - undergroundCenterX;
+      // The shape's local Y axis ends up mapped to world -Z after the
+      // rotateX(-PI/2) below (rotateX(θ) sends (x,y,z) to (x, z, -y) at
+      // θ=-90°), so this needs to be negated to land the hole at the
+      // stop's actual world Z instead of its mirror image.
+      const lz = -(stop.z - undergroundCenterZ);
+      const h = HOLE_INNER_SIZE / 2;
+      const hole = new THREE.Path();
+      hole.moveTo(lx - h, lz - h);
+      hole.lineTo(lx + h, lz - h);
+      hole.lineTo(lx + h, lz + h);
+      hole.lineTo(lx - h, lz + h);
+      hole.lineTo(lx - h, lz - h);
+      ceilingShape.holes.push(hole);
+    }
+    const ceilingGeo = new THREE.ExtrudeGeometry(ceilingShape, { depth: ROOM_WALL_THICKNESS, bevelEnabled: false });
+    ceilingGeo.rotateX(-Math.PI / 2);
+    const undergroundCeiling = new THREE.Mesh(ceilingGeo, ceilingMat);
+    undergroundCeiling.position.set(undergroundCenterX, TUNNEL_Y + TUNNEL_WALL_HEIGHT, undergroundCenterZ);
     scene.add(undergroundCeiling);
     // A light strip over each house's own stop, so the tunnel doesn't
     // read as one featureless dark space.
