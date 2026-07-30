@@ -1487,13 +1487,31 @@ function segmentHitsObstacle(x1: number, z1: number, x2: number, z2: number, ob:
   return true;
 }
 
+// Each door opening's sliding gate occupies a *gap* in OBSTACLES (see
+// roomWallObstacles) — the wall geometry itself never blocks a shot
+// through a doorway, open or closed. The gate panels are what actually
+// seal it, and they move (see updateGatePanels in the tick loop), so
+// their current footprint can't be a fixed entry in OBSTACLES; it's
+// recomputed into this module-level list every tick (see the gate-slide
+// block below) and checked by hasLineOfSight right alongside the static
+// walls, so a shot is blocked by a still-closed or half-open gate the
+// same way it's blocked by a solid wall, and clears the instant the gate
+// finishes sliding open.
+let gateBlockers: Obstacle[] = [];
+
 // Whether a shot fired from (x1,z1) toward (x2,z2) actually has a clear
 // path — walls are modelled as gapped segments (see roomWallObstacles;
 // each door opening is a real gap in the geometry, not a separate flag),
-// so this needs no special-casing for doors: a shot through an open
-// doorway simply never intersects any obstacle's rectangle.
+// so this needs no special-casing for doors on its own: a shot through an
+// open doorway simply never intersects any wall rectangle. The gate
+// panels filling that gap (see gateBlockers) are checked separately,
+// since a closed door should still stop a shot even though the wall
+// behind it has no geometry there.
 function hasLineOfSight(x1: number, z1: number, x2: number, z2: number): boolean {
   for (const ob of OBSTACLES) {
+    if (segmentHitsObstacle(x1, z1, x2, z2, ob)) return false;
+  }
+  for (const ob of gateBlockers) {
     if (segmentHitsObstacle(x1, z1, x2, z2, ob)) return false;
   }
   return true;
@@ -2855,6 +2873,21 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           g.openAmount = approach(g.openAmount, gateTarget, GATE_SLIDE_RATE, dt);
           updateGatePanels(g);
         }
+        // Recomputed every tick from each gate's current slide position —
+        // see gateBlockers/hasLineOfSight — so a shot is stopped by a
+        // still-closed or half-open gate exactly like a wall, and clears
+        // the instant it finishes sliding open.
+        gateBlockers = gates.flatMap((g) =>
+          g.door.axis === "x"
+            ? [
+                { x: g.panelA.position.x, z: g.panelA.position.z, halfX: g.panelWidth / 2, halfZ: GATE_THICKNESS / 2, pad: 0 },
+                { x: g.panelB.position.x, z: g.panelB.position.z, halfX: g.panelWidth / 2, halfZ: GATE_THICKNESS / 2, pad: 0 },
+              ]
+            : [
+                { x: g.panelA.position.x, z: g.panelA.position.z, halfX: GATE_THICKNESS / 2, halfZ: g.panelWidth / 2, pad: 0 },
+                { x: g.panelB.position.x, z: g.panelB.position.z, halfX: GATE_THICKNESS / 2, halfZ: g.panelWidth / 2, pad: 0 },
+              ],
+        );
 
         playerSpeedNow = Math.hypot(playerVelX, playerVelZ);
         // Face the direction actually being moved in (not the raw stick
@@ -3115,6 +3148,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       ro.disconnect();
       renderer.dispose();
       container.removeChild(renderer.domElement);
+      gateBlockers = [];
     };
   }, []);
 
