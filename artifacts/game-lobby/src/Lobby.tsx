@@ -1401,17 +1401,25 @@ const EXTRA_CRATES: Obstacle[] = [
 // the house" the way it was asked for, rather than tucked in a corner.
 const TUNNEL_Y = -3.5;
 const TUNNEL_WALL_HEIGHT = 2.2;
-const STAIRS_TRIGGER_RADIUS = 1.1;
 const HOLE_HALF_SIZE = 1.4; // square, not round — half-extent, so 2.8 units per side
 const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
+// The stairway's walkable footprint: a run of real steps descending from
+// the house floor (y=0) all the way to the tunnel floor (y=TUNNEL_Y),
+// oriented along the house's own tunnel connection (see ROOM_TUNNEL_DIR)
+// rather than a single square hole, so it reads and plays like an actual
+// staircase instead of a hole you fall through. RAMP_BAND lets the
+// height-follow logic pick the player up a little before the first step
+// and hold them a little after the last one, so there's no seam.
+const RAMP_HALF_WIDTH = HOLE_INNER_SIZE / 2;
+const RAMP_RUN_LENGTH = 6;
+const RAMP_BAND = 0.5;
 const ROOM_STAIRS_DOWN_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS, ROOM6_POS];
 const TUNNEL_STOPS = ROOM_STAIRS_DOWN_POS.map((p) => ({ x: p.x, z: p.z }));
-// Which way each house's tunnel connection actually runs, matching the
-// real relative positions — used to face the player toward open tunnel
-// (not a wall) and nudge them just clear of the trigger on the way down.
-// Rooms 2-5 sit between two neighbors; the nudge follows the segment
-// toward the next house in the chain. Room 6 is the end of the chain, so
-// it nudges back toward Room 5 instead.
+// Which way each house's staircase actually descends, matching the real
+// relative positions — the stairway (see RAMP_RUN_LENGTH) runs forward
+// from the house center in this direction, toward the next house in the
+// chain. Room 6 is the end of the chain, so it descends back toward Room
+// 5 instead.
 const ROOM_TUNNEL_DIR = [
   { x: 0, z: -1 }, // Room 1 -> Room 2
   { x: 0, z: -1 }, // Room 2 -> Room 3
@@ -1420,11 +1428,25 @@ const ROOM_TUNNEL_DIR = [
   { x: 0, z: -1 }, // Room 5 -> Room 6
   { x: 0, z: 1 }, // Room 6 -> back toward Room 5 (end of the chain)
 ];
-// Landing spots on each side — offset from the trigger point (which is
-// the same real X/Z on both floors) so immediately climbing back doesn't
-// re-trigger the transition right away.
-const ROOM_REENTRY_POS = ROOM_STAIRS_DOWN_POS.map((p) => ({ x: p.x, z: p.z + 1.6 }));
-const TUNNEL_REENTRY_POS = TUNNEL_STOPS.map((p, i) => ({ x: p.x + ROOM_TUNNEL_DIR[i].x * 1.6, z: p.z + ROOM_TUNNEL_DIR[i].z * 1.6 }));
+// The stairway's footprint at house i, as world-space (x,z) corners of
+// the long rectangle running from the house center (along=0) out to
+// RAMP_RUN_LENGTH in that house's descent direction, RAMP_HALF_WIDTH to
+// each side — used to cut the matching hole through both the room floor
+// and the tunnel ceiling below it.
+function stairFootprintCorners(i: number) {
+  const center = ROOM_STAIRS_DOWN_POS[i];
+  const dir = ROOM_TUNNEL_DIR[i];
+  const perpX = -dir.z;
+  const perpZ = dir.x;
+  const farX = center.x + dir.x * RAMP_RUN_LENGTH;
+  const farZ = center.z + dir.z * RAMP_RUN_LENGTH;
+  return {
+    nearA: { x: center.x + perpX * RAMP_HALF_WIDTH, z: center.z + perpZ * RAMP_HALF_WIDTH },
+    nearB: { x: center.x - perpX * RAMP_HALF_WIDTH, z: center.z - perpZ * RAMP_HALF_WIDTH },
+    farA: { x: farX + perpX * RAMP_HALF_WIDTH, z: farZ + perpZ * RAMP_HALF_WIDTH },
+    farB: { x: farX - perpX * RAMP_HALF_WIDTH, z: farZ - perpZ * RAMP_HALF_WIDTH },
+  };
+}
 // A generous bounding box around every room/corridor, for the
 // underground floor+ceiling slabs (see the scene-building code below).
 const UNDERGROUND_MIN_X = Math.min(ROOM_POS.x, ROOM2_POS.x, ROOM3_POS.x, ROOM4_POS.x, ROOM5_POS.x, ROOM6_POS.x - ROOM6_WIDTH / 2) - ROOM_SIZE / 2 - 2;
@@ -2314,19 +2336,18 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     groundShape.lineTo(ARENA_HALF, ARENA_HALF);
     groundShape.lineTo(-ARENA_HALF, ARENA_HALF);
     groundShape.lineTo(-ARENA_HALF, -ARENA_HALF);
-    for (const stop of ROOM_STAIRS_DOWN_POS) {
-      const lx = stop.x;
+    for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
       // Shape-local Y maps to world -Z after the rotateX(-PI/2) below
-      // (rotateX(θ) sends (x,y,z) to (x, z, -y) at θ=-90°), so this needs
-      // to be negated to land the hole at the house's actual world Z.
-      const lz = -stop.z;
-      const h = HOLE_INNER_SIZE / 2;
+      // (rotateX(θ) sends (x,y,z) to (x, z, -y) at θ=-90°), so world Z
+      // needs to be negated to land the hole at its actual world
+      // position — hence -c.z below for every corner.
+      const { nearA, nearB, farA, farB } = stairFootprintCorners(i);
       const hole = new THREE.Path();
-      hole.moveTo(lx - h, lz - h);
-      hole.lineTo(lx + h, lz - h);
-      hole.lineTo(lx + h, lz + h);
-      hole.lineTo(lx - h, lz + h);
-      hole.lineTo(lx - h, lz - h);
+      hole.moveTo(nearA.x, -nearA.z);
+      hole.lineTo(farA.x, -farA.z);
+      hole.lineTo(farB.x, -farB.z);
+      hole.lineTo(nearB.x, -nearB.z);
+      hole.lineTo(nearA.x, -nearA.z);
       groundShape.holes.push(hole);
     }
     const groundGeo = new THREE.ShapeGeometry(groundShape);
@@ -2435,15 +2456,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       buildRoom(pos);
     }
 
-    // A hole in the floor marking each end of a tunnel transition (see
-    // ROOM_STAIRS_DOWN_POS/TUNNEL_STOPS and the tick loop's proximity
-    // check) — sized and shaped like a real stairwell opening (a glowing
-    // frame around a set of steps sized to fit it exactly), not the
-    // separate oversized staircase prop from before or the plain flat
-    // hole after that. The actual floor change is still a position+Y
-    // jump, not real per-step physics, so the steps are just there to
-    // look right and to walk over on the way to the trigger — not
-    // load-bearing collision of their own.
+    // A real, walkable staircase down through each house's own center to
+    // the tunnel below (see ROOM_STAIRS_DOWN_POS/RAMP_RUN_LENGTH and the
+    // tick loop's continuous height-follow) — a long run of real steps,
+    // not a single square hole, spanning the full drop from the house
+    // floor (y=0) all the way to the tunnel's actual floor (TUNNEL_Y), so
+    // walking down it is a gradual descent you can stop partway through,
+    // not a jump into a pit.
     const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3, side: THREE.DoubleSide });
     const holeShaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.9, side: THREE.DoubleSide });
     // Bright enough (and lightly self-lit) to actually read as steps
@@ -2452,77 +2471,113 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // there with no direct light reaching it.
     const stairMat = new THREE.MeshStandardMaterial({ color: 0x8a929c, emissive: 0x2a3138, emissiveIntensity: 0.6, roughness: 0.5, metalness: 0.3 });
     const stairEdgeMat = new THREE.LineBasicMaterial({ color: 0xff9a4a });
-    // A hollow square frame (four border strips), not a solid plane — a
-    // solid glowing square here would just paper over the stairs inside
-    // it instead of framing the opening around them.
-    function addFloorHoleRim(x: number, y: number, z: number) {
-      const outer = HOLE_HALF_SIZE * 2;
-      const borderWidth = (outer - HOLE_INNER_SIZE) / 2;
-      const addStrip = (ox: number, oz: number, w: number, d: number) => {
-        const strip = new THREE.Mesh(new THREE.PlaneGeometry(w, d), holeRimMat);
+    // Every stair element below is built in the stairway's own local
+    // "along" (distance from the house center, in the direction it
+    // descends — see ROOM_TUNNEL_DIR) / "perp" (distance off to the
+    // side) axes, then converted to world X/Z here. Since every
+    // ROOM_TUNNEL_DIR entry is axis-aligned, the along/perp axes are
+    // always some (possibly swapped) combination of world X/Z, which is
+    // all stairBoxSize is doing — no rotation needed.
+    function stairWorldPos(x: number, z: number, dirX: number, dirZ: number, along: number, perp: number) {
+      const perpX = -dirZ;
+      const perpZ = dirX;
+      return { x: x + dirX * along + perpX * perp, z: z + dirZ * along + perpZ * perp };
+    }
+    function stairBoxSize(dirX: number, dirZ: number, alongLen: number, widthLen: number) {
+      return {
+        sizeX: alongLen * Math.abs(dirX) + widthLen * Math.abs(dirZ),
+        sizeZ: alongLen * Math.abs(dirZ) + widthLen * Math.abs(dirX),
+      };
+    }
+    // A hollow frame (four border strips), not a solid plane — a solid
+    // glowing rectangle here would just paper over the stairs inside it
+    // instead of framing the opening around them.
+    function addFloorHoleRim(x: number, y: number, z: number, dirX: number, dirZ: number) {
+      const border = HOLE_HALF_SIZE - HOLE_INNER_SIZE / 2;
+      const width = RAMP_HALF_WIDTH * 2;
+      const addStrip = (along: number, perp: number, alongLen: number, widthLen: number) => {
+        const pos = stairWorldPos(x, z, dirX, dirZ, along, perp);
+        const { sizeX, sizeZ } = stairBoxSize(dirX, dirZ, alongLen, widthLen);
+        const strip = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeZ), holeRimMat);
         strip.rotation.x = -Math.PI / 2;
-        strip.position.set(x + ox, y + 0.015, z + oz);
+        strip.position.set(pos.x, y + 0.015, pos.z);
         scene.add(strip);
       };
-      addStrip(-(HOLE_INNER_SIZE / 2 + borderWidth / 2), 0, borderWidth, outer);
-      addStrip(HOLE_INNER_SIZE / 2 + borderWidth / 2, 0, borderWidth, outer);
-      addStrip(0, -(HOLE_INNER_SIZE / 2 + borderWidth / 2), HOLE_INNER_SIZE, borderWidth);
-      addStrip(0, HOLE_INNER_SIZE / 2 + borderWidth / 2, HOLE_INNER_SIZE, borderWidth);
+      addStrip(RAMP_RUN_LENGTH / 2, -(RAMP_HALF_WIDTH + border / 2), RAMP_RUN_LENGTH + border * 2, border);
+      addStrip(RAMP_RUN_LENGTH / 2, RAMP_HALF_WIDTH + border / 2, RAMP_RUN_LENGTH + border * 2, border);
+      addStrip(-border / 2, 0, border, width);
+      addStrip(RAMP_RUN_LENGTH + border / 2, 0, border, width);
     }
-    // The shaft between a house's floor and the tunnel ceiling below it —
-    // four dark wall panels around the hole's inner square, doubling as
-    // the stairwell's side walls.
-    function addHoleShaft(x: number, z: number, topY: number, bottomY: number) {
+    // The pit's side walls and near-end cap, between a house's floor and
+    // the tunnel ceiling below it — the far end is left open, since that
+    // end just opens straight into the tunnel corridor's own space.
+    function addHoleShaft(x: number, z: number, topY: number, bottomY: number, dirX: number, dirZ: number) {
       const height = topY - bottomY;
       const midY = (topY + bottomY) / 2;
-      const addWall = (ox: number, oz: number, w: number, d: number) => {
-        const wall = new THREE.Mesh(new THREE.BoxGeometry(w, height, d), holeShaftMat);
-        wall.position.set(x + ox, midY, z + oz);
+      const width = RAMP_HALF_WIDTH * 2;
+      const addWall = (along: number, perp: number, alongLen: number, widthLen: number) => {
+        const pos = stairWorldPos(x, z, dirX, dirZ, along, perp);
+        const { sizeX, sizeZ } = stairBoxSize(dirX, dirZ, alongLen, widthLen);
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(sizeX, height, sizeZ), holeShaftMat);
+        wall.position.set(pos.x, midY, pos.z);
         scene.add(wall);
       };
-      addWall(-HOLE_INNER_SIZE / 2, 0, 0.05, HOLE_INNER_SIZE);
-      addWall(HOLE_INNER_SIZE / 2, 0, 0.05, HOLE_INNER_SIZE);
-      addWall(0, -HOLE_INNER_SIZE / 2, HOLE_INNER_SIZE, 0.05);
-      addWall(0, HOLE_INNER_SIZE / 2, HOLE_INNER_SIZE, 0.05);
+      addWall(RAMP_RUN_LENGTH / 2, -RAMP_HALF_WIDTH, RAMP_RUN_LENGTH, 0.05);
+      addWall(RAMP_RUN_LENGTH / 2, RAMP_HALF_WIDTH, RAMP_RUN_LENGTH, 0.05);
+      addWall(0, 0, 0.05, width);
     }
-    // Real steps filling the shaft's exact footprint (HOLE_INNER_SIZE
-    // square) and height (topY to bottomY), descending along (dirX, dirZ)
-    // — the direction that house's tunnel connection actually runs (see
-    // ROOM_TUNNEL_DIR) — so it reads as one natural staircase leading
-    // down into the tunnel, sized to the opening instead of overflowing
-    // it.
+    // Real steps filling the stairway's exact footprint (RAMP_HALF_WIDTH
+    // wide) and full height (topY to bottomY), descending along (dirX,
+    // dirZ) — the direction that house's tunnel connection actually runs
+    // (see ROOM_TUNNEL_DIR) — so it reads as one natural staircase
+    // leading all the way down into the tunnel floor.
     function addStairsInHole(x: number, z: number, topY: number, bottomY: number, dirX: number, dirZ: number) {
-      const steps = 5;
+      const steps = 14;
       const stepHeight = (topY - bottomY) / steps;
-      const stepDepth = HOLE_INNER_SIZE / steps;
-      const yaw = Math.atan2(dirX, dirZ);
+      const stepDepth = RAMP_RUN_LENGTH / steps;
+      const width = RAMP_HALF_WIDTH * 2;
       for (let i = 0; i < steps; i++) {
         const stepCenterY = topY - stepHeight * (i + 0.5);
-        const along = -HOLE_INNER_SIZE / 2 + stepDepth * (i + 0.5);
-        const step = new THREE.Mesh(new THREE.BoxGeometry(HOLE_INNER_SIZE, stepHeight, stepDepth), stairMat);
-        step.position.set(x + Math.sin(yaw) * along, stepCenterY, z + Math.cos(yaw) * along);
-        step.rotation.y = yaw;
+        const along = stepDepth * (i + 0.5);
+        const pos = stairWorldPos(x, z, dirX, dirZ, along, 0);
+        const { sizeX, sizeZ } = stairBoxSize(dirX, dirZ, stepDepth, width);
+        const step = new THREE.Mesh(new THREE.BoxGeometry(sizeX, stepHeight, sizeZ), stairMat);
+        step.position.set(pos.x, stepCenterY, pos.z);
         step.add(new THREE.LineSegments(new THREE.EdgesGeometry(step.geometry), stairEdgeMat));
         scene.add(step);
       }
     }
-    // One hole+rim down through each house's own center, its matching rim
-    // up at that same spot underground (in the ceiling there), the real
-    // shaft connecting the two, and the staircase filling it.
+    // One stairway down through each house's own center, its matching rim
+    // up at that same spot underground (in the ceiling there), the pit
+    // walls between the two, and the real steps filling the whole run
+    // down to the tunnel floor.
     for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
       const tunnelCeilingY = TUNNEL_Y + TUNNEL_WALL_HEIGHT;
-      addFloorHoleRim(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z);
-      addFloorHoleRim(TUNNEL_STOPS[i].x, tunnelCeilingY, TUNNEL_STOPS[i].z);
-      addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY);
       const dir = ROOM_TUNNEL_DIR[i];
-      addStairsInHole(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY, dir.x, dir.z);
+      addFloorHoleRim(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z, dir.x, dir.z);
+      addFloorHoleRim(TUNNEL_STOPS[i].x, tunnelCeilingY, TUNNEL_STOPS[i].z, dir.x, dir.z);
+      addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY, dir.x, dir.z);
+      addStairsInHole(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, TUNNEL_Y, dir.x, dir.z);
       // Nothing else reaches down into the shaft otherwise (it sits
       // below the room's own ambient light and above the tunnel's floor
       // strip), which is exactly why the stairs were reading as a flat
-      // black pit — this lights them from inside the shaft itself.
-      const shaftLight = new THREE.PointLight(0x9fd8ff, 1.2, 5, 2);
-      shaftLight.position.set(ROOM_STAIRS_DOWN_POS[i].x, (0 + tunnelCeilingY) / 2, ROOM_STAIRS_DOWN_POS[i].z);
-      scene.add(shaftLight);
+      // black pit — these light the run from inside the stairwell
+      // itself, one near the top and one near the tunnel floor since the
+      // full run is too long now for a single point light to reach.
+      const topLight = new THREE.PointLight(0x9fd8ff, 1.3, RAMP_RUN_LENGTH, 2);
+      topLight.position.set(
+        ROOM_STAIRS_DOWN_POS[i].x + dir.x * (RAMP_RUN_LENGTH * 0.2),
+        -0.6,
+        ROOM_STAIRS_DOWN_POS[i].z + dir.z * (RAMP_RUN_LENGTH * 0.2),
+      );
+      scene.add(topLight);
+      const bottomLight = new THREE.PointLight(0x9fd8ff, 1.3, RAMP_RUN_LENGTH, 2);
+      bottomLight.position.set(
+        ROOM_STAIRS_DOWN_POS[i].x + dir.x * (RAMP_RUN_LENGTH * 0.8),
+        TUNNEL_Y + 0.8,
+        ROOM_STAIRS_DOWN_POS[i].z + dir.z * (RAMP_RUN_LENGTH * 0.8),
+      );
+      scene.add(bottomLight);
     }
 
     // The tunnel itself — every wall in the level, mirrored at TUNNEL_Y
@@ -2570,20 +2625,24 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     ceilingShape.lineTo(halfW, halfD);
     ceilingShape.lineTo(-halfW, halfD);
     ceilingShape.lineTo(-halfW, -halfD);
-    for (const stop of TUNNEL_STOPS) {
-      const lx = stop.x - undergroundCenterX;
+    for (let i = 0; i < TUNNEL_STOPS.length; i++) {
       // The shape's local Y axis ends up mapped to world -Z after the
       // rotateX(-PI/2) below (rotateX(θ) sends (x,y,z) to (x, z, -y) at
-      // θ=-90°), so this needs to be negated to land the hole at the
-      // stop's actual world Z instead of its mirror image.
-      const lz = -(stop.z - undergroundCenterZ);
-      const h = HOLE_INNER_SIZE / 2;
+      // θ=-90°), so world Z needs to be negated to land the hole at its
+      // actual world position instead of its mirror image — hence
+      // -(c.z - undergroundCenterZ) below for every corner.
+      const { nearA, nearB, farA, farB } = stairFootprintCorners(i);
+      const toLocal = (c: { x: number; z: number }) => ({ x: c.x - undergroundCenterX, z: -(c.z - undergroundCenterZ) });
+      const a = toLocal(nearA);
+      const b = toLocal(farA);
+      const c = toLocal(farB);
+      const d = toLocal(nearB);
       const hole = new THREE.Path();
-      hole.moveTo(lx - h, lz - h);
-      hole.lineTo(lx + h, lz - h);
-      hole.lineTo(lx + h, lz + h);
-      hole.lineTo(lx - h, lz + h);
-      hole.lineTo(lx - h, lz - h);
+      hole.moveTo(a.x, a.z);
+      hole.lineTo(b.x, b.z);
+      hole.lineTo(c.x, c.z);
+      hole.lineTo(d.x, d.z);
+      hole.lineTo(a.x, a.z);
       ceilingShape.holes.push(hole);
     }
     const ceilingGeo = new THREE.ExtrudeGeometry(ceilingShape, { depth: ROOM_WALL_THICKNESS, bevelEnabled: false });
@@ -3097,32 +3156,27 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         resolveObstacleCollisions(player.root.position);
 
         // Each house's stairs down through its own center to the
-        // underground tunnel, and the matching stairs back up at that
-        // same spot — since both ends share the same real X/Z (the
-        // tunnel runs directly beneath the house, not off in some
-        // separate area), which direction a trigger fires is decided by
-        // which floor the player is currently on. Landing a step off the
-        // trigger (see ROOM_REENTRY_POS/TUNNEL_REENTRY_POS) means
-        // immediately climbing back doesn't instantly bounce them back
-        // again. Facing is also set explicitly both ways — not left as
-        // whatever it was walking in — since the landing spot only
-        // actually clears its own trigger in the direction "forward"
-        // then points: along that house's real tunnel connection (see
-        // ROOM_TUNNEL_DIR) after going down, north ("into" the house,
-        // matching every other room's entrance) after coming back up.
+        // underground tunnel — real, walkable stairs, not a teleport.
+        // Y is a continuous function of where the player physically is
+        // relative to the stair run: "along" is signed distance from the
+        // house center in the direction the stairs descend (see
+        // ROOM_TUNNEL_DIR), "perp" is signed distance off to the side of
+        // that line. Standing anywhere within the stairway's width and
+        // run length pins the player's height to the matching point on
+        // the slope, so walking forward/back moves them up/down
+        // gradually and stopping mid-stride just holds them there —
+        // exactly like real stairs, including being able to pause partway
+        // and look around at whichever floor is above.
         for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
           const spot = ROOM_STAIRS_DOWN_POS[i];
-          if (Math.hypot(player.root.position.x - spot.x, player.root.position.z - spot.z) < STAIRS_TRIGGER_RADIUS) {
-            if (player.root.position.y > TUNNEL_Y + 1) {
-              const dir = ROOM_TUNNEL_DIR[i];
-              player.root.position.set(TUNNEL_REENTRY_POS[i].x, TUNNEL_Y, TUNNEL_REENTRY_POS[i].z);
-              player.root.rotation.y = Math.atan2(dir.x, dir.z);
-              cameraYaw.current = player.root.rotation.y; // movement/free-look yaw — joystick-forward now heads along this house's real tunnel connection
-            } else {
-              player.root.position.set(ROOM_REENTRY_POS[i].x, 0, ROOM_REENTRY_POS[i].z);
-              player.root.rotation.y = Math.PI;
-              cameraYaw.current = Math.PI; // joystick-forward now heads north, further into the house
-            }
+          const dir = ROOM_TUNNEL_DIR[i];
+          const dx = player.root.position.x - spot.x;
+          const dz = player.root.position.z - spot.z;
+          const along = dx * dir.x + dz * dir.z;
+          const perp = dz * dir.x - dx * dir.z;
+          if (Math.abs(perp) < RAMP_HALF_WIDTH && along > -RAMP_BAND && along < RAMP_RUN_LENGTH + RAMP_BAND) {
+            const progress = clamp(along / RAMP_RUN_LENGTH, 0, 1);
+            player.root.position.y = THREE.MathUtils.lerp(0, TUNNEL_Y, progress);
             break;
           }
         }
