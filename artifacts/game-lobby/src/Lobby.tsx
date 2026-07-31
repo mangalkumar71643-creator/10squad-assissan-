@@ -1608,10 +1608,17 @@ const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters 
 const BOT_SPEED = 1.9;
 const BOT_DAMAGE = 10;
 const BOT_ATTACK_COOLDOWN = 1.3;
-// The new bot's guard post — open ground straight ahead of the player's
-// spawn, not tucked into one of the far rooms, so it's immediately
-// reachable rather than requiring a trek across the whole map.
-const BOT_SPAWN = { x: 0, z: -14 };
+// The new bot's guard post — the same spot bot1 always stood watch at
+// before the old guard bots were removed: off to the side of Room 1's own
+// center (the stairs down to the tunnel sit exactly at that center — see
+// ROOM_STAIRS_DOWN_POS — and standing right on top of them used to carry
+// a fighter through the stairway's height-follow zone), offset
+// perpendicular to that room's own descent direction.
+const BOT_GUARD_OFFSET = 6;
+const BOT_SPAWN = {
+  x: ROOM_POS.x - ROOM_TUNNEL_DIR[0].z * BOT_GUARD_OFFSET,
+  z: ROOM_POS.z + ROOM_TUNNEL_DIR[0].x * BOT_GUARD_OFFSET,
+};
 const GUARD_ALERT_RADIUS = 6;
 const ALERT_TELEGRAPH_DURATION = 0.7;
 // While dormant, the bot doesn't just freeze on one spot — it wanders a
@@ -2395,6 +2402,13 @@ function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: Fighter
         if (leftFinger) leftFingers[`${leftFinger[1]}${leftFinger[2]}`] = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
+        // This rig's skinned meshes get frustum-culled against their
+        // un-skinned bind-pose bounding sphere (computed in the mesh
+        // node's own local space, which Blender's exporter placed away
+        // from where the bones actually pose it) — so three.js was
+        // culling the whole (correctly positioned, correctly posed)
+        // character as "off camera" even head-on in plain view.
+        mesh.frustumCulled = false;
         // No tint — clone only so this instance's own death-fade opacity
         // (see applyDeathPose) never touches a shared/cached material.
         const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
