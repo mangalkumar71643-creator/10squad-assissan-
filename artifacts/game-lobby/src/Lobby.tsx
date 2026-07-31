@@ -2325,6 +2325,48 @@ function retargetClip(
   return new THREE.AnimationClip(clip.name + "Retarget", clip.duration, newTracks);
 }
 
+// A reference video the user supplied — a crouched, forward-leaning
+// tactical sprint (a different, stealthier style than char-1's upright
+// rifle run) — showed the sprint style they wanted the bot to move like.
+// True per-frame motion capture from that clip isn't possible (it's
+// gameplay footage of another game viewed from a steep isometric camera,
+// not a real person on video a pose-estimator could read), so instead
+// this leans the bot's real running mocap forward and drops its hip
+// height a bit — the actual foot-timing/weight-shift stays real motion
+// capture, just biased toward that crouched-sprint silhouette.
+const RUN_LEAN_BONES = ["mixamorigSpine", "mixamorigSpine1", "mixamorigSpine2"];
+const RUN_LEAN_PER_BONE = THREE.MathUtils.degToRad(9); // ~27 total forward lean across the three
+const RUN_HIP_DROP_FRACTION = 0.05; // as a fraction of the source rig's native height
+function applyCrouchedSprintBias(clip: THREE.AnimationClip, hipsBoneName: string, hipDropNative: number): THREE.AnimationClip {
+  const leanQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), RUN_LEAN_PER_BONE);
+  const newTracks = clip.tracks.map((track) => {
+    const dot = track.name.lastIndexOf(".");
+    const boneName = track.name.slice(0, dot);
+    const prop = track.name.slice(dot + 1);
+    if (prop === "quaternion" && RUN_LEAN_BONES.includes(boneName) && track instanceof THREE.QuaternionKeyframeTrack) {
+      const values = track.values.slice();
+      for (let i = 0; i < values.length; i += 4) {
+        const q = new THREE.Quaternion(values[i], values[i + 1], values[i + 2], values[i + 3]);
+        q.multiply(leanQuat);
+        values[i] = q.x;
+        values[i + 1] = q.y;
+        values[i + 2] = q.z;
+        values[i + 3] = q.w;
+      }
+      return new THREE.QuaternionKeyframeTrack(track.name, track.times.slice() as unknown as number[], values as unknown as number[]);
+    }
+    if (prop === "position" && boneName === hipsBoneName) {
+      const values = track.values.slice();
+      for (let i = 1; i < values.length; i += 3) {
+        values[i] -= hipDropNative;
+      }
+      return new THREE.VectorKeyframeTrack(track.name, track.times.slice() as unknown as number[], values as unknown as number[]);
+    }
+    return track.clone();
+  });
+  return new THREE.AnimationClip(clip.name + "CrouchSprint", clip.duration, newTracks);
+}
+
 interface SourceRigData {
   clips: Map<string, THREE.AnimationClip>;
   rest: Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }>;
@@ -2437,7 +2479,9 @@ function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: Fighter
       }
       const runClip = source.clips.get("RifleRun");
       if (runClip) {
-        runAction = mixer.clipAction(retargetClip(runClip, source.rest, restNewbot, posRatio));
+        const retargetedRun = retargetClip(runClip, source.rest, restNewbot, posRatio);
+        const styledRun = applyCrouchedSprintBias(retargetedRun, "mixamorigHips", nativeHeight * RUN_HIP_DROP_FRACTION);
+        runAction = mixer.clipAction(styledRun);
         runAction.play();
         runAction.setEffectiveWeight(0);
       }
