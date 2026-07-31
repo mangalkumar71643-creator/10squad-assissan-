@@ -811,6 +811,21 @@ function terrainColor(v: number): [number, number, number] {
   return TERRAIN_STOPS[TERRAIN_STOPS.length - 1][1];
 }
 
+// A real sci-fi floor-panel image for the main arena ground, tiled with
+// RepeatWrapping the same way createFloorTexture's procedural texture is —
+// same wrapping/repeat/anisotropy setup, just loaded from an image file
+// instead of drawn on a canvas.
+const sciFiFloorTextureLoader = new THREE.TextureLoader();
+function createSciFiFloorTexture(repeatCount: number, maxAnisotropy: number): THREE.Texture {
+  const texture = sciFiFloorTextureLoader.load("/textures/floor-scifi.jpg");
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeatCount, repeatCount);
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
+
 // Procedural sci-fi metal floor texture for the arena — dark blue-grey
 // plating (layered value noise for subtle wear patches, fine speckle for
 // grain) with beveled panel seams and a glowing cyan tactical-grid accent
@@ -1175,8 +1190,12 @@ const ARENA_HALF = 350; // 700x700 arena, centered on the origin
 // clip plane — is derived from ARENA_HALF below instead of hand-tuned
 // constants, so resizing the arena again later is a one-line change
 // instead of a multi-spot retune.
-const FLOOR_TILE_SIZE = 1.667; // world units per floor texture tile, kept constant regardless of arena size
-const FLOOR_REPEAT = (ARENA_HALF * 2) / FLOOR_TILE_SIZE;
+// The real sci-fi floor image already bakes in its own repeating panel
+// grid, so it's tiled as one whole unit rather than sliced into smaller
+// pieces — sized so each of its panels reads at roughly the same scale a
+// standing fighter would.
+const SCIFI_FLOOR_TILE_SIZE = 6;
+const SCIFI_FLOOR_REPEAT = (ARENA_HALF * 2) / SCIFI_FLOOR_TILE_SIZE;
 const GRID_DIVISIONS = ARENA_HALF * 2; // 1 world unit per grid cell
 const FOG_NEAR = ARENA_HALF - 5;
 const FOG_FAR = ARENA_HALF * 2.5;
@@ -2439,7 +2458,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     groundGeo.rotateX(-Math.PI / 2);
     const ground = new THREE.Mesh(
       groundGeo,
-      new THREE.MeshStandardMaterial({ map: createFloorTexture(FLOOR_REPEAT, renderer.capabilities.getMaxAnisotropy()), roughness: 0.6, metalness: 0.35 }),
+      new THREE.MeshStandardMaterial({
+        map: createSciFiFloorTexture(SCIFI_FLOOR_REPEAT, renderer.capabilities.getMaxAnisotropy()),
+        roughness: 0.6,
+        metalness: 0.35,
+      }),
     );
     scene.add(ground);
     // GridHelper draws one flat, uninterrupted grid across the whole arena
