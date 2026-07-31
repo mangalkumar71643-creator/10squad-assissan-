@@ -1619,21 +1619,24 @@ const BOT_SPAWN = {
   x: ROOM_POS.x - ROOM_TUNNEL_DIR[0].z * BOT_GUARD_OFFSET,
   z: ROOM_POS.z + ROOM_TUNNEL_DIR[0].x * BOT_GUARD_OFFSET,
 };
-const GUARD_ALERT_RADIUS = 6;
+const GUARD_ALERT_RADIUS = 9;
 const ALERT_TELEGRAPH_DURATION = 0.7;
 // While dormant, the bot doesn't just freeze on one spot — it wanders a
-// short walking loop around its post (left/right/forward/back at random),
-// until the player's approach wakes it up.
-const PATROL_RADIUS = 3;
-const PATROL_SPEED = BOT_SPEED * 0.5; // an unhurried walk, not a chase sprint
-const PATROL_ARRIVE_DIST = 0.4;
+// visible walking loop around its post (left/right/forward/back at
+// random), until the player's approach wakes it up. A wider loop at a
+// clip that actually clears the run clip's minimum timescale (see
+// RUN_CLIP_MIN_TIMESCALE) is what makes this read as a bot patrolling —
+// too small/slow a loop looked like standing still with a faint shuffle.
+const PATROL_RADIUS = 8;
+const PATROL_SPEED = BOT_SPEED * 0.9;
+const PATROL_ARRIVE_DIST = 0.6;
 // There's no dedicated walk clip on this rig (only Idle and a full-sprint
 // Running clip) — slowing the run clip's timeScale down to match the
 // patrol speed still keeps its full running stride, which reads as a
 // slow-motion sprint rather than an actual stroll. Blending it down
 // toward idle instead (a partial run weight) softens that stride into
 // something closer to an unhurried, restrained walk.
-const PATROL_RUN_WEIGHT = 0.42;
+const PATROL_RUN_WEIGHT = 0.65;
 const PLAYER_ATTACK_COOLDOWN = 0.55;
 const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
