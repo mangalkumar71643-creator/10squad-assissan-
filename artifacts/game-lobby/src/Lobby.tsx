@@ -1452,6 +1452,65 @@ function stairFootprintCorners(i: number) {
     farB: { x: farX - perpX * RAMP_HALF_WIDTH, z: farZ - perpZ * RAMP_HALF_WIDTH },
   };
 }
+// Removes [subMin, subMax) from every interval in the list, splitting an
+// interval in two if the cut falls in its middle — used below to punch a
+// gap out of a grid line wherever it crosses a stairwell hole.
+function subtractInterval(intervals: [number, number][], subMin: number, subMax: number): [number, number][] {
+  const result: [number, number][] = [];
+  for (const [a, b] of intervals) {
+    if (subMax <= a || subMin >= b) {
+      result.push([a, b]);
+      continue;
+    }
+    if (subMin > a) result.push([a, subMin]);
+    if (subMax < b) result.push([subMax, b]);
+  }
+  return result;
+}
+// A hand-built replacement for THREE.GridHelper that leaves a gap over each
+// given hole rectangle, instead of drawing one uninterrupted line straight
+// across it (see the call site for why: GridHelper doesn't know about the
+// real holes cut into the ground/ceiling).
+function buildClippedGrid(
+  halfSize: number,
+  divisions: number,
+  centerColorHex: number,
+  gridColorHex: number,
+  holes: { minX: number; maxX: number; minZ: number; maxZ: number }[],
+) {
+  const step = (halfSize * 2) / divisions;
+  const center = divisions / 2;
+  const centerColor = new THREE.Color(centerColorHex);
+  const gridColor = new THREE.Color(gridColorHex);
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const addSegment = (x1: number, z1: number, x2: number, z2: number, color: THREE.Color) => {
+    positions.push(x1, 0, z1, x2, 0, z2);
+    colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
+  };
+  for (let i = 0; i <= divisions; i++) {
+    const x = -halfSize + i * step;
+    const color = i === center ? centerColor : gridColor;
+    let intervals: [number, number][] = [[-halfSize, halfSize]];
+    for (const h of holes) {
+      if (x >= h.minX && x <= h.maxX) intervals = subtractInterval(intervals, h.minZ, h.maxZ);
+    }
+    for (const [z1, z2] of intervals) if (z2 > z1) addSegment(x, z1, x, z2, color);
+  }
+  for (let i = 0; i <= divisions; i++) {
+    const z = -halfSize + i * step;
+    const color = i === center ? centerColor : gridColor;
+    let intervals: [number, number][] = [[-halfSize, halfSize]];
+    for (const h of holes) {
+      if (z >= h.minZ && z <= h.maxZ) intervals = subtractInterval(intervals, h.minX, h.maxX);
+    }
+    for (const [x1, x2] of intervals) if (x2 > x1) addSegment(x1, z, x2, z, color);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, toneMapped: false }));
+}
 // A generous bounding box around every room/corridor, for the
 // underground floor+ceiling slabs (see the scene-building code below).
 const UNDERGROUND_MIN_X = Math.min(ROOM_POS.x, ROOM2_POS.x, ROOM3_POS.x, ROOM4_POS.x, ROOM5_POS.x, ROOM6_POS.x - ROOM6_WIDTH / 2) - ROOM_SIZE / 2 - 2;
@@ -2383,7 +2442,21 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       new THREE.MeshStandardMaterial({ map: createFloorTexture(FLOOR_REPEAT, renderer.capabilities.getMaxAnisotropy()), roughness: 0.6, metalness: 0.35 }),
     );
     scene.add(ground);
-    scene.add(new THREE.GridHelper(ARENA_HALF * 2, GRID_DIVISIONS, 0x6be2ff, 0x1c4560));
+    // GridHelper draws one flat, uninterrupted grid across the whole arena
+    // — it doesn't know about the holes just cut into the ground above, so
+    // its lines used to keep crossing straight over every house's own
+    // stairwell, very visible against the pitch-black shaft below even
+    // though that's supposed to read as open space, not more floor. This
+    // rebuilds the same grid by hand, one line at a time, leaving a gap
+    // wherever a line would cross one of those hole footprints (reusing
+    // the exact same corners the ground/ceiling holes were cut from).
+    const gridHoles = ROOM_STAIRS_DOWN_POS.map((_, i) => {
+      const { nearA, nearB, farA, farB } = stairFootprintCorners(i);
+      const xs = [nearA.x, nearB.x, farA.x, farB.x];
+      const zs = [nearA.z, nearB.z, farA.z, farB.z];
+      return { minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs) };
+    });
+    scene.add(buildClippedGrid(ARENA_HALF, GRID_DIVISIONS, 0x6be2ff, 0x1c4560, gridHoles));
 
     // Sci-fi outpost room — the wall segments exactly match the OBSTACLES
     // rects above (built straight from that array, so visuals and
