@@ -1534,6 +1534,99 @@ function resolveObstacleCollisions(pos: { x: number; z: number }) {
   }
 }
 
+// Whether the straight segment from (x1,z1) to (x2,z2) crosses this
+// obstacle's footprint — a standard slab test against its axis-aligned
+// rectangle, walked with the segment's own parametric range so a hit
+// outside [0,1] (before the start or past the end) doesn't count. Uses
+// the bare halfX/halfZ, not the movement-collision `pad` — that padding
+// exists to keep a fighter's body from clipping into a wall, not to
+// decide whether a bullet's sightline is blocked.
+function segmentHitsObstacle(x1: number, z1: number, x2: number, z2: number, ob: Obstacle): boolean {
+  const minX = ob.x - ob.halfX;
+  const maxX = ob.x + ob.halfX;
+  const minZ = ob.z - ob.halfZ;
+  const maxZ = ob.z + ob.halfZ;
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  let tmin = 0;
+  let tmax = 1;
+  if (Math.abs(dx) < 1e-9) {
+    if (x1 < minX || x1 > maxX) return false;
+  } else {
+    let t1 = (minX - x1) / dx;
+    let t2 = (maxX - x1) / dx;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+  if (Math.abs(dz) < 1e-9) {
+    if (z1 < minZ || z1 > maxZ) return false;
+  } else {
+    let t1 = (minZ - z1) / dz;
+    let t2 = (maxZ - z1) / dz;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+  return true;
+}
+
+// Each door opening's sliding gate occupies a *gap* in OBSTACLES (see
+// roomWallObstacles) — the wall geometry itself never blocks a shot
+// through a doorway, open or closed. The gate panels are what actually
+// seal it, and they move (see updateGatePanels in the tick loop), so
+// their current footprint can't be a fixed entry in OBSTACLES; it's
+// recomputed into this module-level list every tick (see the gate-slide
+// block below) and checked by hasLineOfSight right alongside the static
+// walls, so a shot is blocked by a still-closed or half-open gate the
+// same way it's blocked by a solid wall, and clears the instant the gate
+// finishes sliding open.
+let gateBlockers: Obstacle[] = [];
+
+// Whether a shot fired from (x1,z1) toward (x2,z2) actually has a clear
+// path — walls are modelled as gapped segments (see roomWallObstacles;
+// each door opening is a real gap in the geometry, not a separate flag),
+// so this needs no special-casing for doors on its own: a shot through an
+// open doorway simply never intersects any wall rectangle. The gate
+// panels filling that gap (see gateBlockers) are checked separately,
+// since a closed door should still stop a shot even though the wall
+// behind it has no geometry there.
+function hasLineOfSight(x1: number, z1: number, x2: number, z2: number): boolean {
+  for (const ob of OBSTACLES) {
+    if (segmentHitsObstacle(x1, z1, x2, z2, ob)) return false;
+  }
+  for (const ob of gateBlockers) {
+    if (segmentHitsObstacle(x1, z1, x2, z2, ob)) return false;
+  }
+  return true;
+}
+
+const PLAYER_DAMAGE = 14;
+const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
+const BOT_SPEED = 1.9;
+const BOT_DAMAGE = 10;
+const BOT_ATTACK_COOLDOWN = 1.3;
+// The new bot's guard post — open ground straight ahead of the player's
+// spawn, not tucked into one of the far rooms, so it's immediately
+// reachable rather than requiring a trek across the whole map.
+const BOT_SPAWN = { x: 0, z: -14 };
+const GUARD_ALERT_RADIUS = 6;
+const ALERT_TELEGRAPH_DURATION = 0.7;
+// While dormant, the bot doesn't just freeze on one spot — it wanders a
+// short walking loop around its post (left/right/forward/back at random),
+// until the player's approach wakes it up.
+const PATROL_RADIUS = 3;
+const PATROL_SPEED = BOT_SPEED * 0.5; // an unhurried walk, not a chase sprint
+const PATROL_ARRIVE_DIST = 0.4;
+// There's no dedicated walk clip on this rig (only Idle and a full-sprint
+// Running clip) — slowing the run clip's timeScale down to match the
+// patrol speed still keeps its full running stride, which reads as a
+// slow-motion sprint rather than an actual stroll. Blending it down
+// toward idle instead (a partial run weight) softens that stride into
+// something closer to an unhurried, restrained walk.
+const PATROL_RUN_WEIGHT = 0.42;
 const PLAYER_ATTACK_COOLDOWN = 0.55;
 const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
@@ -1886,6 +1979,50 @@ function updateLocomotionAnim(rig: FighterRig, runWeight: number, actualSpeed: n
   rig.runAction.timeScale = clamp(actualSpeed / RUN_REFERENCE_SPEED, RUN_CLIP_MIN_TIMESCALE, RUN_CLIP_MAX_TIMESCALE);
 }
 
+// A bot's movement is otherwise just "walk straight at the target" — with
+// no pathfinding at all, that reads as mindless the moment a wall, crate,
+// or door frame sits between it and where it's trying to go: it just
+// keeps shoving into the obstacle every frame, pinned in place. This
+// tracks how much ground a bot is actually covering versus how much its
+// straight-line heading implies; once it's been making close to zero
+// progress for a bit, it starts steering mostly sideways (around whatever
+// it's stuck on) instead of straight ahead, flipping which side it tries
+// if that direction turns out blocked too, and only stops steering once
+// it's making real progress again.
+const STUCK_AVOID_DELAY = 0.35;
+const STUCK_AVOID_FLIP_DELAY = 1.1;
+function moveWithAvoidance(
+  rig: FighterRig,
+  st: { stuckT: number; avoidSign: 1 | -1 },
+  dirX: number,
+  dirZ: number,
+  speed: number,
+  dt: number,
+) {
+  const beforeX = rig.root.position.x;
+  const beforeZ = rig.root.position.z;
+  let moveX = dirX;
+  let moveZ = dirZ;
+  if (st.stuckT > STUCK_AVOID_DELAY) {
+    // Mostly sideways (perpendicular to the blocked heading), with a
+    // little forward bias so it still drifts back on course once clear.
+    moveX = -dirZ * st.avoidSign * 0.85 + dirX * 0.25;
+    moveZ = dirX * st.avoidSign * 0.85 + dirZ * 0.25;
+  }
+  rig.root.position.x = clamp(rig.root.position.x + moveX * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+  rig.root.position.z = clamp(rig.root.position.z + moveZ * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+  resolveObstacleCollisions(rig.root.position);
+  const moved = Math.hypot(rig.root.position.x - beforeX, rig.root.position.z - beforeZ);
+  if (moved < speed * dt * 0.3) {
+    st.stuckT += dt;
+    if (st.stuckT > STUCK_AVOID_FLIP_DELAY) {
+      st.avoidSign = st.avoidSign === 1 ? -1 : 1;
+      st.stuckT = STUCK_AVOID_DELAY;
+    }
+  } else {
+    st.stuckT = Math.max(0, st.stuckT - dt * 2);
+  }
+}
 
 // "DeathFromBackHeadshot" is a real mocap collapse clip (retargeted from
 // Mixamo, same skeleton, grafted into the glb) — its length here must
@@ -2098,6 +2235,217 @@ function loadFighter(
   );
 }
 
+// --- New bot character (a different Mixamo model/skeleton from char-1,
+// supplied with its own textures) ---------------------------------------
+//
+// This model only comes with a single frozen-pose "animation" baked in (no
+// real idle/run/fire/death mocap of its own), so instead it borrows char-1's
+// named clips (RifleIdle/RifleRun/RifleFire/DeathFromBackHeadshot) and
+// retargets them onto its own skeleton at load time. Both are genuine
+// Mixamo rigs sharing the same bone-naming/axis convention, so a clip
+// authored for one plays back correctly on the other once each bone's
+// rotation is re-expressed as a delta from its OWN rest pose (rather than
+// copied as an absolute value from char-1's rest pose) — literal copying
+// (tried first) produced a wildly mangled pose, since the two models don't
+// share an identical rest pose or unit scale.
+
+// Captures every named node's local rest transform (position + rotation)
+// right after load, before any clip has been played — this is what
+// retargetClip measures each animated frame against.
+function captureRestPose(root: THREE.Object3D): Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }> {
+  const map = new Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }>();
+  root.traverse((o) => {
+    map.set(o.name, { pos: o.position.clone(), quat: o.quaternion.clone() });
+  });
+  return map;
+}
+
+// Re-expresses `clip` (authored against skeleton A's rest pose) onto
+// skeleton B: each quaternion keyframe becomes restB * (restA^-1 * animQ) —
+// the same rotation *delta* from A's own rest pose, reapplied on top of B's
+// own rest pose. Position keyframes (root motion, e.g. the Hips bone's
+// bounce) get the same delta-from-rest treatment, additionally scaled by
+// posRatio (the two models' native, pre-normalization heights) since the
+// two source assets were exported in different real-world unit scales.
+function retargetClip(
+  clip: THREE.AnimationClip,
+  restA: Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }>,
+  restB: Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }>,
+  posRatio: number,
+): THREE.AnimationClip {
+  const newTracks: THREE.KeyframeTrack[] = [];
+  for (const track of clip.tracks) {
+    const dot = track.name.lastIndexOf(".");
+    const boneName = track.name.slice(0, dot);
+    const prop = track.name.slice(dot + 1);
+    const a = restA.get(boneName);
+    const b = restB.get(boneName);
+    if (!a || !b) {
+      newTracks.push(track.clone());
+      continue;
+    }
+    if (prop === "quaternion" && track instanceof THREE.QuaternionKeyframeTrack) {
+      const values = track.values.slice();
+      const restAInv = a.quat.clone().invert();
+      for (let i = 0; i < values.length; i += 4) {
+        const animQ = new THREE.Quaternion(values[i], values[i + 1], values[i + 2], values[i + 3]);
+        const delta = restAInv.clone().multiply(animQ);
+        const newQ = b.quat.clone().multiply(delta);
+        values[i] = newQ.x;
+        values[i + 1] = newQ.y;
+        values[i + 2] = newQ.z;
+        values[i + 3] = newQ.w;
+      }
+      newTracks.push(new THREE.QuaternionKeyframeTrack(track.name, track.times.slice() as unknown as number[], values as unknown as number[]));
+    } else if (prop === "position") {
+      const values = track.values.slice();
+      for (let i = 0; i < values.length; i += 3) {
+        const dx = (values[i] - a.pos.x) * posRatio;
+        const dy = (values[i + 1] - a.pos.y) * posRatio;
+        const dz = (values[i + 2] - a.pos.z) * posRatio;
+        values[i] = b.pos.x + dx;
+        values[i + 1] = b.pos.y + dy;
+        values[i + 2] = b.pos.z + dz;
+      }
+      newTracks.push(new THREE.VectorKeyframeTrack(track.name, track.times.slice() as unknown as number[], values as unknown as number[]));
+    } else {
+      newTracks.push(track.clone());
+    }
+  }
+  return new THREE.AnimationClip(clip.name + "Retarget", clip.duration, newTracks);
+}
+
+interface SourceRigData {
+  clips: Map<string, THREE.AnimationClip>;
+  rest: Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }>;
+  nativeHeight: number;
+}
+
+// char-1.glb loaded once purely to harvest its named clips + rest pose for
+// retargeting onto the new bot — cached the same way loadGunPrototype
+// caches the gun model, so a second bot spawn wouldn't reload it.
+let sourceRigDataPromise: Promise<SourceRigData> | null = null;
+function loadSourceRigData(): Promise<SourceRigData> {
+  if (!sourceRigDataPromise) {
+    sourceRigDataPromise = new Promise((resolve, reject) => {
+      new GLTFLoader().load(
+        "/characters/char-1.glb",
+        (gltf) => {
+          const box = new THREE.Box3().setFromObject(gltf.scene);
+          const nativeHeight = box.getSize(new THREE.Vector3()).y || 1;
+          const rest = captureRestPose(gltf.scene);
+          const clips = new Map<string, THREE.AnimationClip>();
+          for (const name of ["RifleIdle", "RifleRun", "RifleFire", "DeathFromBackHeadshot"]) {
+            const clip = gltf.animations.find((c) => c.name === name);
+            if (clip) clips.set(name, clip);
+          }
+          resolve({ clips, rest, nativeHeight });
+        },
+        undefined,
+        reject,
+      );
+    });
+  }
+  return sourceRigDataPromise;
+}
+
+// Loads the new bot character model, retargeting char-1's named clips onto
+// its own skeleton (see retargetClip above). Unlike loadFighter, this never
+// tints the material — the user supplied this character with its own
+// finished texture, and it must reach the game exactly as authored.
+function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: FighterRig) => void) {
+  const gltfPromise = new Promise<Awaited<ReturnType<InstanceType<typeof GLTFLoader>["loadAsync"]>>>((resolve, reject) => {
+    new GLTFLoader().load(url, resolve, undefined, reject);
+  });
+
+  Promise.all([gltfPromise, loadSourceRigData()])
+    .then(([gltf, source]) => {
+      const model = gltf.scene;
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const nativeHeight = size.y || 1;
+      const restNewbot = captureRestPose(model);
+      const posRatio = nativeHeight / source.nativeHeight;
+
+      const scale = 1.6 / nativeHeight;
+      model.scale.setScalar(scale);
+      model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+
+      let rightArm: THREE.Object3D | null = null;
+      let rightForeArm: THREE.Object3D | null = null;
+      let rightHand: THREE.Object3D | null = null;
+      let leftArm: THREE.Object3D | null = null;
+      let leftForeArm: THREE.Object3D | null = null;
+      let leftHand: THREE.Object3D | null = null;
+      const rightFingers: Record<string, THREE.Object3D> = {};
+      const leftFingers: Record<string, THREE.Object3D> = {};
+      const materials: THREE.MeshStandardMaterial[] = [];
+
+      model.traverse((o) => {
+        if (o.name === "mixamorigRightArm") rightArm = o;
+        if (o.name === "mixamorigRightForeArm") rightForeArm = o;
+        if (o.name === "mixamorigRightHand") rightHand = o;
+        if (o.name === "mixamorigLeftArm") leftArm = o;
+        if (o.name === "mixamorigLeftForeArm") leftForeArm = o;
+        if (o.name === "mixamorigLeftHand") leftHand = o;
+        const rightFinger = o.name.match(/^mixamorigRightHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
+        if (rightFinger) rightFingers[`${rightFinger[1]}${rightFinger[2]}`] = o;
+        const leftFinger = o.name.match(/^mixamorigLeftHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
+        if (leftFinger) leftFingers[`${leftFinger[1]}${leftFinger[2]}`] = o;
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        // No tint — clone only so this instance's own death-fade opacity
+        // (see applyDeathPose) never touches a shared/cached material.
+        const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+        mesh.material = mat;
+        materials.push(mat);
+      });
+
+      const root = new THREE.Group();
+      root.add(model);
+      scene.add(root);
+
+      let mixer: THREE.AnimationMixer | null = null;
+      let idleAction: THREE.AnimationAction | null = null;
+      let runAction: THREE.AnimationAction | null = null;
+      let fireAction: THREE.AnimationAction | null = null;
+      let deathAction: THREE.AnimationAction | null = null;
+
+      mixer = new THREE.AnimationMixer(model);
+      const idleClip = source.clips.get("RifleIdle");
+      if (idleClip) {
+        idleAction = mixer.clipAction(retargetClip(idleClip, source.rest, restNewbot, posRatio));
+        idleAction.play();
+      }
+      const runClip = source.clips.get("RifleRun");
+      if (runClip) {
+        runAction = mixer.clipAction(retargetClip(runClip, source.rest, restNewbot, posRatio));
+        runAction.play();
+        runAction.setEffectiveWeight(0);
+      }
+      const fireClip = source.clips.get("RifleFire");
+      if (fireClip) {
+        fireAction = mixer.clipAction(retargetClip(fireClip, source.rest, restNewbot, posRatio));
+        fireAction.setLoop(THREE.LoopOnce, 1);
+        fireAction.clampWhenFinished = true;
+        fireAction.play();
+        fireAction.setEffectiveWeight(0);
+      }
+      const deathClip = source.clips.get("DeathFromBackHeadshot");
+      if (deathClip) {
+        deathAction = mixer.clipAction(retargetClip(deathClip, source.rest, restNewbot, posRatio));
+        deathAction.setLoop(THREE.LoopOnce, 1);
+        deathAction.clampWhenFinished = true;
+        deathAction.play();
+        deathAction.setEffectiveWeight(0);
+      }
+
+      onLoaded({ root, mixer, idleAction, runAction, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
+    })
+    .catch((err) => console.error("Failed to load bot model", err));
+}
+
 // A minimal single-player vs. bot skirmish on a 10x10 arena: touch
 // joystick to move, tap the attack button in range. No networking — the
 // "bot" is just a simple chase-and-swing AI running in the same tick loop
@@ -2126,6 +2474,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const lookLastY = useRef(0);
 
   const [playerHp, setPlayerHp] = useState(100);
+  const [botHp, setBotHp] = useState(100);
+  const botHpBarRef = useRef<HTMLDivElement>(null);
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
@@ -2775,6 +3125,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       player = rig;
       equipGun(rig);
     });
+
+    let bot: FighterRig | null = null;
+    loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
+      if (disposed) return;
+      rig.root.position.set(BOT_SPAWN.x, 0, BOT_SPAWN.z);
+      bot = rig;
+      equipGun(rig);
+    });
     const resize = () => {
       const w = container.clientWidth;
       const h = container.clientHeight;
@@ -2809,10 +3167,37 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
 
+    const botMaxHp = 100;
+    const botState = {
+      hp: botMaxHp,
+      cooldown: 0,
+      fireT: -1,
+      deathT: -1,
+      dead: false,
+      awake: false,
+      alertT: -1,
+      patrolTarget: null as { x: number; z: number } | null,
+      stuckT: 0,
+      avoidSign: 1 as 1 | -1,
+    };
+    const damageBot = (amount: number) => {
+      if (botState.dead || !bot) return;
+      botState.hp = Math.max(0, botState.hp - amount);
+      setBotHp((botState.hp / botMaxHp) * 100);
+      if (botState.hp <= 0) {
+        botState.dead = true;
+        botState.deathT = 0;
+        startDeath(bot);
+        ended = true;
+        pendingResult = "win";
+      }
+    };
+
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const dt = Math.min(clock.getDelta(), 0.05);
       player?.mixer?.update(dt);
+      bot?.mixer?.update(dt);
       // Re-bend the off-hand toward the gun's foregrip after the mixer has
       // (re)applied this frame's idle/run/fire pose — see
       // updateOffHandReach. Skipped once dead: the death clip already
@@ -2820,17 +3205,45 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       // onto the gun every frame would fight that pose (and just looks
       // wrong — a dropped body shouldn't still be gripping the gun).
       if (player && playerDeathT < 0) updateOffHandReach(player);
+      if (bot && botState.deathT < 0) updateOffHandReach(bot);
       updateTracers(tracers, dt);
 
       if (player && playerDeathT >= 0) {
         applyDeathPose(player, playerDeathT);
         playerDeathT += dt;
       }
+      if (bot && botState.deathT >= 0) {
+        applyDeathPose(bot, botState.deathT);
+        botState.deathT += dt;
+      }
       if (ended && pendingResult) {
         resultRevealT += dt;
         if (resultRevealT > DEATH_TOTAL_DURATION) {
           setResult(pendingResult);
           pendingResult = null;
+        }
+      }
+
+      // Float the bot's own health bar above its head — hidden once dead,
+      // once it's behind the camera, or while it's still above half
+      // health (only worth calling out once it's actually hurting).
+      const botBarEl = botHpBarRef.current;
+      if (botBarEl) {
+        if (bot && !botState.dead && botState.hp / botMaxHp <= 0.5) {
+          const markPoint = bot.root.position.clone();
+          markPoint.y += 1.95;
+          markPoint.project(camera);
+          if (markPoint.z < 1) {
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            botBarEl.style.display = "block";
+            botBarEl.style.left = `${(markPoint.x + 1) * 0.5 * w}px`;
+            botBarEl.style.top = `${(1 - markPoint.y) * 0.5 * h}px`;
+          } else {
+            botBarEl.style.display = "none";
+          }
+        } else {
+          botBarEl.style.display = "none";
         }
       }
 
@@ -2923,6 +3336,21 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           g.openAmount = approach(g.openAmount, gateTarget, GATE_SLIDE_RATE, dt);
           updateGatePanels(g);
         }
+        // Recomputed every tick from each gate's current slide position —
+        // see gateBlockers/hasLineOfSight — so a shot is stopped by a
+        // still-closed or half-open gate exactly like a wall, and clears
+        // the instant it finishes sliding open.
+        gateBlockers = gates.flatMap((g) =>
+          g.door.axis === "x"
+            ? [
+                { x: g.panelA.position.x, z: g.panelA.position.z, halfX: g.panelWidth / 2, halfZ: GATE_THICKNESS / 2, pad: 0 },
+                { x: g.panelB.position.x, z: g.panelB.position.z, halfX: g.panelWidth / 2, halfZ: GATE_THICKNESS / 2, pad: 0 },
+              ]
+            : [
+                { x: g.panelA.position.x, z: g.panelA.position.z, halfX: GATE_THICKNESS / 2, halfZ: g.panelWidth / 2, pad: 0 },
+                { x: g.panelB.position.x, z: g.panelB.position.z, halfX: GATE_THICKNESS / 2, halfZ: g.panelWidth / 2, pad: 0 },
+              ],
+        );
         playerSpeedNow = Math.hypot(playerVelX, playerVelZ);
         // Face the direction actually being moved in (not the raw stick
         // input) and ease into it instead of snapping, which keeps the
@@ -2943,6 +3371,93 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // around the character without spinning the character itself
         // (matching Free Fire: panning the screen doesn't turn your body).
 
+        // The bot's own AI — dormant guard (wanders its post until the
+        // player gets close) or, once awake, chases and fires back.
+        let canHitBot = false;
+        let botDx = 0;
+        let botDz = 0;
+        if (bot && !botState.dead) {
+          botDx = player.root.position.x - bot.root.position.x;
+          botDz = player.root.position.z - bot.root.position.z;
+          let botDist = Math.hypot(botDx, botDz);
+
+          // Keep the two bodies from walking through each other.
+          if (botDist < BODY_SEPARATION) {
+            const nx = botDist > 0.0001 ? botDx / botDist : 0;
+            const nz = botDist > 0.0001 ? botDz / botDist : 1;
+            player.root.position.x = clamp(bot.root.position.x + nx * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            player.root.position.z = clamp(bot.root.position.z + nz * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            botDx = player.root.position.x - bot.root.position.x;
+            botDz = player.root.position.z - bot.root.position.z;
+            botDist = Math.hypot(botDx, botDz);
+          }
+
+          if (!botState.awake) {
+            // Dormant: wanders a short walking loop around its post until
+            // the player walks within range, then freezes, faces them, and
+            // pauses a beat (alertT) before waking into the chase below.
+            if (botState.alertT < 0) {
+              if (
+                !botState.patrolTarget ||
+                Math.hypot(bot.root.position.x - botState.patrolTarget.x, bot.root.position.z - botState.patrolTarget.z) < PATROL_ARRIVE_DIST
+              ) {
+                botState.patrolTarget = {
+                  x: BOT_SPAWN.x + (Math.random() * 2 - 1) * PATROL_RADIUS,
+                  z: BOT_SPAWN.z + (Math.random() * 2 - 1) * PATROL_RADIUS,
+                };
+              }
+              const pdx = botState.patrolTarget.x - bot.root.position.x;
+              const pdz = botState.patrolTarget.z - bot.root.position.z;
+              const pdist = Math.hypot(pdx, pdz);
+              if (pdist > 0.0001) {
+                moveWithAvoidance(bot, botState, pdx / pdist, pdz / pdist, PATROL_SPEED, dt);
+                bot.root.rotation.y = Math.atan2(pdx, pdz);
+                updateLocomotionAnim(bot, PATROL_RUN_WEIGHT, PATROL_SPEED);
+              }
+              if (botDist <= GUARD_ALERT_RADIUS) {
+                botState.alertT = ALERT_TELEGRAPH_DURATION;
+              }
+            } else {
+              updateLocomotionAnim(bot, 0, 0);
+              bot.root.rotation.y = Math.atan2(botDx, botDz);
+              botState.alertT -= dt;
+              if (botState.alertT <= 0) botState.awake = true;
+            }
+          } else {
+            // Awake: closes the gap until it has a clear shot, then holds
+            // position and fires. A wall between it and the player blocks
+            // the shot (see hasLineOfSight) same as it blocks a real
+            // bullet, so being "in range" by distance alone isn't enough.
+            const canSeePlayer = hasLineOfSight(bot.root.position.x, bot.root.position.z, player.root.position.x, player.root.position.z);
+            if (botDist > GUN_RANGE * 0.85 || !canSeePlayer) {
+              moveWithAvoidance(bot, botState, botDx / botDist, botDz / botDist, BOT_SPEED, dt);
+              updateLocomotionAnim(bot, 1, BOT_SPEED);
+            } else {
+              updateLocomotionAnim(bot, 0, 0);
+            }
+            bot.root.rotation.y = Math.atan2(botDx, botDz);
+
+            botState.cooldown = Math.max(0, botState.cooldown - dt);
+            if (botDist <= GUN_RANGE && botState.cooldown <= 0 && canSeePlayer) {
+              playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
+              setPlayerHp(playerHpLocal);
+              botState.cooldown = BOT_ATTACK_COOLDOWN;
+              botState.fireT = 0;
+              bot.fireAction?.reset().play();
+              const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
+              tracers.push(spawnTracer(scene, bot.gun, bot.root.position, targetPoint));
+            }
+            if (botState.fireT >= 0) {
+              applyFirePose(bot, botState.fireT);
+              botState.fireT = botState.fireT + dt > FIRE_ANIM_DURATION ? -1 : botState.fireT + dt;
+            }
+          }
+
+          // Only counts as the player's auto-aim target if actually
+          // visible and in range.
+          canHitBot = botDist <= GUN_RANGE && hasLineOfSight(player.root.position.x, player.root.position.z, bot.root.position.x, bot.root.position.z);
+        }
+
         playerCooldown = Math.max(0, playerCooldown - dt);
 
         // Auto-fire: attackRequested stays true for as long as the FIRE
@@ -2962,12 +3477,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             playerFireT = 0;
             player.fireAction?.reset().play();
             const aimYaw = cameraYaw.current;
-            const targetPoint = new THREE.Vector3(
-              player.root.position.x + Math.sin(aimYaw) * GUN_RANGE,
-              TRACER_TARGET_HEIGHT,
-              player.root.position.z + Math.cos(aimYaw) * GUN_RANGE,
-            );
+            const targetPoint =
+              canHitBot && bot
+                ? new THREE.Vector3(bot.root.position.x, TRACER_TARGET_HEIGHT, bot.root.position.z)
+                : new THREE.Vector3(
+                    player.root.position.x + Math.sin(aimYaw) * GUN_RANGE,
+                    TRACER_TARGET_HEIGHT,
+                    player.root.position.z + Math.cos(aimYaw) * GUN_RANGE,
+                  );
             tracers.push(spawnTracer(scene, player.gun, player.root.position, targetPoint));
+            if (canHitBot) damageBot(PLAYER_DAMAGE);
           }
         }
 
@@ -3030,6 +3549,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       ro.disconnect();
       renderer.dispose();
       container.removeChild(renderer.domElement);
+      gateBlockers = [];
     };
   }, []);
 
@@ -3114,6 +3634,15 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         </div>
         <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
+        </div>
+      </div>
+
+      {/* The bot's own health bar — floats above its head in-world (see
+          the screen-projection block in the tick loop), not fixed to a
+          screen corner, so it stays pinned to whichever bot it belongs to. */}
+      <div ref={botHpBarRef} style={{ position: "absolute", width: 90, marginLeft: -45, marginTop: -28, display: "none", pointerEvents: "none" }}>
+        <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.18)", overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${botHp}%`, background: "linear-gradient(90deg,#ff6b5e,#ff9a4d)", transition: "width 150ms ease-out" }} />
         </div>
       </div>
 
