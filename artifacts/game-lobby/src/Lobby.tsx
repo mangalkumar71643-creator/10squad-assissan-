@@ -1605,7 +1605,7 @@ function hasLineOfSight(x1: number, z1: number, x2: number, z2: number): boolean
 
 const PLAYER_DAMAGE = 14;
 const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
-const BOT_SPEED = 1.9;
+const BOT_SPEED = 3.8; // doubled — a fast, aggressive chase once it's spotted the player
 const BOT_DAMAGE = 10;
 const BOT_ATTACK_COOLDOWN = 1.3;
 // The new bot's guard post — the same spot bot1 always stood watch at
@@ -1619,15 +1619,22 @@ const BOT_SPAWN = {
   x: ROOM_POS.x - ROOM_TUNNEL_DIR[0].z * BOT_GUARD_OFFSET,
   z: ROOM_POS.z + ROOM_TUNNEL_DIR[0].x * BOT_GUARD_OFFSET,
 };
-const GUARD_ALERT_RADIUS = 9;
-const ALERT_TELEGRAPH_DURATION = 0.7;
-// While dormant, the bot doesn't just freeze on one spot — it wanders a
-// visible walking loop around its post (left/right/forward/back at
-// random), until the player's approach wakes it up. A wider loop at a
-// clip that actually clears the run clip's minimum timescale (see
-// RUN_CLIP_MIN_TIMESCALE) is what makes this read as a bot patrolling —
-// too small/slow a loop looked like standing still with a faint shuffle.
-const PATROL_RADIUS = 8;
+// Wakes the instant the player is actually visible (see hasLineOfSight in
+// the tick loop's alert check) rather than only within a small radius —
+// DETECTION_RANGE just caps how far off that sight check still counts, set
+// generously past the room's own diagonal so "visible anywhere in the
+// room" is effectively "visible at all".
+const DETECTION_RANGE = 30;
+// Near-instant reaction once spotted — a beat just long enough to read as
+// noticing the player rather than a jump-cut, not the old telegraphed pause.
+const ALERT_TELEGRAPH_DURATION = 0.15;
+// While dormant, the bot doesn't just hold one small loop around its post —
+// it patrols the room's full interior, only steering clear of the narrow
+// strip down the middle where the stairs cut through the floor (see
+// PATROL_STAIRS_CLEARANCE below); once it's actually spotted the player it
+// switches to the direct chase behavior below instead of these waypoints.
+const PATROL_MARGIN = 2; // stays this far in from the room's own walls
+const PATROL_STAIRS_CLEARANCE = 2.5; // wider than the stairs' own RAMP_HALF_WIDTH, so a waypoint never lands over the hole
 const PATROL_SPEED = BOT_SPEED * 0.9;
 const PATROL_ARRIVE_DIST = 0.6;
 // There's no dedicated walk clip on this rig (only Idle and a full-sprint
@@ -1637,6 +1644,33 @@ const PATROL_ARRIVE_DIST = 0.6;
 // toward idle instead (a partial run weight) softens that stride into
 // something closer to an unhurried, restrained walk.
 const PATROL_RUN_WEIGHT = 0.65;
+
+// Picks a random waypoint anywhere in Room 1's interior — rejection-sampled
+// against the stairs' own footprint (same along/perp rectangle the
+// player's own height-follow check uses, just padded out by
+// PATROL_STAIRS_CLEARANCE) so a waypoint never lands over the hole in the
+// floor: the bot has no height-follow logic for the stairs the way the
+// player does, so walking onto that hole would visibly clip it through
+// the floor.
+function pickRoomPatrolTarget(): { x: number; z: number } {
+  const half = ROOM_SIZE / 2 - PATROL_MARGIN;
+  const dir = ROOM_TUNNEL_DIR[0];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const x = ROOM_POS.x + (Math.random() * 2 - 1) * half;
+    const z = ROOM_POS.z + (Math.random() * 2 - 1) * half;
+    const dx = x - ROOM_POS.x;
+    const dz = z - ROOM_POS.z;
+    const along = dx * dir.x + dz * dir.z;
+    const perp = dz * dir.x - dx * dir.z;
+    const overStairs =
+      Math.abs(perp) < PATROL_STAIRS_CLEARANCE &&
+      along > -RAMP_BAND - PATROL_STAIRS_CLEARANCE &&
+      along < RAMP_RUN_LENGTH + RAMP_BAND + PATROL_STAIRS_CLEARANCE;
+    if (!overStairs) return { x, z };
+  }
+  return { x: BOT_SPAWN.x, z: BOT_SPAWN.z };
+}
+
 const PLAYER_ATTACK_COOLDOWN = 0.55;
 const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
@@ -3454,18 +3488,29 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           }
 
           if (!botState.awake) {
-            // Dormant: wanders a short walking loop around its post until
-            // the player walks within range, then freezes, faces them, and
-            // pauses a beat (alertT) before waking into the chase below.
+            // Dormant: patrols the whole room (see pickRoomPatrolTarget)
+            // until it actually spots the player — the instant it has a
+            // clear line of sight within DETECTION_RANGE, not just when
+            // they're within some fixed radius — then freezes, faces
+            // them, and holds for a near-instant beat (alertT) before
+            // waking into the chase below.
             if (botState.alertT < 0) {
               if (
                 !botState.patrolTarget ||
-                Math.hypot(bot.root.position.x - botState.patrolTarget.x, bot.root.position.z - botState.patrolTarget.z) < PATROL_ARRIVE_DIST
+                Math.hypot(bot.root.position.x - botState.patrolTarget.x, bot.root.position.z - botState.patrolTarget.z) < PATROL_ARRIVE_DIST ||
+                // A wider room-wide patrol crosses paths with the room's
+                // own crates far more than the old small loop around the
+                // guard post did — moveWithAvoidance's simple sideways
+                // steering can still end up oscillating in a stable loop
+                // against a corner rather than actually clearing it (seen
+                // in testing: pinned dead against a crate edge for 45+s
+                // straight). Once it's been stuck that long, abandon the
+                // current waypoint for a fresh one instead of fixating on
+                // one that may not be reachable from here.
+                botState.stuckT > STUCK_AVOID_FLIP_DELAY * 2
               ) {
-                botState.patrolTarget = {
-                  x: BOT_SPAWN.x + (Math.random() * 2 - 1) * PATROL_RADIUS,
-                  z: BOT_SPAWN.z + (Math.random() * 2 - 1) * PATROL_RADIUS,
-                };
+                botState.patrolTarget = pickRoomPatrolTarget();
+                botState.stuckT = 0;
               }
               const pdx = botState.patrolTarget.x - bot.root.position.x;
               const pdz = botState.patrolTarget.z - bot.root.position.z;
@@ -3475,7 +3520,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
                 bot.root.rotation.y = Math.atan2(pdx, pdz);
                 updateLocomotionAnim(bot, PATROL_RUN_WEIGHT, PATROL_SPEED);
               }
-              if (botDist <= GUARD_ALERT_RADIUS) {
+              if (
+                botDist <= DETECTION_RANGE &&
+                hasLineOfSight(bot.root.position.x, bot.root.position.z, player.root.position.x, player.root.position.z)
+              ) {
                 botState.alertT = ALERT_TELEGRAPH_DURATION;
               }
             } else {
