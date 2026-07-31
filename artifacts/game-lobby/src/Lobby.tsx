@@ -811,31 +811,6 @@ function terrainColor(v: number): [number, number, number] {
   return TERRAIN_STOPS[TERRAIN_STOPS.length - 1][1];
 }
 
-// A real photo-sourced stone floor (medieval_blocks_05, tiled with
-// RepeatWrapping) for the main arena ground — loads diffuse/roughness/
-// normal maps and wires up wrapping, tiling density and anisotropic
-// filtering the same way createFloorTexture does for its procedural
-// texture, just from real image files instead of a canvas.
-const stoneTextureLoader = new THREE.TextureLoader();
-function loadStoneFloorMap(url: string, maxAnisotropy: number, colorSpace?: THREE.ColorSpace): THREE.Texture {
-  const texture = stoneTextureLoader.load(url);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(STONE_FLOOR_REPEAT, STONE_FLOOR_REPEAT);
-  texture.anisotropy = maxAnisotropy;
-  if (colorSpace) texture.colorSpace = colorSpace;
-  return texture;
-}
-function createStoneFloorMaterial(maxAnisotropy: number): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
-    map: loadStoneFloorMap("/textures/floor-diffuse.jpg", maxAnisotropy, THREE.SRGBColorSpace),
-    roughnessMap: loadStoneFloorMap("/textures/floor-roughness.jpg", maxAnisotropy),
-    normalMap: loadStoneFloorMap("/textures/floor-normal.jpg", maxAnisotropy),
-    roughness: 1,
-    metalness: 0,
-  });
-}
-
 // Procedural sci-fi metal floor texture for the arena — dark blue-grey
 // plating (layered value noise for subtle wear patches, fine speckle for
 // grain) with beveled panel seams and a glowing cyan tactical-grid accent
@@ -1200,12 +1175,8 @@ const ARENA_HALF = 350; // 700x700 arena, centered on the origin
 // clip plane — is derived from ARENA_HALF below instead of hand-tuned
 // constants, so resizing the arena again later is a one-line change
 // instead of a multi-spot retune.
-// The stone floor tile (medieval_blocks_05) reads as roughly human-scaled
-// stone blocks at about 4 world units per tile — much smaller and it turns
-// into mush at a distance, much bigger and the individual stones look
-// oversized next to a fighter.
-const STONE_FLOOR_TILE_SIZE = 4;
-const STONE_FLOOR_REPEAT = (ARENA_HALF * 2) / STONE_FLOOR_TILE_SIZE;
+const FLOOR_TILE_SIZE = 1.667; // world units per floor texture tile, kept constant regardless of arena size
+const FLOOR_REPEAT = (ARENA_HALF * 2) / FLOOR_TILE_SIZE;
 const GRID_DIVISIONS = ARENA_HALF * 2; // 1 world unit per grid cell
 const FOG_NEAR = ARENA_HALF - 5;
 const FOG_FAR = ARENA_HALF * 2.5;
@@ -2466,7 +2437,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     }
     const groundGeo = new THREE.ShapeGeometry(groundShape);
     groundGeo.rotateX(-Math.PI / 2);
-    const ground = new THREE.Mesh(groundGeo, createStoneFloorMaterial(renderer.capabilities.getMaxAnisotropy()));
+    const ground = new THREE.Mesh(
+      groundGeo,
+      new THREE.MeshStandardMaterial({ map: createFloorTexture(FLOOR_REPEAT, renderer.capabilities.getMaxAnisotropy()), roughness: 0.6, metalness: 0.35 }),
+    );
     scene.add(ground);
     // GridHelper draws one flat, uninterrupted grid across the whole arena
     // — it doesn't know about the holes just cut into the ground above, so
