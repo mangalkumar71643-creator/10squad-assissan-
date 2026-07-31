@@ -2455,6 +2455,22 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       groundShape.holes.push(hole);
     }
     const groundGeo = new THREE.ShapeGeometry(groundShape);
+    // ShapeGeometry's default UVs are the shape's raw local coordinates
+    // (here, -ARENA_HALF..ARENA_HALF) rather than the usual 0-1 range, so
+    // texture.repeat further below was silently multiplying against that
+    // whole 700-unit span instead of a unit square — over-tiling any real
+    // image so heavily it blurred into a flat, featureless color. A
+    // fine-grained procedural noise texture still happened to read as
+    // "textured" even that heavily aliased, which is why this went
+    // unnoticed until a real photo replaced it. Remap to a proper 0-1 UV
+    // here so texture.repeat means what it says.
+    {
+      const uv = groundGeo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) {
+        uv.setXY(i, (uv.getX(i) + ARENA_HALF) / (ARENA_HALF * 2), (uv.getY(i) + ARENA_HALF) / (ARENA_HALF * 2));
+      }
+      uv.needsUpdate = true;
+    }
     groundGeo.rotateX(-Math.PI / 2);
     const ground = new THREE.Mesh(
       groundGeo,
