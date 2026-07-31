@@ -1203,8 +1203,7 @@ const CAMERA_FAR = SKY_RADIUS + 50;
 // The player's target ground speed is a continuous function of how far the
 // joystick is pushed (see PLAYER_MAX_SPEED below) rather than a fixed
 // constant — full tilt sustained past SPRINT_ENGAGE_MAG additionally ramps
-// in a sprint bonus. BOT_SPEED stays a plain constant; the bot's chase
-// logic isn't part of this pass.
+// in a sprint bonus.
 const PLAYER_MAX_SPEED = 3.4;
 const PLAYER_SPRINT_BONUS = 0.4; // extra fraction of top speed once sprint is fully engaged
 const SPRINT_ENGAGE_MAG = 0.92; // joystick magnitude that starts building sprint
@@ -1212,9 +1211,7 @@ const SPRINT_BLEND_RATE = 2.4; // per-second ease rate in/out of sprint
 const PLAYER_ACCEL_RATE = 9; // per-second damping rate speeding up
 const PLAYER_DECEL_RATE = 15; // per-second damping rate slowing down (snappier stop than start)
 const PLAYER_TURN_RATE = 11; // per-second damping rate turning to face the move direction
-const BOT_SPEED = 1.9;
 const GUN_RANGE = 14; // a shootout distance, not a melee reach
-const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
 
 // A sci-fi outpost room off to the side of the arena — four walls around a
 // 40x40 footprint, each with its own door gap (one "entrance" side, three
@@ -1537,79 +1534,7 @@ function resolveObstacleCollisions(pos: { x: number; z: number }) {
   }
 }
 
-// Whether the straight segment from (x1,z1) to (x2,z2) crosses this
-// obstacle's footprint — a standard slab test against its axis-aligned
-// rectangle, walked with the segment's own parametric range so a hit
-// outside [0,1] (before the start or past the end) doesn't count. Uses
-// the bare halfX/halfZ, not the movement-collision `pad` — that padding
-// exists to keep a fighter's body from clipping into a wall, not to
-// decide whether a bullet's sightline is blocked.
-function segmentHitsObstacle(x1: number, z1: number, x2: number, z2: number, ob: Obstacle): boolean {
-  const minX = ob.x - ob.halfX;
-  const maxX = ob.x + ob.halfX;
-  const minZ = ob.z - ob.halfZ;
-  const maxZ = ob.z + ob.halfZ;
-  const dx = x2 - x1;
-  const dz = z2 - z1;
-  let tmin = 0;
-  let tmax = 1;
-  if (Math.abs(dx) < 1e-9) {
-    if (x1 < minX || x1 > maxX) return false;
-  } else {
-    let t1 = (minX - x1) / dx;
-    let t2 = (maxX - x1) / dx;
-    if (t1 > t2) [t1, t2] = [t2, t1];
-    tmin = Math.max(tmin, t1);
-    tmax = Math.min(tmax, t2);
-    if (tmin > tmax) return false;
-  }
-  if (Math.abs(dz) < 1e-9) {
-    if (z1 < minZ || z1 > maxZ) return false;
-  } else {
-    let t1 = (minZ - z1) / dz;
-    let t2 = (maxZ - z1) / dz;
-    if (t1 > t2) [t1, t2] = [t2, t1];
-    tmin = Math.max(tmin, t1);
-    tmax = Math.min(tmax, t2);
-    if (tmin > tmax) return false;
-  }
-  return true;
-}
-
-// Each door opening's sliding gate occupies a *gap* in OBSTACLES (see
-// roomWallObstacles) — the wall geometry itself never blocks a shot
-// through a doorway, open or closed. The gate panels are what actually
-// seal it, and they move (see updateGatePanels in the tick loop), so
-// their current footprint can't be a fixed entry in OBSTACLES; it's
-// recomputed into this module-level list every tick (see the gate-slide
-// block below) and checked by hasLineOfSight right alongside the static
-// walls, so a shot is blocked by a still-closed or half-open gate the
-// same way it's blocked by a solid wall, and clears the instant the gate
-// finishes sliding open.
-let gateBlockers: Obstacle[] = [];
-
-// Whether a shot fired from (x1,z1) toward (x2,z2) actually has a clear
-// path — walls are modelled as gapped segments (see roomWallObstacles;
-// each door opening is a real gap in the geometry, not a separate flag),
-// so this needs no special-casing for doors on its own: a shot through an
-// open doorway simply never intersects any wall rectangle. The gate
-// panels filling that gap (see gateBlockers) are checked separately,
-// since a closed door should still stop a shot even though the wall
-// behind it has no geometry there.
-function hasLineOfSight(x1: number, z1: number, x2: number, z2: number): boolean {
-  for (const ob of OBSTACLES) {
-    if (segmentHitsObstacle(x1, z1, x2, z2, ob)) return false;
-  }
-  for (const ob of gateBlockers) {
-    if (segmentHitsObstacle(x1, z1, x2, z2, ob)) return false;
-  }
-  return true;
-}
-
-const PLAYER_DAMAGE = 14;
-const BOT_DAMAGE = 10;
 const PLAYER_ATTACK_COOLDOWN = 0.55;
-const BOT_ATTACK_COOLDOWN = 1.3;
 const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
@@ -1634,63 +1559,6 @@ const FIRE_FADE_OUT = 0.4;
 const TRACER_DURATION = 0.08;
 // Roughly chest height — tracers aim here instead of at the root/feet.
 const TRACER_TARGET_HEIGHT = 1.3;
-const BOT1_TINT = 0xff6b5e;
-const BOT2_TINT = 0xffb703;
-const BOT3_TINT = 0x8a5cff;
-const BOT4_TINT = 0x4dff9e;
-const BOT5_TINT = 0x4dd0ff;
-// Guards stand and patrol off to the side of their room's own center, not
-// on top of it — the stairs down to the tunnel sit exactly at that center
-// (see ROOM_STAIRS_DOWN_POS), and standing/fighting right there used to
-// carry the player through the stairway's height-follow zone (see
-// RAMP_HALF_WIDTH/RAMP_RUN_LENGTH) mid-fight, sinking them partway into
-// the floor even though they never meant to go downstairs. Offsetting
-// perpendicular to that house's own descent direction (see
-// ROOM_TUNNEL_DIR), by more than the stairway's half-width plus the full
-// patrol wander radius, keeps the whole guard post clear of that zone.
-const GUARD_OFFSET = 6;
-function guardOffsetFor(i: number) {
-  const dir = ROOM_TUNNEL_DIR[i];
-  return { x: -dir.z * GUARD_OFFSET, z: dir.x * GUARD_OFFSET };
-}
-const GUARD_POS = ROOM_POSITIONS.map((pos, i) => {
-  const off = guardOffsetFor(i);
-  return { x: pos.x + off.x, z: pos.z + off.z };
-});
-const BOT1_SPAWN = GUARD_POS[0];
-const BOT2_SPAWN = GUARD_POS[1];
-const BOT3_SPAWN = GUARD_POS[2];
-const BOT4_SPAWN = GUARD_POS[3];
-const BOT5_SPAWN = GUARD_POS[4];
-const GUARD_ALERT_RADIUS = 6;
-const ALERT_TELEGRAPH_DURATION = 0.7;
-const ALERT_MARK_HEIGHT = 2.15; // just above a guard's head
-const HP_BAR_HEIGHT = 1.95; // just above the head, below the alert mark
-// While dormant, a guard doesn't just freeze on one spot — it wanders a
-// short walking loop around its post (left/right/forward/back at random),
-// well within its room's walls, until the player's entry wakes it up.
-const PATROL_RADIUS = 3;
-const PATROL_SPEED = BOT_SPEED * 0.5; // an unhurried walk, not a chase sprint
-const PATROL_ARRIVE_DIST = 0.4;
-// There's no dedicated walk clip on this rig (only Idle2 and a full-sprint
-// Running clip) — slowing the run clip's timeScale down to match the
-// patrol speed still keeps its full running stride, which reads as a
-// slow-motion sprint rather than an actual stroll. Blending it down
-// toward idle instead (a partial run weight) softens that stride into
-// something closer to an unhurried, restrained walk.
-const PATROL_RUN_WEIGHT = 0.42;
-// The Boss — a tougher fifth enemy stationed in Room 6 rather than roaming
-// with the other four. It doesn't chase; it stands its ground, already
-// armed, and opens fire the moment the player comes within range.
-const BOSS_TINT = 0xb3122b;
-// Same reasoning as GUARD_POS above — Room 6 also has its own stairs down
-// at ROOM6_POS's exact center, so the boss (index 5 in ROOM_TUNNEL_DIR)
-// gets the same clear-of-the-stairs offset instead of standing right on it.
-const BOSS_SPAWN_OFFSET = guardOffsetFor(5);
-const BOSS_SPAWN = { x: ROOM6_POS.x + BOSS_SPAWN_OFFSET.x, z: ROOM6_POS.z + BOSS_SPAWN_OFFSET.z };
-const BOSS_HP = 220;
-const BOSS_DAMAGE = 14;
-const BOSS_ATTACK_COOLDOWN = 1.1;
 // Route to the Boss, as a floor-arrow marker at every gate along the way
 // (not a HUD element) — one glowing arrow on the ground at each doorway,
 // pointing which way to walk through it, from spawn all the way to Room 6.
@@ -2019,51 +1887,6 @@ function updateLocomotionAnim(rig: FighterRig, runWeight: number, actualSpeed: n
 }
 
 
-// A bot's movement is otherwise just "walk straight at the target" — with
-// no pathfinding at all, that reads as mindless the moment a wall, crate,
-// or door frame sits between it and where it's trying to go: it just
-// keeps shoving into the obstacle every frame, pinned in place. This
-// tracks how much ground a bot is actually covering versus how much its
-// straight-line heading implies; once it's been making close to zero
-// progress for a bit, it starts steering mostly sideways (around whatever
-// it's stuck on) instead of straight ahead, flipping which side it tries
-// if that direction turns out blocked too, and only stops steering once
-// it's making real progress again.
-const STUCK_AVOID_DELAY = 0.35;
-const STUCK_AVOID_FLIP_DELAY = 1.1;
-function moveWithAvoidance(
-  rig: FighterRig,
-  st: { stuckT: number; avoidSign: 1 | -1 },
-  dirX: number,
-  dirZ: number,
-  speed: number,
-  dt: number,
-) {
-  const beforeX = rig.root.position.x;
-  const beforeZ = rig.root.position.z;
-  let moveX = dirX;
-  let moveZ = dirZ;
-  if (st.stuckT > STUCK_AVOID_DELAY) {
-    // Mostly sideways (perpendicular to the blocked heading), with a
-    // little forward bias so it still drifts back on course once clear.
-    moveX = -dirZ * st.avoidSign * 0.85 + dirX * 0.25;
-    moveZ = dirX * st.avoidSign * 0.85 + dirZ * 0.25;
-  }
-  rig.root.position.x = clamp(rig.root.position.x + moveX * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-  rig.root.position.z = clamp(rig.root.position.z + moveZ * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-  resolveObstacleCollisions(rig.root.position);
-  const moved = Math.hypot(rig.root.position.x - beforeX, rig.root.position.z - beforeZ);
-  if (moved < speed * dt * 0.3) {
-    st.stuckT += dt;
-    if (st.stuckT > STUCK_AVOID_FLIP_DELAY) {
-      st.avoidSign = st.avoidSign === 1 ? -1 : 1;
-      st.stuckT = STUCK_AVOID_DELAY;
-    }
-  } else {
-    st.stuckT = Math.max(0, st.stuckT - dt * 2);
-  }
-}
-
 // "DeathFromBackHeadshot" is a real mocap collapse clip (retargeted from
 // Mixamo, same skeleton, grafted into the glb) — its length here must
 // match the merged clip's actual duration (see the merge that grafted it
@@ -2291,17 +2114,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const [runActive, setRunActive] = useState(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
-  // One floating "?" mark per guard bot (bot1..bot5), screen-projected and
-  // positioned directly via ref each tick (same reasoning as the joystick
-  // knob above) — shown for the brief alert telegraph right before a
-  // dormant guard wakes up and starts chasing.
-  const alertRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
-  // Per-enemy floating health bar, positioned directly via ref each tick
-  // the same way (screen-projected from that fighter's 3D head position)
-  // instead of the old fixed corner list — index 5 is the Boss. The fill
-  // width still comes from botHps/React state (only changes on a hit, not
-  // every frame), just the position is imperative.
-  const hpBarRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
   // buttons) orbits the camera around the player, independent of movement.
   // Horizontal drag turns cameraYaw; vertical drag adds to cameraPitch,
@@ -2314,7 +2126,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const lookLastY = useRef(0);
 
   const [playerHp, setPlayerHp] = useState(100);
-  const [botHps, setBotHps] = useState<number[]>([100, 100, 100, 100, 100, 100]);
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
@@ -2942,12 +2753,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     gates.forEach(updateGatePanels); // start fully closed
 
     let player: FighterRig | null = null;
-    let bot1: FighterRig | null = null;
-    let bot2: FighterRig | null = null;
-    let bot3: FighterRig | null = null;
-    let bot4: FighterRig | null = null;
-    let bot5: FighterRig | null = null;
-    let boss: FighterRig | null = null;
 
     // Preloaded here so it's very likely already resolved by the time each
     // fighter's rig finishes loading — every fighter is armed on spawn now,
@@ -2970,54 +2775,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       player = rig;
       equipGun(rig);
     });
-    // Each bot stands guard inside its own room, dormant until the player
-    // actually walks in (see GUARD_POS / the alert check in the tick loop)
-    // rather than roaming near spawn.
-    loadFighter(scene, BOT1_TINT, (rig) => {
-      if (disposed) return;
-      rig.root.position.set(BOT1_SPAWN.x, 0, BOT1_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      bot1 = rig;
-      equipGun(rig);
-    });
-    loadFighter(scene, BOT2_TINT, (rig) => {
-      if (disposed) return;
-      rig.root.position.set(BOT2_SPAWN.x, 0, BOT2_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      bot2 = rig;
-      equipGun(rig);
-    });
-    loadFighter(scene, BOT3_TINT, (rig) => {
-      if (disposed) return;
-      rig.root.position.set(BOT3_SPAWN.x, 0, BOT3_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      bot3 = rig;
-      equipGun(rig);
-    });
-    loadFighter(scene, BOT4_TINT, (rig) => {
-      if (disposed) return;
-      rig.root.position.set(BOT4_SPAWN.x, 0, BOT4_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      bot4 = rig;
-      equipGun(rig);
-    });
-    loadFighter(scene, BOT5_TINT, (rig) => {
-      if (disposed) return;
-      rig.root.position.set(BOT5_SPAWN.x, 0, BOT5_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      bot5 = rig;
-      equipGun(rig);
-    });
-    // The Boss stands guard in Room 6 — tougher and hitting harder, still
-    // fighting bare-handed like everyone else, just holding a gun too.
-    loadFighter(scene, BOSS_TINT, (rig) => {
-      if (disposed) return;
-      rig.root.position.set(BOSS_SPAWN.x, 0, BOSS_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      boss = rig;
-      equipGun(rig);
-    });
-
     const resize = () => {
       const w = container.clientWidth;
       const h = container.clientHeight;
@@ -3043,26 +2800,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
-    // All four regular bots plus the Boss fight simultaneously (not one at
-    // a time) — each has its own hp/cooldown/pose/death timeline, tracked
-    // in parallel here rather than a single shared set of "the current
-    // bot" variables. Index 4 is the Boss: stationary and much tougher.
-    const botMaxHp = [100, 100, 100, 100, 100, BOSS_HP];
-    const botStates = botMaxHp.map((hp, i) => ({
-      hp,
-      cooldown: 0,
-      fireT: -1,
-      deathT: -1,
-      dead: false,
-      isBoss: i === 5,
-      // Guard bots start dormant (idle, not attacking) until the player
-      // steps into their room; the Boss has no guard behavior to wait on.
-      awake: i === 5,
-      alertT: -1,
-      patrolTarget: null as { x: number; z: number } | null,
-      stuckT: 0,
-      avoidSign: 1 as 1 | -1,
-    }));
     // Short-lived tracer lines from a gun to its target, spawned per shot
     // and cleaned up once their life runs out (see spawnTracer/updateTracers).
     const tracers: Tracer[] = [];
@@ -3072,86 +2809,19 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
 
-    // Applies damage to one bot by index, handling its death (topple pose)
-    // and the overall win condition (every bot dead).
-    const damageBot = (idx: number, amount: number) => {
-      const st = botStates[idx];
-      if (st.dead) return;
-      st.hp = Math.max(0, st.hp - amount);
-      setBotHps((prev) => {
-        const next = prev.slice();
-        next[idx] = (st.hp / botMaxHp[idx]) * 100;
-        return next;
-      });
-      if (st.hp <= 0) {
-        st.dead = true;
-        st.deathT = 0;
-        const rig = [bot1, bot2, bot3, bot4, bot5, boss][idx];
-        if (rig) startDeath(rig);
-        if (botStates.every((s) => s.dead)) {
-          ended = true;
-          pendingResult = "win";
-        }
-      }
-    };
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const dt = Math.min(clock.getDelta(), 0.05);
       player?.mixer?.update(dt);
-      bot1?.mixer?.update(dt);
-      bot2?.mixer?.update(dt);
-      bot3?.mixer?.update(dt);
-      bot4?.mixer?.update(dt);
-      bot5?.mixer?.update(dt);
-      boss?.mixer?.update(dt);
       // Re-bend the off-hand toward the gun's foregrip after the mixer has
       // (re)applied this frame's idle/run/fire pose — see
-      // updateOffHandReach. Skipped once a fighter is dead: the death clip
-      // already drives the arm bones for the collapse, and re-bending the
-      // off-hand onto the gun every frame would fight that pose (and just
-      // looks wrong — a dropped body shouldn't still be gripping the gun).
+      // updateOffHandReach. Skipped once dead: the death clip already
+      // drives the arm bones for the collapse, and re-bending the off-hand
+      // onto the gun every frame would fight that pose (and just looks
+      // wrong — a dropped body shouldn't still be gripping the gun).
       if (player && playerDeathT < 0) updateOffHandReach(player);
-      if (bot1 && botStates[0].deathT < 0) updateOffHandReach(bot1);
-      if (bot2 && botStates[1].deathT < 0) updateOffHandReach(bot2);
-      if (bot3 && botStates[2].deathT < 0) updateOffHandReach(bot3);
-      if (bot4 && botStates[3].deathT < 0) updateOffHandReach(bot4);
-      if (bot5 && botStates[4].deathT < 0) updateOffHandReach(bot5);
-      if (boss && botStates[5].deathT < 0) updateOffHandReach(boss);
       updateTracers(tracers, dt);
 
-      const rigs = [bot1, bot2, bot3, bot4, bot5, boss];
-      for (let i = 0; i < 6; i++) {
-        const rig = rigs[i];
-        const st = botStates[i];
-        if (rig && st.deathT >= 0) {
-          applyDeathPose(rig, st.deathT);
-          st.deathT += dt;
-        }
-        // Float this fighter's health bar above its own head instead of a
-        // fixed corner list — same screen-projection approach as the alert
-        // marker above, hidden once dead, once it's behind the camera, or
-        // while it's still above half health (only worth calling out once
-        // a fighter is actually hurting).
-        const barEl = hpBarRefs.current[i];
-        if (barEl) {
-          if (rig && !st.dead && st.hp / botMaxHp[i] <= 0.5) {
-            const markPoint = rig.root.position.clone();
-            markPoint.y += HP_BAR_HEIGHT;
-            markPoint.project(camera);
-            if (markPoint.z < 1) {
-              const w = container.clientWidth;
-              const h = container.clientHeight;
-              barEl.style.display = "block";
-              barEl.style.left = `${(markPoint.x + 1) * 0.5 * w}px`;
-              barEl.style.top = `${(1 - markPoint.y) * 0.5 * h}px`;
-            } else {
-              barEl.style.display = "none";
-            }
-          } else {
-            barEl.style.display = "none";
-          }
-        }
-      }
       if (player && playerDeathT >= 0) {
         applyDeathPose(player, playerDeathT);
         playerDeathT += dt;
@@ -3164,7 +2834,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
       }
 
-      if (!ended && player && bot1 && bot2 && bot3 && bot4 && bot5 && boss) {
+      if (!ended && player) {
         const jv = joystickVec.current;
         const joyMag = Math.min(1, Math.hypot(jv.x, jv.y));
 
@@ -3253,22 +2923,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           g.openAmount = approach(g.openAmount, gateTarget, GATE_SLIDE_RATE, dt);
           updateGatePanels(g);
         }
-        // Recomputed every tick from each gate's current slide position —
-        // see gateBlockers/hasLineOfSight — so a shot is stopped by a
-        // still-closed or half-open gate exactly like a wall, and clears
-        // the instant it finishes sliding open.
-        gateBlockers = gates.flatMap((g) =>
-          g.door.axis === "x"
-            ? [
-                { x: g.panelA.position.x, z: g.panelA.position.z, halfX: g.panelWidth / 2, halfZ: GATE_THICKNESS / 2, pad: 0 },
-                { x: g.panelB.position.x, z: g.panelB.position.z, halfX: g.panelWidth / 2, halfZ: GATE_THICKNESS / 2, pad: 0 },
-              ]
-            : [
-                { x: g.panelA.position.x, z: g.panelA.position.z, halfX: GATE_THICKNESS / 2, halfZ: g.panelWidth / 2, pad: 0 },
-                { x: g.panelB.position.x, z: g.panelB.position.z, halfX: GATE_THICKNESS / 2, halfZ: g.panelWidth / 2, pad: 0 },
-              ],
-        );
-
         playerSpeedNow = Math.hypot(playerVelX, playerVelZ);
         // Face the direction actually being moved in (not the raw stick
         // input) and ease into it instead of snapping, which keeps the
@@ -3283,157 +2937,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // continuously off actual speed so there's no hard on/off cut.
         const speedFrac = clamp(playerSpeedNow / PLAYER_MAX_SPEED, 0, 1.15);
         updateLocomotionAnim(player, speedFrac, playerSpeedNow);
-
-        // All bots act independently and simultaneously — every one still
-        // alive chases the player and can land its own hit, rather than
-        // only "the current" one taking its turn. Track the nearest alive
-        // one as we go, as the player's own melee target.
-        let nearestIdx = -1;
-        let nearestDist = Infinity;
-        for (let i = 0; i < 6; i++) {
-          const rig = rigs[i];
-          const st = botStates[i];
-          if (!rig || st.dead) continue;
-
-          let dx = player.root.position.x - rig.root.position.x;
-          let dz = player.root.position.z - rig.root.position.z;
-          let dist = Math.hypot(dx, dz);
-          // Every distance/collision check above is X/Z only, so a player
-          // standing in the underground tunnel directly below a bot's
-          // room (same X/Z, ~3.5 units lower) would otherwise read as
-          // point-blank range — bots never change floor, so comparing Y
-          // is enough to tell whether the player is actually reachable.
-          const sameFloor = Math.abs(player.root.position.y - rig.root.position.y) < 1;
-
-          // Keep fighters from walking through each other's bodies — push
-          // the player back out to the minimum separation distance.
-          if (sameFloor && dist < BODY_SEPARATION) {
-            const nx = dist > 0.0001 ? dx / dist : 0;
-            const nz = dist > 0.0001 ? dz / dist : 1;
-            player.root.position.x = clamp(rig.root.position.x + nx * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-            player.root.position.z = clamp(rig.root.position.z + nz * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-            dx = player.root.position.x - rig.root.position.x;
-            dz = player.root.position.z - rig.root.position.z;
-            dist = Math.hypot(dx, dz);
-          }
-
-          if (st.isBoss) {
-            // The Boss holds its ground in Room 6 — it never chases, but
-            // opens fire the instant the player comes within range.
-            updateLocomotionAnim(rig, 0, 0);
-            rig.root.rotation.y = Math.atan2(dx, dz);
-
-            st.cooldown = Math.max(0, st.cooldown - dt);
-            if (sameFloor && dist <= GUN_RANGE && st.cooldown <= 0 && hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z)) {
-              playerHpLocal = Math.max(0, playerHpLocal - BOSS_DAMAGE);
-              setPlayerHp(playerHpLocal);
-              st.cooldown = BOSS_ATTACK_COOLDOWN;
-              st.fireT = 0;
-              rig.fireAction?.reset().play();
-              const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
-              tracers.push(spawnTracer(scene, rig.gun, rig.root.position, targetPoint));
-            }
-            if (st.fireT >= 0) {
-              applyFirePose(rig, st.fireT);
-              st.fireT = st.fireT + dt > FIRE_ANIM_DURATION ? -1 : st.fireT + dt;
-            }
-          } else if (!st.awake) {
-            // Dormant guard: rather than freezing on one spot, it wanders a
-            // short walking loop around its post — until the player
-            // actually walks into the room, at which point it freezes,
-            // faces them, and shows a "?" over its head for a beat before
-            // waking into the normal chase/attack behavior below.
-            const guard = GUARD_POS[i];
-            if (st.alertT < 0) {
-              if (
-                !st.patrolTarget ||
-                Math.hypot(rig.root.position.x - st.patrolTarget.x, rig.root.position.z - st.patrolTarget.z) < PATROL_ARRIVE_DIST
-              ) {
-                st.patrolTarget = {
-                  x: guard.x + (Math.random() * 2 - 1) * PATROL_RADIUS,
-                  z: guard.z + (Math.random() * 2 - 1) * PATROL_RADIUS,
-                };
-              }
-              const pdx = st.patrolTarget.x - rig.root.position.x;
-              const pdz = st.patrolTarget.z - rig.root.position.z;
-              const pdist = Math.hypot(pdx, pdz);
-              if (pdist > 0.0001) {
-                moveWithAvoidance(rig, st, pdx / pdist, pdz / pdist, PATROL_SPEED, dt);
-                rig.root.rotation.y = Math.atan2(pdx, pdz);
-                updateLocomotionAnim(rig, PATROL_RUN_WEIGHT, PATROL_SPEED);
-              }
-
-              const gdx = player.root.position.x - guard.x;
-              const gdz = player.root.position.z - guard.z;
-              if (Math.hypot(gdx, gdz) <= GUARD_ALERT_RADIUS) {
-                st.alertT = ALERT_TELEGRAPH_DURATION;
-              }
-            } else {
-              updateLocomotionAnim(rig, 0, 0);
-              rig.root.rotation.y = Math.atan2(dx, dz);
-              st.alertT -= dt;
-              if (st.alertT <= 0) {
-                st.awake = true;
-              }
-            }
-            if (st.alertT >= 0 && alertRefs.current[i]) {
-              const markPoint = rig.root.position.clone();
-              markPoint.y += ALERT_MARK_HEIGHT;
-              markPoint.project(camera);
-              const el = alertRefs.current[i]!;
-              if (markPoint.z < 1) {
-                const w = container.clientWidth;
-                const h = container.clientHeight;
-                el.style.display = "block";
-                el.style.left = `${(markPoint.x + 1) * 0.5 * w}px`;
-                el.style.top = `${(1 - markPoint.y) * 0.5 * h}px`;
-              } else {
-                el.style.display = "none";
-              }
-            } else if (alertRefs.current[i]) {
-              alertRefs.current[i]!.style.display = "none";
-            }
-          } else {
-            // A wall between here and the player blocks the shot (see
-            // hasLineOfSight) same as it blocks a real bullet — so being
-            // "in range" by distance alone isn't enough to stop and camp;
-            // keep closing the gap (moveWithAvoidance's existing stuck
-            // detection routes it around the wall) until there's an
-            // actual clear line to fire down.
-            const canSeePlayer = sameFloor && hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z);
-            if (dist > GUN_RANGE * 0.85 || !canSeePlayer) {
-              moveWithAvoidance(rig, st, dx / dist, dz / dist, BOT_SPEED, dt);
-              updateLocomotionAnim(rig, 1, BOT_SPEED);
-            } else {
-              updateLocomotionAnim(rig, 0, 0);
-            }
-            rig.root.rotation.y = Math.atan2(dx, dz);
-
-            st.cooldown = Math.max(0, st.cooldown - dt);
-            if (dist <= GUN_RANGE && st.cooldown <= 0 && canSeePlayer) {
-              playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
-              setPlayerHp(playerHpLocal);
-              st.cooldown = BOT_ATTACK_COOLDOWN;
-              st.fireT = 0;
-              rig.fireAction?.reset().play();
-              const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
-              tracers.push(spawnTracer(scene, rig.gun, rig.root.position, targetPoint));
-            }
-            if (st.fireT >= 0) {
-              applyFirePose(rig, st.fireT);
-              st.fireT = st.fireT + dt > FIRE_ANIM_DURATION ? -1 : st.fireT + dt;
-            }
-          }
-
-          // Only a bot the player can actually see counts as a target — a
-          // closer bot hidden behind a wall (or on a different floor —
-          // see sameFloor) shouldn't steal the auto-aim (or the shot's
-          // damage) from a farther one actually in view.
-          if (sameFloor && dist < nearestDist && hasLineOfSight(player.root.position.x, player.root.position.z, rig.root.position.x, rig.root.position.z)) {
-            nearestDist = dist;
-            nearestIdx = i;
-          }
-        }
 
         // While stationary, the player's body keeps whatever facing it had
         // from its last movement — free-look camera drags orbit the view
@@ -3450,29 +2953,21 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         if (attackRequested.current) {
           if (playerCooldown <= 0) {
             // The shot always fires — recoil, cooldown, tracer, the works —
-            // on press, whether or not a bot is actually in range right
-            // now; the character's hands respond the same way regardless.
-            // Only the damage is conditional on a bot actually being in
-            // range. Snap the body to face wherever the camera is pointed
-            // the instant it fires, so it always visibly faces the shot
-            // direction rather than whatever it happened to face before.
+            // on press. Snap the body to face wherever the camera is
+            // pointed the instant it fires, so it always visibly faces the
+            // shot direction rather than whatever it happened to face
+            // before.
             player.root.rotation.y = cameraYaw.current;
             playerCooldown = PLAYER_ATTACK_COOLDOWN;
             playerFireT = 0;
             player.fireAction?.reset().play();
             const aimYaw = cameraYaw.current;
-            const targetPoint =
-              nearestIdx !== -1 && nearestDist <= GUN_RANGE
-                ? new THREE.Vector3(rigs[nearestIdx]!.root.position.x, TRACER_TARGET_HEIGHT, rigs[nearestIdx]!.root.position.z)
-                : new THREE.Vector3(
-                    player.root.position.x + Math.sin(aimYaw) * GUN_RANGE,
-                    TRACER_TARGET_HEIGHT,
-                    player.root.position.z + Math.cos(aimYaw) * GUN_RANGE,
-                  );
+            const targetPoint = new THREE.Vector3(
+              player.root.position.x + Math.sin(aimYaw) * GUN_RANGE,
+              TRACER_TARGET_HEIGHT,
+              player.root.position.z + Math.cos(aimYaw) * GUN_RANGE,
+            );
             tracers.push(spawnTracer(scene, player.gun, player.root.position, targetPoint));
-            if (nearestIdx !== -1 && nearestDist <= GUN_RANGE) {
-              damageBot(nearestIdx, PLAYER_DAMAGE);
-            }
           }
         }
 
@@ -3535,7 +3030,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       ro.disconnect();
       renderer.dispose();
       container.removeChild(renderer.domElement);
-      gateBlockers = [];
     };
   }, []);
 
@@ -3613,34 +3107,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
       />
 
-      {/* Guard alert marks — a "?" popping up over a dormant guard's head
-          for a beat right before it wakes and attacks, positioned each
-          tick via alertRefs (screen-projected from its 3D position),
-          hidden by default. */}
-      {[0, 1, 2, 3, 4].map((i) => (
-        <div
-          key={i}
-          ref={(el) => {
-            alertRefs.current[i] = el;
-          }}
-          style={{
-            position: "absolute",
-            display: "none",
-            transform: "translate(-50%, -100%)",
-            color: "#ffe14d",
-            fontFamily: "'Rajdhani', sans-serif",
-            fontWeight: 800,
-            fontSize: 26,
-            textShadow: "0 0 8px rgba(255,225,77,0.9), 0 0 2px rgba(0,0,0,0.8)",
-            pointerEvents: "none",
-            zIndex: 6,
-          }}
-        >
-          ❓
-        </div>
-      ))}
-
-      {/* Health bars */}
+      {/* Health bar */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
         <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
           YOU
@@ -3649,52 +3116,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
         </div>
       </div>
-      {/* Each bot/Boss's own health bar floats directly over its head in
-          the 3D view instead of a fixed corner list — positioned each
-          tick via hpBarRefs (screen-projected from its 3D position, same
-          approach as the alert marker above), hidden once that fighter is
-          dead or off-screen. Width still comes from botHps/React state. */}
-      {botHps.map((hp, i) => (
-        <div
-          key={i}
-          ref={(el) => {
-            hpBarRefs.current[i] = el;
-          }}
-          style={{
-            position: "absolute",
-            display: "none",
-            transform: "translate(-50%, -100%)",
-            width: i === 5 ? 90 : 64,
-            pointerEvents: "none",
-            zIndex: 6,
-          }}
-        >
-          <div
-            style={{
-              color: i === 5 ? "#ff8a8a" : "#dce8f5",
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              fontSize: 10,
-              letterSpacing: "0.08em",
-              marginBottom: 2,
-              textAlign: "center",
-              textShadow: "0 0 4px rgba(0,0,0,0.9)",
-            }}
-          >
-            {i === 5 ? "BOSS" : `BOT ${i + 1}`}
-          </div>
-          <div style={{ height: i === 5 ? 8 : 6, borderRadius: 3, background: "rgba(0,0,0,0.45)", border: "1px solid rgba(255,255,255,0.25)", overflow: "hidden" }}>
-            <div
-              style={{
-                height: "100%",
-                width: `${hp}%`,
-                background: i === 5 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff8a6b,#ff5e4e)",
-                transition: "width 150ms ease-out",
-              }}
-            />
-          </div>
-        </div>
-      ))}
 
       <button
         onClick={onExit}
