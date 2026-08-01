@@ -2828,16 +2828,15 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // collision can never drift apart), plus crates, a floor grate, a
     // hazard-stripe decal and a wall screen for detail.
     const wallMaxAnisotropy = renderer.capabilities.getMaxAnisotropy();
-    const roomEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
     // Builds one wall segment's box + real sci-fi panel texture (see
-    // createSciFiWallTexture) + cyan edge outline, and adds it to the
-    // scene — every roomWallObstacles/CORRIDOR*_WALLS/etc. entry in the
-    // level goes through this one helper instead of repeating the same
-    // four lines at each call site. Repeat count is derived from this
-    // particular wall's own length/height, so a short corridor wall and a
-    // long room wall both read at the same real-world panel scale instead
-    // of one stretching or squashing the texture. `variant` picks between
-    // the two source photos: 0 for room walls, 1 for corridor/tunnel walls.
+    // createSciFiWallTexture), and adds it to the scene — every
+    // roomWallObstacles/CORRIDOR*_WALLS/etc. entry in the level goes
+    // through this one helper instead of repeating the same lines at each
+    // call site. Repeat count is derived from this particular wall's own
+    // length/height, so a short corridor wall and a long room wall both
+    // read at the same real-world panel scale instead of one stretching or
+    // squashing the texture. `variant` picks between the two source
+    // photos: 0 for room walls, 1 for corridor/tunnel walls.
     const addWallMesh = (ob: Obstacle, height: number, centerY: number, variant: 0 | 1 = 0) => {
       const width = ob.halfX * 2;
       const depth = ob.halfZ * 2;
@@ -2850,7 +2849,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), wallMat);
       wallMesh.position.set(ob.x, centerY, ob.z);
       scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
       return wallMesh;
     };
     const doorGlowMat = new THREE.MeshStandardMaterial({ color: 0xff3355, emissive: 0xff3355, emissiveIntensity: 1.4, roughness: 0.4 });
@@ -2904,7 +2902,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       const ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM_SIZE, ROOM_WALL_THICKNESS, ROOM_SIZE), ceilingMat);
       ceiling.position.set(pos.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, pos.z);
       scene.add(ceiling);
-      ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(ceiling.geometry), roomEdgeMat));
 
       const addCeilingStrip = (x: number, z: number, sizeX: number, sizeZ: number) => {
         const strip = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.08, sizeZ), lightStripMat);
@@ -3151,7 +3148,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       );
       segCeiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, seg.centerZ);
       scene.add(segCeiling);
-      segCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(segCeiling.geometry), roomEdgeMat));
       addCorridorStrip(seg.centerZ - seg.length / 4);
       addCorridorStrip(seg.centerZ + seg.length / 4);
     }
@@ -3170,7 +3166,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const midCeiling = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_SIZE, ROOM_WALL_THICKNESS, MIDROOM_SIZE), ceilingMat);
     midCeiling.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, MIDROOM_POS.z);
     scene.add(midCeiling);
-    midCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(midCeiling.geometry), roomEdgeMat));
 
     // Second corridor — a plain walled/roofed passage (no mid-house) joining
     // ROOM2_POS to ROOM3_POS.
@@ -3183,7 +3178,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     );
     corridor2Ceiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR2_CENTER_Z);
     scene.add(corridor2Ceiling);
-    corridor2Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridor2Ceiling.geometry), roomEdgeMat));
     addCorridorStrip(CORRIDOR2_CENTER_Z - CORRIDOR2_LENGTH / 4);
     addCorridorStrip(CORRIDOR2_CENTER_Z + CORRIDOR2_LENGTH / 4);
 
@@ -3198,7 +3192,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     );
     corridor3Ceiling.position.set(CORRIDOR3_CENTER_X, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM3_POS.z);
     scene.add(corridor3Ceiling);
-    corridor3Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridor3Ceiling.geometry), roomEdgeMat));
     const addCorridor3Strip = (x: number) => {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 1.5), lightStripMat);
       strip.position.set(x, ROOM_WALL_HEIGHT - 0.06, ROOM3_POS.z);
@@ -3217,7 +3210,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     );
     corridor4Ceiling.position.set(ROOM4_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR4_CENTER_Z);
     scene.add(corridor4Ceiling);
-    corridor4Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridor4Ceiling.geometry), roomEdgeMat));
     const addCorridor4Strip = (z: number) => {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
       strip.position.set(ROOM4_POS.x, ROOM_WALL_HEIGHT - 0.06, z);
@@ -3236,7 +3228,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     );
     corridor5Ceiling.position.set(ROOM5_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR5_CENTER_Z);
     scene.add(corridor5Ceiling);
-    corridor5Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridor5Ceiling.geometry), roomEdgeMat));
     const addCorridor5Strip = (z: number) => {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
       strip.position.set(ROOM5_POS.x, ROOM_WALL_HEIGHT - 0.06, z);
@@ -3260,7 +3251,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const room6Ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM6_WIDTH, ROOM_WALL_THICKNESS, ROOM6_DEPTH), ceilingMat);
     room6Ceiling.position.set(ROOM6_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM6_POS.z);
     scene.add(room6Ceiling);
-    room6Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(room6Ceiling.geometry), roomEdgeMat));
 
     // Path arrows — a glowing marker flat on the floor right at each gate
     // along the route to the Boss, pointing which way to walk through it.
@@ -3292,8 +3282,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // Sliding gates — one pair of panels per door, closed by default and
     // sliding apart automatically as the player gets close (see the gate
     // update loop further down, in the per-frame tick).
-    const gateMat = new THREE.MeshStandardMaterial({ color: 0x30383f, roughness: 0.5, metalness: 0.5 });
-    const gateEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
     const GATE_PANEL_HEIGHT = ROOM_WALL_HEIGHT - 0.4;
     const GATE_THICKNESS = ROOM_WALL_THICKNESS * 0.9;
     const GATE_OPEN_RADIUS = 3.5;
@@ -3304,12 +3292,18 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         door.axis === "x"
           ? new THREE.BoxGeometry(panelWidth, GATE_PANEL_HEIGHT, GATE_THICKNESS)
           : new THREE.BoxGeometry(GATE_THICKNESS, GATE_PANEL_HEIGHT, panelWidth);
+      // Same sci-fi panel texture as the room walls (variant 0) so the gate
+      // reads as a matching section of wall that just happens to slide open,
+      // scaled to this door's own panel size like addWallMesh does for walls.
+      const gateMat = new THREE.MeshStandardMaterial({
+        map: createSciFiWallTexture(panelWidth / SCIFI_WALL_TILE_SIZE, GATE_PANEL_HEIGHT / SCIFI_WALL_TILE_SIZE, wallMaxAnisotropy),
+        roughness: 0.6,
+        metalness: 0.4,
+      });
       const panelA = new THREE.Mesh(geo, gateMat);
       const panelB = new THREE.Mesh(geo, gateMat);
       panelA.position.y = GATE_PANEL_HEIGHT / 2;
       panelB.position.y = GATE_PANEL_HEIGHT / 2;
-      panelA.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), gateEdgeMat));
-      panelB.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), gateEdgeMat));
       scene.add(panelA, panelB);
       return { door, panelA, panelB, panelWidth, openAmount: 0 };
     });
