@@ -852,6 +852,25 @@ function createSciFiWallTexture(repeatX: number, repeatY: number, maxAnisotropy:
   return texture;
 }
 
+// A real sci-fi ceiling-panel image (square plating, glowing cyan grid
+// seams) — same load-once/clone-per-slab approach as the wall textures,
+// so every ceiling slab in the level (rooms, corridors, tunnel) can carry
+// its own repeat count sized to its own footprint.
+let sciFiCeilingTextureBase: THREE.Texture | null = null;
+function createSciFiCeilingTexture(repeatX: number, repeatY: number, maxAnisotropy: number): THREE.Texture {
+  if (!sciFiCeilingTextureBase) {
+    const base = new THREE.TextureLoader().load("/textures/ceiling-scifi.jpg");
+    base.colorSpace = THREE.SRGBColorSpace;
+    base.wrapS = THREE.RepeatWrapping;
+    base.wrapT = THREE.RepeatWrapping;
+    sciFiCeilingTextureBase = base;
+  }
+  const texture = sciFiCeilingTextureBase.clone();
+  texture.repeat.set(repeatX, repeatY);
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
+
 // Procedural sci-fi metal floor texture for the arena — dark blue-grey
 // plating (layered value noise for subtle wear patches, fine speckle for
 // grain) with beveled panel seams and a glowing cyan tactical-grid accent
@@ -1193,6 +1212,7 @@ const SCIFI_FLOOR_REPEAT = (ARENA_HALF * 2) / SCIFI_FLOOR_TILE_SIZE;
 // sized so each tile covers one wall's full height (so it's never
 // vertically squashed/stretched), repeating along the wall's long side.
 const SCIFI_WALL_TILE_SIZE = 2.5;
+const SCIFI_CEILING_TILE_SIZE = 6;
 const FOG_NEAR = ARENA_HALF - 5;
 const FOG_FAR = ARENA_HALF * 2.5;
 const SKY_RADIUS = Math.max(350, ARENA_HALF * 4); // stays comfortably beyond the fog and the arena's own far corners
@@ -2765,7 +2785,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x0a0e18, 1.15));
+    // Ground color raised from its original near-black (0x0a0e18) so
+    // downward-facing surfaces — chiefly the room/corridor ceiling slabs —
+    // pick up enough ambient fill to actually show their panel texture,
+    // instead of rendering as a flat black void overhead. Floor/wall
+    // brightness (driven mostly by the sky color and the key light below)
+    // is unaffected.
+    scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x5a6478, 1.15));
     const key = new THREE.DirectionalLight(0xffffff, 1.5);
     key.position.set(3, 6, 4);
     scene.add(key);
@@ -2854,7 +2880,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const doorGlowMat = new THREE.MeshStandardMaterial({ color: 0xff3355, emissive: 0xff3355, emissiveIntensity: 1.4, roughness: 0.4 });
     const hazardMat = new THREE.MeshStandardMaterial({ map: createHazardStripeTexture(), roughness: 0.8 });
     const screenMat = new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6be2ff, emissiveIntensity: 0.9, roughness: 0.3 });
-    const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x232a32, roughness: 0.6, metalness: 0.35, side: THREE.DoubleSide });
+    // Real sci-fi panel texture for every ceiling slab, scaled to that
+    // slab's own footprint the same way addWallMesh scales the wall
+    // texture — a small MIDROOM ceiling and ROOM6's big one both read at
+    // the same real-world panel size instead of one stretching the other.
+    const createCeilingMat = (width: number, depth: number) =>
+      new THREE.MeshStandardMaterial({
+        map: createSciFiCeilingTexture(width / SCIFI_CEILING_TILE_SIZE, depth / SCIFI_CEILING_TILE_SIZE, wallMaxAnisotropy),
+        roughness: 0.6,
+        metalness: 0.4,
+        side: THREE.DoubleSide,
+      });
     const lightStripMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3 });
 
     // Builds one full sci-fi outpost room (walls, door glows, crates, floor
@@ -2899,7 +2935,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
       // Ceiling slab sealing the room, with embedded cyan light-strip panels
       // matching the reference image's overhead detailing.
-      const ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM_SIZE, ROOM_WALL_THICKNESS, ROOM_SIZE), ceilingMat);
+      const ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM_SIZE, ROOM_WALL_THICKNESS, ROOM_SIZE), createCeilingMat(ROOM_SIZE, ROOM_SIZE));
       ceiling.position.set(pos.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, pos.z);
       scene.add(ceiling);
 
@@ -3119,7 +3155,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     }
     const ceilingGeo = new THREE.ExtrudeGeometry(ceilingShape, { depth: ROOM_WALL_THICKNESS, bevelEnabled: false });
     ceilingGeo.rotateX(-Math.PI / 2);
-    const undergroundCeiling = new THREE.Mesh(ceilingGeo, ceilingMat);
+    const undergroundCeiling = new THREE.Mesh(ceilingGeo, createCeilingMat(halfW * 2, halfD * 2));
     undergroundCeiling.position.set(undergroundCenterX, TUNNEL_Y + TUNNEL_WALL_HEIGHT, undergroundCenterZ);
     scene.add(undergroundCeiling);
     // A light strip over each house's own stop, so the tunnel doesn't
@@ -3144,7 +3180,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     for (const seg of CORRIDOR_SEGMENTS) {
       const segCeiling = new THREE.Mesh(
         new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, seg.length),
-        ceilingMat,
+        createCeilingMat(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, seg.length),
       );
       segCeiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, seg.centerZ);
       scene.add(segCeiling);
@@ -3163,7 +3199,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const midDoorGlowNorth = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_DOOR_WIDTH, 0.15, ROOM_WALL_THICKNESS + 0.05), doorGlowMat);
     midDoorGlowNorth.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT - 0.3, MIDROOM_NORTH_Z);
     scene.add(midDoorGlowNorth);
-    const midCeiling = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_SIZE, ROOM_WALL_THICKNESS, MIDROOM_SIZE), ceilingMat);
+    const midCeiling = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_SIZE, ROOM_WALL_THICKNESS, MIDROOM_SIZE), createCeilingMat(MIDROOM_SIZE, MIDROOM_SIZE));
     midCeiling.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, MIDROOM_POS.z);
     scene.add(midCeiling);
 
@@ -3174,7 +3210,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     }
     const corridor2Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR2_LENGTH),
-      ceilingMat,
+      createCeilingMat(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, CORRIDOR2_LENGTH),
     );
     corridor2Ceiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR2_CENTER_Z);
     scene.add(corridor2Ceiling);
@@ -3188,7 +3224,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     }
     const corridor3Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR3_LENGTH, ROOM_WALL_THICKNESS, CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2),
-      ceilingMat,
+      createCeilingMat(CORRIDOR3_LENGTH, CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2),
     );
     corridor3Ceiling.position.set(CORRIDOR3_CENTER_X, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM3_POS.z);
     scene.add(corridor3Ceiling);
@@ -3206,7 +3242,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     }
     const corridor4Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR4_LENGTH),
-      ceilingMat,
+      createCeilingMat(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, CORRIDOR4_LENGTH),
     );
     corridor4Ceiling.position.set(ROOM4_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR4_CENTER_Z);
     scene.add(corridor4Ceiling);
@@ -3224,7 +3260,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     }
     const corridor5Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR5_LENGTH),
-      ceilingMat,
+      createCeilingMat(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, CORRIDOR5_LENGTH),
     );
     corridor5Ceiling.position.set(ROOM5_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR5_CENTER_Z);
     scene.add(corridor5Ceiling);
@@ -3248,7 +3284,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       scene.add(glow);
     };
     addRoom6DoorGlow(ROOM6_POS.x, ROOM6_POS.z + ROOM6_DEPTH / 2, ROOM6_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // south — the only remaining door
-    const room6Ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM6_WIDTH, ROOM_WALL_THICKNESS, ROOM6_DEPTH), ceilingMat);
+    const room6Ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM6_WIDTH, ROOM_WALL_THICKNESS, ROOM6_DEPTH), createCeilingMat(ROOM6_WIDTH, ROOM6_DEPTH));
     room6Ceiling.position.set(ROOM6_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM6_POS.z);
     scene.add(room6Ceiling);
 
