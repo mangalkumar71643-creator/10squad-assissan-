@@ -871,6 +871,24 @@ function createSciFiCeilingTexture(repeatX: number, repeatY: number, maxAnisotro
   return texture;
 }
 
+// The two sliding gate leaves get their own real door-panel images (frame
+// pillar, keypad, hazard stripe, cyan seams) instead of reusing the plain
+// wall texture — a single decal per leaf, not a repeating tile, so no
+// repeat count is set here (left mirrored to right already at the image
+// level: see the crop in the session that produced these two files).
+const doorPanelTextures: (THREE.Texture | null)[] = [null, null];
+const DOOR_PANEL_URLS = ["/textures/door-left.jpg", "/textures/door-right.jpg"];
+function createDoorPanelTexture(side: 0 | 1, maxAnisotropy: number): THREE.Texture {
+  if (!doorPanelTextures[side]) {
+    const base = new THREE.TextureLoader().load(DOOR_PANEL_URLS[side]);
+    base.colorSpace = THREE.SRGBColorSpace;
+    doorPanelTextures[side] = base;
+  }
+  const texture = doorPanelTextures[side]!.clone();
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
+
 // Procedural sci-fi metal floor texture for the arena — dark blue-grey
 // plating (layered value noise for subtle wear patches, fine speckle for
 // grain) with beveled panel seams and a glowing cyan tactical-grid accent
@@ -3328,16 +3346,23 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         door.axis === "x"
           ? new THREE.BoxGeometry(panelWidth, GATE_PANEL_HEIGHT, GATE_THICKNESS)
           : new THREE.BoxGeometry(GATE_THICKNESS, GATE_PANEL_HEIGHT, panelWidth);
-      // Same sci-fi panel texture as the room walls (variant 0) so the gate
-      // reads as a matching section of wall that just happens to slide open,
-      // scaled to this door's own panel size like addWallMesh does for walls.
-      const gateMat = new THREE.MeshStandardMaterial({
-        map: createSciFiWallTexture(panelWidth / SCIFI_WALL_TILE_SIZE, GATE_PANEL_HEIGHT / SCIFI_WALL_TILE_SIZE, wallMaxAnisotropy),
-        roughness: 0.6,
+      // Real door-leaf artwork (frame pillar, keypad, hazard stripe) instead
+      // of the plain wall texture — panelA (the negative-side leaf) gets the
+      // left-crop image with its pillar facing outward and detail toward the
+      // gap; panelB (positive-side) gets the mirrored right-crop, so the two
+      // leaves reconstruct one coherent door when slid shut.
+      const panelAMat = new THREE.MeshStandardMaterial({
+        map: createDoorPanelTexture(0, wallMaxAnisotropy),
+        roughness: 0.5,
         metalness: 0.4,
       });
-      const panelA = new THREE.Mesh(geo, gateMat);
-      const panelB = new THREE.Mesh(geo, gateMat);
+      const panelBMat = new THREE.MeshStandardMaterial({
+        map: createDoorPanelTexture(1, wallMaxAnisotropy),
+        roughness: 0.5,
+        metalness: 0.4,
+      });
+      const panelA = new THREE.Mesh(geo, panelAMat);
+      const panelB = new THREE.Mesh(geo, panelBMat);
       panelA.position.y = GATE_PANEL_HEIGHT / 2;
       panelB.position.y = GATE_PANEL_HEIGHT / 2;
       scene.add(panelA, panelB);
