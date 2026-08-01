@@ -3380,6 +3380,38 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     };
     gates.forEach(updateGatePanels); // start fully closed
 
+    // A "DOOR n" number floating above each gate, in the same order as the
+    // DOORS array — drawn once per door onto a small canvas and used as a
+    // billboard sprite (always faces the camera, unlike a plane) so it
+    // reads correctly from any approach angle.
+    const createDoorLabelSprite = (text: string): THREE.Sprite => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 256;
+      canvas.height = 128;
+      const ctx = canvas.getContext("2d")!;
+      ctx.font = "bold 64px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = "#6be2ff";
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(2, 1, 1);
+      return sprite;
+    };
+    DOORS.forEach((door, i) => {
+      const label = createDoorLabelSprite(`DOOR ${i + 1}`);
+      // Sits just above the door glow strip but still clear of the ceiling
+      // slab (which starts at ROOM_WALL_HEIGHT) — GATE_PANEL_HEIGHT + 0.7
+      // landed inside the ceiling geometry and was invisible.
+      label.position.set(door.x, GATE_PANEL_HEIGHT + 0.32, door.z);
+      scene.add(label);
+    });
+
     let player: FighterRig | null = null;
 
     // Preloaded here so it's very likely already resolved by the time each
