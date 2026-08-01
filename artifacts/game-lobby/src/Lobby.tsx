@@ -827,6 +827,25 @@ function createSciFiFloorTexture(repeatCount: number, maxAnisotropy: number): TH
   return texture;
 }
 
+// A real sci-fi wall-panel image (rusted plating, glowing seams) — loaded
+// once and cloned per wall segment so each one can carry its own repeat
+// count (walls come in many different lengths across the level; cloning
+// a THREE.Texture is cheap, it shares the same decoded image/GPU upload
+// and only duplicates the small wrapper object holding repeat/wrap state).
+let sciFiWallTextureBase: THREE.Texture | null = null;
+function createSciFiWallTexture(repeatX: number, repeatY: number, maxAnisotropy: number): THREE.Texture {
+  if (!sciFiWallTextureBase) {
+    sciFiWallTextureBase = new THREE.TextureLoader().load("/textures/wall-scifi.jpg");
+    sciFiWallTextureBase.colorSpace = THREE.SRGBColorSpace;
+    sciFiWallTextureBase.wrapS = THREE.RepeatWrapping;
+    sciFiWallTextureBase.wrapT = THREE.RepeatWrapping;
+  }
+  const texture = sciFiWallTextureBase.clone();
+  texture.repeat.set(repeatX, repeatY);
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
+
 // Procedural sci-fi metal floor texture for the arena — dark blue-grey
 // plating (layered value noise for subtle wear patches, fine speckle for
 // grain) with beveled panel seams and a glowing cyan tactical-grid accent
@@ -1164,6 +1183,10 @@ const ARENA_HALF = 350; // 700x700 arena, centered on the origin
 // standing fighter would.
 const SCIFI_FLOOR_TILE_SIZE = 6;
 const SCIFI_FLOOR_REPEAT = (ARENA_HALF * 2) / SCIFI_FLOOR_TILE_SIZE;
+// The real sci-fi wall panel image, same tiling approach as the floor —
+// sized so each tile covers one wall's full height (so it's never
+// vertically squashed/stretched), repeating along the wall's long side.
+const SCIFI_WALL_TILE_SIZE = 2.5;
 const FOG_NEAR = ARENA_HALF - 5;
 const FOG_FAR = ARENA_HALF * 2.5;
 const SKY_RADIUS = Math.max(350, ARENA_HALF * 4); // stays comfortably beyond the fog and the arena's own far corners
@@ -2798,8 +2821,31 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // rects above (built straight from that array, so visuals and
     // collision can never drift apart), plus crates, a floor grate, a
     // hazard-stripe decal and a wall screen for detail.
-    const roomWallMat = new THREE.MeshStandardMaterial({ color: 0x2a323c, roughness: 0.55, metalness: 0.4 });
+    const wallMaxAnisotropy = renderer.capabilities.getMaxAnisotropy();
     const roomEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
+    // Builds one wall segment's box + real sci-fi panel texture (see
+    // createSciFiWallTexture) + cyan edge outline, and adds it to the
+    // scene — every roomWallObstacles/CORRIDOR*_WALLS/etc. entry in the
+    // level goes through this one helper instead of repeating the same
+    // four lines at each call site. Repeat count is derived from this
+    // particular wall's own length/height, so a short corridor wall and a
+    // long room wall both read at the same real-world panel scale instead
+    // of one stretching or squashing the texture.
+    const addWallMesh = (ob: Obstacle, height: number, centerY: number) => {
+      const width = ob.halfX * 2;
+      const depth = ob.halfZ * 2;
+      const longSide = Math.max(width, depth);
+      const wallMat = new THREE.MeshStandardMaterial({
+        map: createSciFiWallTexture(longSide / SCIFI_WALL_TILE_SIZE, height / SCIFI_WALL_TILE_SIZE, wallMaxAnisotropy),
+        roughness: 0.7,
+        metalness: 0.3,
+      });
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), wallMat);
+      wallMesh.position.set(ob.x, centerY, ob.z);
+      scene.add(wallMesh);
+      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      return wallMesh;
+    };
     const doorGlowMat = new THREE.MeshStandardMaterial({ color: 0xff3355, emissive: 0xff3355, emissiveIntensity: 1.4, roughness: 0.4 });
     const hazardMat = new THREE.MeshStandardMaterial({ map: createHazardStripeTexture(), roughness: 0.8 });
     const screenMat = new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6be2ff, emissiveIntensity: 0.9, roughness: 0.3 });
@@ -2812,11 +2858,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // and structurally identical.
     const buildRoom = (pos: { x: number; z: number }) => {
       for (const ob of roomWallObstacles(pos)) {
-        const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-        wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-        scene.add(wallMesh);
-        const wallEdges = new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat);
-        wallMesh.add(wallEdges);
+        addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
       }
 
       // Glowing red door-frame lintel over each of the 4 openings.
@@ -3016,10 +3058,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // and ceiling slab spanning the whole thing.
     const mirrorWallsUnderground = (obstacles: Obstacle[]) => {
       for (const ob of obstacles) {
-        const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, TUNNEL_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-        wallMesh.position.set(ob.x, TUNNEL_Y + TUNNEL_WALL_HEIGHT / 2, ob.z);
-        scene.add(wallMesh);
-        wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+        addWallMesh(ob, TUNNEL_WALL_HEIGHT, TUNNEL_Y + TUNNEL_WALL_HEIGHT / 2);
       }
     };
     mirrorWallsUnderground(ROOM_POSITIONS.flatMap(roomWallObstacles));
@@ -3091,10 +3130,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // ceiling materials as the rooms so it reads as one connected structure.
     // Built in two segments since MIDROOM sits in the middle of it.
     for (const ob of CORRIDOR_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
     }
     const addCorridorStrip = (z: number) => {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
@@ -3116,10 +3152,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // MIDROOM — a small single-door outpost built into the middle of the
     // corridor (see MIDROOM_WALLS above for its wall layout).
     for (const ob of MIDROOM_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
     }
     const midDoorGlowSouth = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_DOOR_WIDTH, 0.15, ROOM_WALL_THICKNESS + 0.05), doorGlowMat);
     midDoorGlowSouth.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT - 0.3, MIDROOM_SOUTH_Z);
@@ -3135,10 +3168,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // Second corridor — a plain walled/roofed passage (no mid-house) joining
     // ROOM2_POS to ROOM3_POS.
     for (const ob of CORRIDOR2_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
     }
     const corridor2Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR2_LENGTH),
@@ -3153,10 +3183,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // Third corridor — runs east-west, joining ROOM3_POS to ROOM4_POS which
     // branches off to the side instead of continuing the main line.
     for (const ob of CORRIDOR3_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
     }
     const corridor3Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR3_LENGTH, ROOM_WALL_THICKNESS, CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2),
@@ -3175,10 +3202,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     // Fourth corridor — north-south again, joining ROOM4_POS to ROOM5_POS.
     for (const ob of CORRIDOR4_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
     }
     const corridor4Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR4_LENGTH),
@@ -3197,10 +3221,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     // Fifth corridor — joins ROOM5_POS to the larger ROOM6_POS ahead of it.
     for (const ob of CORRIDOR5_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
     }
     const corridor5Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR5_LENGTH),
@@ -3221,10 +3242,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // buildRoom(), since it isn't square) plus door glows on all 4 sides
     // and a matching ceiling.
     for (const ob of ROOM6_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
     }
     const addRoom6DoorGlow = (x: number, z: number, sizeX: number, sizeZ: number) => {
       const glow = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.15, sizeZ), doorGlowMat);
