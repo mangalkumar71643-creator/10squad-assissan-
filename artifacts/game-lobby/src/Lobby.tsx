@@ -2568,10 +2568,26 @@ function loadBotGltf(url: string) {
 function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: FighterRig) => void) {
   Promise.all([loadBotGltf(url), loadSourceRigData()])
     .then(([gltf, source]) => {
-      // SkeletonUtils.clone gives this instance its own bones/skeleton (so
-      // its mixer can pose it independently) while sharing the cached
-      // gltf's geometry and textures — the shared gltf.scene itself is
-      // never touched, so cloning it repeatedly for each bot is safe.
+      // Object3D.copy() (which Object3D.clone() calls under the hood, and
+      // which SkeletonUtils.clone uses internally for the initial deep
+      // copy) copies matrixWorld by value from source to clone — it's
+      // never recomputed fresh for the clone. The cached gltf.scene here
+      // never gets added to a real scene/rendered on its own (only clones
+      // of it are), so its bones' matrixWorld is still each Bone's
+      // default-constructed identity the first time anything clones it —
+      // and every clone then inherits that same never-posed identity
+      // matrixWorld, making a cloned SkinnedMesh's own computeBoundingBox()
+      // (which Box3.setFromObject ends up calling below, and which reads
+      // bone.matrixWorld, not the bones' local transforms) come back
+      // wildly wrong on the very first clone (seen in testing as a
+      // fighter measuring ~600x too tall, rendered as giant legs floating
+      // over the player's head). Forcing one Box3 computation directly on
+      // the shared source first — which recursively walks its hierarchy
+      // and does correctly populate every bone's matrixWorld from its
+      // local transform, bottom-up — fixes every clone made afterward,
+      // since each one now inherits valid matrixWorld from the source
+      // instead of the default identity.
+      new THREE.Box3().setFromObject(gltf.scene);
       const model = cloneSkinnedObject(gltf.scene) as THREE.Object3D;
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
