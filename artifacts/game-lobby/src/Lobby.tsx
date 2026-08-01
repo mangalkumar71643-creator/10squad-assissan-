@@ -1610,17 +1610,27 @@ const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters 
 const BOT_SPEED = 3.8; // doubled — a fast, aggressive chase once it's spotted the player
 const BOT_DAMAGE = 10;
 const BOT_ATTACK_COOLDOWN = 1.3;
-// The new bot's guard post — the same spot bot1 always stood watch at
-// before the old guard bots were removed: off to the side of Room 1's own
-// center (the stairs down to the tunnel sit exactly at that center — see
+// The Boss — a sixth, tougher fighter stationed in Room 6 rather than
+// roaming with the five regular guards. It doesn't patrol or chase; it
+// stands its ground, already armed, and opens fire the moment the player
+// comes within range and line of sight.
+const BOSS_HP = 260;
+const BOSS_DAMAGE = 16;
+const BOSS_ATTACK_COOLDOWN = 1.0;
+const BOSS_SCALE = 1.35; // visibly bigger than the regular guards
+// Each guard's post — off to the side of its own room's center (the
+// stairs down to the tunnel sit exactly at that center — see
 // ROOM_STAIRS_DOWN_POS — and standing right on top of them used to carry
 // a fighter through the stairway's height-follow zone), offset
 // perpendicular to that room's own descent direction.
 const BOT_GUARD_OFFSET = 6;
-const BOT_SPAWN = {
-  x: ROOM_POS.x - ROOM_TUNNEL_DIR[0].z * BOT_GUARD_OFFSET,
-  z: ROOM_POS.z + ROOM_TUNNEL_DIR[0].x * BOT_GUARD_OFFSET,
-};
+function guardSpawnFor(roomIndex: number) {
+  const pos = ROOM_STAIRS_DOWN_POS[roomIndex];
+  const dir = ROOM_TUNNEL_DIR[roomIndex];
+  return { x: pos.x - dir.z * BOT_GUARD_OFFSET, z: pos.z + dir.x * BOT_GUARD_OFFSET };
+}
+const BOT_SPAWNS = ROOM_POSITIONS.map((_, i) => guardSpawnFor(i));
+const BOSS_SPAWN = guardSpawnFor(5); // Room 6
 // Wakes the instant the player is actually visible (see hasLineOfSight in
 // the tick loop's alert check) rather than only within a small radius —
 // DETECTION_RANGE just caps how far off that sight check still counts, set
@@ -1655,21 +1665,23 @@ const PATROL_ARRIVE_DIST = 0.6;
 // something closer to an unhurried, restrained walk.
 const PATROL_RUN_WEIGHT = 0.65;
 
-// Picks a random waypoint anywhere in Room 1's interior — rejection-sampled
-// against the stairs' own footprint (same along/perp rectangle the
-// player's own height-follow check uses, just padded out by
-// PATROL_STAIRS_CLEARANCE) so a waypoint never lands over the hole in the
-// floor: the bot has no height-follow logic for the stairs the way the
-// player does, so walking onto that hole would visibly clip it through
-// the floor.
-function pickRoomPatrolTarget(): { x: number; z: number } {
+// Picks a random waypoint anywhere in the given room's interior (room
+// index into ROOM_POSITIONS, i.e. rooms 1-5 — each guard patrols its own
+// room) — rejection-sampled against the stairs' own footprint (same
+// along/perp rectangle the player's own height-follow check uses, just
+// padded out by PATROL_STAIRS_CLEARANCE) so a waypoint never lands over
+// the hole in the floor: the bot has no height-follow logic for the
+// stairs the way the player does, so walking onto that hole would
+// visibly clip it through the floor.
+function pickRoomPatrolTarget(roomIndex: number): { x: number; z: number } {
+  const roomPos = ROOM_POSITIONS[roomIndex];
   const half = ROOM_SIZE / 2 - PATROL_MARGIN;
-  const dir = ROOM_TUNNEL_DIR[0];
+  const dir = ROOM_TUNNEL_DIR[roomIndex];
   for (let attempt = 0; attempt < 8; attempt++) {
-    const x = ROOM_POS.x + (Math.random() * 2 - 1) * half;
-    const z = ROOM_POS.z + (Math.random() * 2 - 1) * half;
-    const dx = x - ROOM_POS.x;
-    const dz = z - ROOM_POS.z;
+    const x = roomPos.x + (Math.random() * 2 - 1) * half;
+    const z = roomPos.z + (Math.random() * 2 - 1) * half;
+    const dx = x - roomPos.x;
+    const dz = z - roomPos.z;
     const along = dx * dir.x + dz * dir.z;
     const perp = dz * dir.x - dx * dir.z;
     const overStairs =
@@ -1678,7 +1690,7 @@ function pickRoomPatrolTarget(): { x: number; z: number } {
       along < RAMP_RUN_LENGTH + RAMP_BAND + PATROL_STAIRS_CLEARANCE;
     if (!overStairs) return { x, z };
   }
-  return { x: BOT_SPAWN.x, z: BOT_SPAWN.z };
+  return { x: BOT_SPAWNS[roomIndex].x, z: BOT_SPAWNS[roomIndex].z };
 }
 
 const PLAYER_ATTACK_COOLDOWN = 0.55;
@@ -2656,6 +2668,16 @@ function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: Fighter
     .catch((err) => console.error("Failed to load bot model", err));
 }
 
+// Tints a fighter's own cloned materials toward a menacing red — used only
+// on the Boss (see BOSS_SCALE/BOSS_TINT) so it visibly reads as tougher
+// than the regular guards at a glance, on top of standing taller.
+const BOSS_TINT = new THREE.Color(0x8a1616);
+function tintBossFighter(rig: FighterRig) {
+  for (const mat of rig.materials) {
+    mat.color.lerp(BOSS_TINT, 0.55);
+  }
+}
+
 // A minimal single-player vs. bot skirmish on a 10x10 arena: touch
 // joystick to move, tap the attack button in range. No networking — the
 // "bot" is just a simple chase-and-swing AI running in the same tick loop
@@ -2684,8 +2706,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const lookLastY = useRef(0);
 
   const [playerHp, setPlayerHp] = useState(100);
-  const [botHp, setBotHp] = useState(100);
-  const botHpBarRef = useRef<HTMLDivElement>(null);
+  // One HP percentage + floating bar ref per fighter — index 0-4 are the
+  // five room guards, index 5 is the Boss.
+  const [botHps, setBotHps] = useState<number[]>([100, 100, 100, 100, 100, 100]);
+  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
@@ -3323,11 +3347,26 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       equipGun(rig);
     });
 
-    let bot: FighterRig | null = null;
+    // Six fighters total: five room guards (index 0-4, one patrolling each
+    // of ROOM_POSITIONS) plus the Boss (index 5, stationed in Room 6) —
+    // all loaded from the same rig/model, just spawned at different posts
+    // and the Boss additionally scaled up and tinted (see tintBossFighter).
+    const bots: (FighterRig | null)[] = [null, null, null, null, null, null];
+    for (let i = 0; i < BOT_SPAWNS.length; i++) {
+      const spawn = BOT_SPAWNS[i];
+      loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
+        if (disposed) return;
+        rig.root.position.set(spawn.x, 0, spawn.z);
+        bots[i] = rig;
+        equipGun(rig);
+      });
+    }
     loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
       if (disposed) return;
-      rig.root.position.set(BOT_SPAWN.x, 0, BOT_SPAWN.z);
-      bot = rig;
+      rig.root.position.set(BOSS_SPAWN.x, 0, BOSS_SPAWN.z);
+      rig.root.scale.setScalar(BOSS_SCALE);
+      tintBossFighter(rig);
+      bots[5] = rig;
       equipGun(rig);
     });
     const resize = () => {
@@ -3364,32 +3403,47 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
 
-    const botMaxHp = 100;
-    const botState = {
-      hp: botMaxHp,
+    // Index 0-4: the five room guards, one per ROOM_POSITIONS entry (see
+    // roomIndex). Index 5: the Boss — tougher, and isBoss skips the
+    // patrol/chase behavior entirely in favor of holding its ground.
+    const botMaxHps = [100, 100, 100, 100, 100, BOSS_HP];
+    const botStates = botMaxHps.map((hp, i) => ({
+      hp,
       cooldown: 0,
       fireT: -1,
       deathT: -1,
       dead: false,
-      awake: false,
+      isBoss: i === 5,
+      roomIndex: i, // only meaningful for guards (0-4); Boss ignores it
+      awake: i === 5, // the Boss has no guard/patrol behavior to wait on
       alertT: -1,
       patrolTarget: null as { x: number; z: number } | null,
       stuckT: 0,
       avoidSign: 1 as 1 | -1,
-      // How long it's been since the bot last actually had a clear line of
-      // sight to the player while chasing — see LOSE_SIGHT_GIVEUP below.
+      // How long it's been since this fighter last actually had a clear
+      // line of sight to the player while chasing — see LOSE_SIGHT_GIVEUP.
       loseSightT: 0,
-    };
-    const damageBot = (amount: number) => {
-      if (botState.dead || !bot) return;
-      botState.hp = Math.max(0, botState.hp - amount);
-      setBotHp((botState.hp / botMaxHp) * 100);
-      if (botState.hp <= 0) {
-        botState.dead = true;
-        botState.deathT = 0;
-        startDeath(bot);
-        ended = true;
-        pendingResult = "win";
+    }));
+    // Applies damage to one bot by index, handling its death (topple pose)
+    // and the overall win condition (every fighter dead).
+    const damageBot = (idx: number, amount: number) => {
+      const st = botStates[idx];
+      const rig = bots[idx];
+      if (st.dead || !rig) return;
+      st.hp = Math.max(0, st.hp - amount);
+      setBotHps((prev) => {
+        const next = prev.slice();
+        next[idx] = (st.hp / botMaxHps[idx]) * 100;
+        return next;
+      });
+      if (st.hp <= 0) {
+        st.dead = true;
+        st.deathT = 0;
+        startDeath(rig);
+        if (botStates.every((s) => s.dead)) {
+          ended = true;
+          pendingResult = "win";
+        }
       }
     };
 
@@ -3397,7 +3451,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       raf = requestAnimationFrame(tick);
       const dt = Math.min(clock.getDelta(), 0.05);
       player?.mixer?.update(dt);
-      bot?.mixer?.update(dt);
+      for (const rig of bots) rig?.mixer?.update(dt);
       // Re-bend the off-hand toward the gun's foregrip after the mixer has
       // (re)applied this frame's idle/run/fire pose — see
       // updateOffHandReach. Skipped once dead: the death clip already
@@ -3405,45 +3459,54 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       // onto the gun every frame would fight that pose (and just looks
       // wrong — a dropped body shouldn't still be gripping the gun).
       if (player && playerDeathT < 0) updateOffHandReach(player);
-      if (bot && botState.deathT < 0) updateOffHandReach(bot);
+      for (let i = 0; i < bots.length; i++) {
+        const rig = bots[i];
+        if (rig && botStates[i].deathT < 0) updateOffHandReach(rig);
+      }
       updateTracers(tracers, dt);
 
       if (player && playerDeathT >= 0) {
         applyDeathPose(player, playerDeathT);
         playerDeathT += dt;
       }
-      if (bot && botState.deathT >= 0) {
-        applyDeathPose(bot, botState.deathT);
-        botState.deathT += dt;
+
+      // Each fighter's own health bar floats directly over its head in the
+      // 3D view instead of a fixed corner list — hidden once dead, once
+      // it's behind the camera, or while it's still above half health
+      // (only worth calling out once it's actually hurting).
+      for (let i = 0; i < bots.length; i++) {
+        const rig = bots[i];
+        const st = botStates[i];
+        if (rig && st.deathT >= 0) {
+          applyDeathPose(rig, st.deathT);
+          st.deathT += dt;
+        }
+        const barEl = botHpBarRefs.current[i];
+        if (barEl) {
+          if (rig && !st.dead && st.hp / botMaxHps[i] <= 0.5) {
+            const markPoint = rig.root.position.clone();
+            markPoint.y += st.isBoss ? 2.6 : 1.95;
+            markPoint.project(camera);
+            if (markPoint.z < 1) {
+              const w = container.clientWidth;
+              const h = container.clientHeight;
+              barEl.style.display = "block";
+              barEl.style.left = `${(markPoint.x + 1) * 0.5 * w}px`;
+              barEl.style.top = `${(1 - markPoint.y) * 0.5 * h}px`;
+            } else {
+              barEl.style.display = "none";
+            }
+          } else {
+            barEl.style.display = "none";
+          }
+        }
       }
+
       if (ended && pendingResult) {
         resultRevealT += dt;
         if (resultRevealT > DEATH_TOTAL_DURATION) {
           setResult(pendingResult);
           pendingResult = null;
-        }
-      }
-
-      // Float the bot's own health bar above its head — hidden once dead,
-      // once it's behind the camera, or while it's still above half
-      // health (only worth calling out once it's actually hurting).
-      const botBarEl = botHpBarRef.current;
-      if (botBarEl) {
-        if (bot && !botState.dead && botState.hp / botMaxHp <= 0.5) {
-          const markPoint = bot.root.position.clone();
-          markPoint.y += 1.95;
-          markPoint.project(camera);
-          if (markPoint.z < 1) {
-            const w = container.clientWidth;
-            const h = container.clientHeight;
-            botBarEl.style.display = "block";
-            botBarEl.style.left = `${(markPoint.x + 1) * 0.5 * w}px`;
-            botBarEl.style.top = `${(1 - markPoint.y) * 0.5 * h}px`;
-          } else {
-            botBarEl.style.display = "none";
-          }
-        } else {
-          botBarEl.style.display = "none";
         }
       }
 
@@ -3528,22 +3591,27 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
 
         // Slide each gate open as the player nears its door, closed again
-        // once they've moved away. Also opens for the bot, not just the
+        // once they've moved away. Also opens for any bot, not just the
         // player — a gate that only ever reacted to the player would slide
-        // shut in the chasing bot's face the moment the player ran back
+        // shut in a chasing bot's face the moment the player ran back
         // through it and out of GATE_OPEN_RADIUS, trapping the bot against
         // a door it has no way to open.
         for (const g of gates) {
           const gateDx = player.root.position.x - g.door.x;
           const gateDz = player.root.position.z - g.door.z;
-          const playerNear = Math.hypot(gateDx, gateDz) < GATE_OPEN_RADIUS;
-          let botNear = false;
-          if (bot) {
-            const botGateDx = bot.root.position.x - g.door.x;
-            const botGateDz = bot.root.position.z - g.door.z;
-            botNear = Math.hypot(botGateDx, botGateDz) < GATE_OPEN_RADIUS;
+          let anyNear = Math.hypot(gateDx, gateDz) < GATE_OPEN_RADIUS;
+          if (!anyNear) {
+            for (const rig of bots) {
+              if (!rig) continue;
+              const botGateDx = rig.root.position.x - g.door.x;
+              const botGateDz = rig.root.position.z - g.door.z;
+              if (Math.hypot(botGateDx, botGateDz) < GATE_OPEN_RADIUS) {
+                anyNear = true;
+                break;
+              }
+            }
           }
-          const gateTarget = playerNear || botNear ? 1 : 0;
+          const gateTarget = anyNear ? 1 : 0;
           g.openAmount = approach(g.openAmount, gateTarget, GATE_SLIDE_RATE, dt);
           updateGatePanels(g);
         }
@@ -3582,38 +3650,65 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // around the character without spinning the character itself
         // (matching Free Fire: panning the screen doesn't turn your body).
 
-        // The bot's own AI — dormant guard (wanders its post until the
-        // player gets close) or, once awake, chases and fires back.
-        let canHitBot = false;
-        let botDx = 0;
-        let botDz = 0;
-        if (bot && !botState.dead) {
-          botDx = player.root.position.x - bot.root.position.x;
-          botDz = player.root.position.z - bot.root.position.z;
+        // All six fighters act independently and simultaneously — every
+        // one still alive (the five guards, plus the Boss) can land its
+        // own hit, rather than only "the current" one taking a turn.
+        // Track the nearest one the player can actually see, as the
+        // player's own auto-aim target.
+        let nearestIdx = -1;
+        let nearestDist = Infinity;
+        for (let i = 0; i < bots.length; i++) {
+          const rig = bots[i];
+          const st = botStates[i];
+          if (!rig || st.dead) continue;
+
+          let botDx = player.root.position.x - rig.root.position.x;
+          let botDz = player.root.position.z - rig.root.position.z;
           let botDist = Math.hypot(botDx, botDz);
 
           // Keep the two bodies from walking through each other.
           if (botDist < BODY_SEPARATION) {
             const nx = botDist > 0.0001 ? botDx / botDist : 0;
             const nz = botDist > 0.0001 ? botDz / botDist : 1;
-            player.root.position.x = clamp(bot.root.position.x + nx * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-            player.root.position.z = clamp(bot.root.position.z + nz * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-            botDx = player.root.position.x - bot.root.position.x;
-            botDz = player.root.position.z - bot.root.position.z;
+            player.root.position.x = clamp(rig.root.position.x + nx * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            player.root.position.z = clamp(rig.root.position.z + nz * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            botDx = player.root.position.x - rig.root.position.x;
+            botDz = player.root.position.z - rig.root.position.z;
             botDist = Math.hypot(botDx, botDz);
           }
 
-          if (!botState.awake) {
-            // Dormant: patrols the whole room (see pickRoomPatrolTarget)
+          if (st.isBoss) {
+            // The Boss holds its ground in Room 6 — it never patrols or
+            // chases, but opens fire the instant the player comes within
+            // range and line of sight.
+            updateLocomotionAnim(rig, 0, 0);
+            rig.root.rotation.y = Math.atan2(botDx, botDz);
+            const canSeePlayer = hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z);
+            st.cooldown = Math.max(0, st.cooldown - dt);
+            if (botDist <= GUN_RANGE && st.cooldown <= 0 && canSeePlayer) {
+              playerHpLocal = Math.max(0, playerHpLocal - BOSS_DAMAGE);
+              setPlayerHp(playerHpLocal);
+              st.cooldown = BOSS_ATTACK_COOLDOWN;
+              st.fireT = 0;
+              rig.fireAction?.reset().play();
+              const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
+              tracers.push(spawnTracer(scene, rig.gun, rig.root.position, targetPoint));
+            }
+            if (st.fireT >= 0) {
+              applyFirePose(rig, st.fireT);
+              st.fireT = st.fireT + dt > FIRE_ANIM_DURATION ? -1 : st.fireT + dt;
+            }
+          } else if (!st.awake) {
+            // Dormant guard: patrols its own room (see pickRoomPatrolTarget)
             // until it actually spots the player — the instant it has a
             // clear line of sight within DETECTION_RANGE, not just when
             // they're within some fixed radius — then freezes, faces
             // them, and holds for a near-instant beat (alertT) before
             // waking into the chase below.
-            if (botState.alertT < 0) {
+            if (st.alertT < 0) {
               if (
-                !botState.patrolTarget ||
-                Math.hypot(bot.root.position.x - botState.patrolTarget.x, bot.root.position.z - botState.patrolTarget.z) < PATROL_ARRIVE_DIST ||
+                !st.patrolTarget ||
+                Math.hypot(rig.root.position.x - st.patrolTarget.x, rig.root.position.z - st.patrolTarget.z) < PATROL_ARRIVE_DIST ||
                 // A wider room-wide patrol crosses paths with the room's
                 // own crates far more than the old small loop around the
                 // guard post did — moveWithAvoidance's simple sideways
@@ -3623,83 +3718,89 @@ function CombatArena({ onExit }: { onExit: () => void }) {
                 // straight). Once it's been stuck that long, abandon the
                 // current waypoint for a fresh one instead of fixating on
                 // one that may not be reachable from here.
-                botState.stuckT > STUCK_AVOID_FLIP_DELAY * 2
+                st.stuckT > STUCK_AVOID_FLIP_DELAY * 2
               ) {
-                botState.patrolTarget = pickRoomPatrolTarget();
-                botState.stuckT = 0;
+                st.patrolTarget = pickRoomPatrolTarget(st.roomIndex);
+                st.stuckT = 0;
               }
-              const pdx = botState.patrolTarget.x - bot.root.position.x;
-              const pdz = botState.patrolTarget.z - bot.root.position.z;
+              const pdx = st.patrolTarget.x - rig.root.position.x;
+              const pdz = st.patrolTarget.z - rig.root.position.z;
               const pdist = Math.hypot(pdx, pdz);
               if (pdist > 0.0001) {
-                moveWithAvoidance(bot, botState, pdx / pdist, pdz / pdist, PATROL_SPEED, dt);
-                bot.root.rotation.y = Math.atan2(pdx, pdz);
-                updateLocomotionAnim(bot, PATROL_RUN_WEIGHT, PATROL_SPEED);
+                moveWithAvoidance(rig, st, pdx / pdist, pdz / pdist, PATROL_SPEED, dt);
+                rig.root.rotation.y = Math.atan2(pdx, pdz);
+                updateLocomotionAnim(rig, PATROL_RUN_WEIGHT, PATROL_SPEED);
               }
               if (
                 botDist <= DETECTION_RANGE &&
-                hasLineOfSight(bot.root.position.x, bot.root.position.z, player.root.position.x, player.root.position.z)
+                hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z)
               ) {
-                botState.alertT = ALERT_TELEGRAPH_DURATION;
+                st.alertT = ALERT_TELEGRAPH_DURATION;
               }
             } else {
-              updateLocomotionAnim(bot, 0, 0);
-              bot.root.rotation.y = Math.atan2(botDx, botDz);
-              botState.alertT -= dt;
-              if (botState.alertT <= 0) botState.awake = true;
+              updateLocomotionAnim(rig, 0, 0);
+              rig.root.rotation.y = Math.atan2(botDx, botDz);
+              st.alertT -= dt;
+              if (st.alertT <= 0) st.awake = true;
             }
           } else {
-            // Awake: closes the gap until it has a clear shot, then holds
-            // position and fires. A wall between it and the player blocks
-            // the shot (see hasLineOfSight) same as it blocks a real
-            // bullet, so being "in range" by distance alone isn't enough.
-            const canSeePlayer = hasLineOfSight(bot.root.position.x, bot.root.position.z, player.root.position.x, player.root.position.z);
+            // Awake guard: closes the gap until it has a clear shot, then
+            // holds position and fires. A wall between it and the player
+            // blocks the shot (see hasLineOfSight) same as it blocks a
+            // real bullet, so being "in range" by distance alone isn't
+            // enough.
+            const canSeePlayer = hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z);
             if (canSeePlayer) {
-              botState.loseSightT = 0;
+              st.loseSightT = 0;
             } else {
-              botState.loseSightT += dt;
-              if (botState.loseSightT > LOSE_SIGHT_GIVEUP) {
+              st.loseSightT += dt;
+              if (st.loseSightT > LOSE_SIGHT_GIVEUP) {
                 // Genuinely lost them (they ran out of the room, around
                 // several corners, whatever) — stop chasing and go back to
                 // patrolling instead of walking at their last known spot
                 // forever. Fresh patrolTarget/stuckT so it doesn't pick up
                 // mid-chase momentum as a patrol waypoint.
-                botState.awake = false;
-                botState.patrolTarget = null;
-                botState.stuckT = 0;
-                botState.loseSightT = 0;
-                updateLocomotionAnim(bot, 0, 0);
+                st.awake = false;
+                st.patrolTarget = null;
+                st.stuckT = 0;
+                st.loseSightT = 0;
+                updateLocomotionAnim(rig, 0, 0);
               }
             }
-            if (botState.awake) {
+            if (st.awake) {
               if (botDist > GUN_RANGE * 0.85 || !canSeePlayer) {
-                moveWithAvoidance(bot, botState, botDx / botDist, botDz / botDist, BOT_SPEED, dt);
-                updateLocomotionAnim(bot, 1, BOT_SPEED);
+                moveWithAvoidance(rig, st, botDx / botDist, botDz / botDist, BOT_SPEED, dt);
+                updateLocomotionAnim(rig, 1, BOT_SPEED);
               } else {
-                updateLocomotionAnim(bot, 0, 0);
+                updateLocomotionAnim(rig, 0, 0);
               }
-              bot.root.rotation.y = Math.atan2(botDx, botDz);
+              rig.root.rotation.y = Math.atan2(botDx, botDz);
 
-              botState.cooldown = Math.max(0, botState.cooldown - dt);
-              if (botDist <= GUN_RANGE && botState.cooldown <= 0 && canSeePlayer) {
+              st.cooldown = Math.max(0, st.cooldown - dt);
+              if (botDist <= GUN_RANGE && st.cooldown <= 0 && canSeePlayer) {
                 playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
                 setPlayerHp(playerHpLocal);
-                botState.cooldown = BOT_ATTACK_COOLDOWN;
-                botState.fireT = 0;
-                bot.fireAction?.reset().play();
+                st.cooldown = BOT_ATTACK_COOLDOWN;
+                st.fireT = 0;
+                rig.fireAction?.reset().play();
                 const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
-                tracers.push(spawnTracer(scene, bot.gun, bot.root.position, targetPoint));
+                tracers.push(spawnTracer(scene, rig.gun, rig.root.position, targetPoint));
               }
             }
-            if (botState.fireT >= 0) {
-              applyFirePose(bot, botState.fireT);
-              botState.fireT = botState.fireT + dt > FIRE_ANIM_DURATION ? -1 : botState.fireT + dt;
+            if (st.fireT >= 0) {
+              applyFirePose(rig, st.fireT);
+              st.fireT = st.fireT + dt > FIRE_ANIM_DURATION ? -1 : st.fireT + dt;
             }
           }
 
-          // Only counts as the player's auto-aim target if actually
-          // visible and in range.
-          canHitBot = botDist <= GUN_RANGE && hasLineOfSight(player.root.position.x, player.root.position.z, bot.root.position.x, bot.root.position.z);
+          // Only a fighter the player can actually see counts as a
+          // target — a closer one hidden behind a wall (or a gate)
+          // shouldn't steal the auto-aim (or the shot's damage) from a
+          // farther one actually in view.
+          if (botDist < nearestDist && hasLineOfSight(player.root.position.x, player.root.position.z, rig.root.position.x, rig.root.position.z)) {
+            nearestDist = botDist;
+            nearestIdx = i;
+          }
         }
 
         playerCooldown = Math.max(0, playerCooldown - dt);
@@ -3721,16 +3822,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             playerFireT = 0;
             player.fireAction?.reset().play();
             const aimYaw = cameraYaw.current;
+            const canHitBot = nearestIdx !== -1 && nearestDist <= GUN_RANGE;
             const targetPoint =
-              canHitBot && bot
-                ? new THREE.Vector3(bot.root.position.x, TRACER_TARGET_HEIGHT, bot.root.position.z)
+              canHitBot && bots[nearestIdx]
+                ? new THREE.Vector3(bots[nearestIdx]!.root.position.x, TRACER_TARGET_HEIGHT, bots[nearestIdx]!.root.position.z)
                 : new THREE.Vector3(
                     player.root.position.x + Math.sin(aimYaw) * GUN_RANGE,
                     TRACER_TARGET_HEIGHT,
                     player.root.position.z + Math.cos(aimYaw) * GUN_RANGE,
                   );
             tracers.push(spawnTracer(scene, player.gun, player.root.position, targetPoint));
-            if (canHitBot) damageBot(PLAYER_DAMAGE);
+            if (canHitBot) damageBot(nearestIdx, PLAYER_DAMAGE);
           }
         }
 
@@ -3881,14 +3983,51 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         </div>
       </div>
 
-      {/* The bot's own health bar — floats above its head in-world (see
-          the screen-projection block in the tick loop), not fixed to a
-          screen corner, so it stays pinned to whichever bot it belongs to. */}
-      <div ref={botHpBarRef} style={{ position: "absolute", width: 90, marginLeft: -45, marginTop: -28, display: "none", pointerEvents: "none" }}>
-        <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.18)", overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${botHp}%`, background: "linear-gradient(90deg,#ff6b5e,#ff9a4d)", transition: "width 150ms ease-out" }} />
+      {/* Each fighter's own health bar floats directly above its head
+          in-world (see the screen-projection block in the tick loop),
+          not fixed to a screen corner, so it stays pinned to whichever
+          bot it belongs to. Index 5 is the Boss — wider bar, own label. */}
+      {botHps.map((hp, i) => (
+        <div
+          key={i}
+          ref={(el) => {
+            botHpBarRefs.current[i] = el;
+          }}
+          style={{
+            position: "absolute",
+            width: i === 5 ? 110 : 90,
+            marginLeft: i === 5 ? -55 : -45,
+            marginTop: -30,
+            display: "none",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              color: i === 5 ? "#ff8a8a" : "#dce8f5",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 10,
+              letterSpacing: "0.08em",
+              marginBottom: 2,
+              textAlign: "center",
+              textShadow: "0 0 4px rgba(0,0,0,0.9)",
+            }}
+          >
+            {i === 5 ? "BOSS" : `GUARD ${i + 1}`}
+          </div>
+          <div style={{ height: i === 5 ? 8 : 6, borderRadius: 3, background: "rgba(255,255,255,0.18)", overflow: "hidden" }}>
+            <div
+              style={{
+                height: "100%",
+                width: `${hp}%`,
+                background: i === 5 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff6b5e,#ff9a4d)",
+                transition: "width 150ms ease-out",
+              }}
+            />
+          </div>
         </div>
-      </div>
+      ))}
 
       <button
         onClick={onExit}
