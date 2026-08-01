@@ -1237,7 +1237,7 @@ const GUN_RANGE = 14; // a shootout distance, not a melee reach
 // sci-fi interior. Placed well away from the default spawn points so it
 // doesn't interfere with the immediate spawn-adjacent fight.
 const ROOM_SIZE = 20; // doubled from the original 10 — rooms 1-5 only, room 6 has its own fixed ROOM6_WIDTH/ROOM6_DEPTH
-const ROOM_WALL_HEIGHT = 2.5;
+const ROOM_WALL_HEIGHT = 3.5;
 const ROOM_WALL_THICKNESS = 0.6;
 const ROOM_DOOR_WIDTH = 2;
 const ROOM_POS = { x: 60, z: -50 };
