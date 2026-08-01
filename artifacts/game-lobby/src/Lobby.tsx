@@ -1445,6 +1445,57 @@ const EXTRA_CRATES: Obstacle[] = [
   { x: ROOM6_POS.x, z: ROOM6_POS.z + 10, halfX: 1, halfZ: 1, pad: ROOM_PAD }, // room6
 ];
 
+// A new octagonal room attached directly to Room 1's west door (door 3) —
+// no connecting corridor at all, the door opens straight into it. 20x20
+// bounding box like the square rooms, but with all 4 corners chamfered at
+// 45° so it reads as an octagon instead of another square or a round room.
+// Only 7 wall segments are built (no separate east wall of its own): Room
+// 1's own west wall — already split around the door 3 gap by
+// roomWallObstacles() — is the shared partition between the two rooms, so
+// this room's north/south walls and its two east-side (NE/SE) corner cuts
+// simply terminate right at that existing wall instead of duplicating it.
+const NEWROOM_HALF = 10; // 20x20 bounding box
+const NEWROOM_CHAMFER = 6; // corner cut distance, in from each side
+const NEWROOM_POS = { x: ROOM_POS.x - ROOM_SIZE / 2 - NEWROOM_HALF, z: ROOM_POS.z }; // flush against Room 1's west wall
+const NEWROOM_STRAIGHT_HALF = (NEWROOM_HALF * 2 - NEWROOM_CHAMFER * 2) / 2; // half-length of each straight edge
+const NEWROOM_WALLS: Obstacle[] = [
+  { x: NEWROOM_POS.x, z: NEWROOM_POS.z - NEWROOM_HALF, halfX: NEWROOM_STRAIGHT_HALF, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north
+  { x: NEWROOM_POS.x, z: NEWROOM_POS.z + NEWROOM_HALF, halfX: NEWROOM_STRAIGHT_HALF, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south
+  { x: NEWROOM_POS.x - NEWROOM_HALF, z: NEWROOM_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: NEWROOM_STRAIGHT_HALF, pad: ROOM_PAD }, // west
+  // The 4 chamfered corners, approximated as small square blocks for
+  // collision (the collision system is axis-aligned only — see the
+  // Obstacle interface — so a true 45° obstacle isn't possible; this just
+  // conservatively seals each corner to match the diagonal wall mesh).
+  {
+    x: NEWROOM_POS.x - NEWROOM_STRAIGHT_HALF - NEWROOM_CHAMFER / 2,
+    z: NEWROOM_POS.z - NEWROOM_STRAIGHT_HALF - NEWROOM_CHAMFER / 2,
+    halfX: NEWROOM_CHAMFER / 2,
+    halfZ: NEWROOM_CHAMFER / 2,
+    pad: ROOM_PAD,
+  }, // NW
+  {
+    x: NEWROOM_POS.x + NEWROOM_STRAIGHT_HALF + NEWROOM_CHAMFER / 2,
+    z: NEWROOM_POS.z - NEWROOM_STRAIGHT_HALF - NEWROOM_CHAMFER / 2,
+    halfX: NEWROOM_CHAMFER / 2,
+    halfZ: NEWROOM_CHAMFER / 2,
+    pad: ROOM_PAD,
+  }, // NE
+  {
+    x: NEWROOM_POS.x - NEWROOM_STRAIGHT_HALF - NEWROOM_CHAMFER / 2,
+    z: NEWROOM_POS.z + NEWROOM_STRAIGHT_HALF + NEWROOM_CHAMFER / 2,
+    halfX: NEWROOM_CHAMFER / 2,
+    halfZ: NEWROOM_CHAMFER / 2,
+    pad: ROOM_PAD,
+  }, // SW
+  {
+    x: NEWROOM_POS.x + NEWROOM_STRAIGHT_HALF + NEWROOM_CHAMFER / 2,
+    z: NEWROOM_POS.z + NEWROOM_STRAIGHT_HALF + NEWROOM_CHAMFER / 2,
+    halfX: NEWROOM_CHAMFER / 2,
+    halfZ: NEWROOM_CHAMFER / 2,
+    pad: ROOM_PAD,
+  }, // SE
+];
+
 // An underground tunnel actually running beneath the real path between
 // houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
 // unrelated empty arena. Since the collision system only checks X/Z (see
@@ -1520,6 +1571,7 @@ const OBSTACLES: Obstacle[] = [
   ...CORRIDOR4_WALLS,
   ...ROOM6_WALLS,
   ...CORRIDOR5_WALLS,
+  ...NEWROOM_WALLS,
   ...EXTRA_CRATES,
 ];
 
@@ -2895,6 +2947,23 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       scene.add(wallMesh);
       return wallMesh;
     };
+    // Same as addWallMesh, but for a wall segment that isn't axis-aligned
+    // (the chamfered corners of the new octagonal room) — takes an explicit
+    // world-space length and Y rotation instead of deriving a Box's width/
+    // depth from an Obstacle rect, since a rotated rect can't be expressed
+    // as one of those.
+    const addAngledWallMesh = (x: number, z: number, length: number, height: number, centerY: number, rotY: number, variant: 0 | 1 = 0) => {
+      const wallMat = new THREE.MeshStandardMaterial({
+        map: createSciFiWallTexture(length / SCIFI_WALL_TILE_SIZE, height / SCIFI_WALL_TILE_SIZE, wallMaxAnisotropy, variant),
+        roughness: 0.7,
+        metalness: 0.3,
+      });
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(length, height, ROOM_WALL_THICKNESS), wallMat);
+      wallMesh.position.set(x, centerY, z);
+      wallMesh.rotation.y = rotY;
+      scene.add(wallMesh);
+      return wallMesh;
+    };
     const doorGlowMat = new THREE.MeshStandardMaterial({ color: 0xff3355, emissive: 0xff3355, emissiveIntensity: 1.4, roughness: 0.4 });
     const hazardMat = new THREE.MeshStandardMaterial({ map: createHazardStripeTexture(), roughness: 0.8 });
     const screenMat = new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6be2ff, emissiveIntensity: 0.9, roughness: 0.3 });
@@ -3305,6 +3374,35 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const room6Ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM6_WIDTH, ROOM_WALL_THICKNESS, ROOM6_DEPTH), createCeilingMat(ROOM6_WIDTH, ROOM6_DEPTH));
     room6Ceiling.position.set(ROOM6_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM6_POS.z);
     scene.add(room6Ceiling);
+
+    // New octagonal room off Room 1's west door (door 3, see NEWROOM_WALLS
+    // above) — straight north/south/west walls plus 4 diagonal corner
+    // segments computed from their two world-space endpoints rather than
+    // from an axis-aligned Obstacle rect, since a 45° wall can't be
+    // expressed as one of those (see addAngledWallMesh).
+    for (const ob of [NEWROOM_WALLS[0], NEWROOM_WALLS[1], NEWROOM_WALLS[2]]) {
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
+    }
+    const addNewRoomDiagonal = (x1: number, z1: number, x2: number, z2: number) => {
+      const dx = x2 - x1;
+      const dz = z2 - z1;
+      const length = Math.hypot(dx, dz);
+      addAngledWallMesh((x1 + x2) / 2, (z1 + z2) / 2, length, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, -Math.atan2(dz, dx));
+    };
+    const nrX = NEWROOM_POS.x;
+    const nrZ = NEWROOM_POS.z;
+    const nrH = NEWROOM_HALF;
+    const nrS = NEWROOM_STRAIGHT_HALF;
+    addNewRoomDiagonal(nrX - nrS, nrZ - nrH, nrX - nrH, nrZ - nrS); // NW
+    addNewRoomDiagonal(nrX + nrS, nrZ - nrH, nrX + nrH, nrZ - nrS); // NE (terminates at Room 1's wall)
+    addNewRoomDiagonal(nrX - nrS, nrZ + nrH, nrX - nrH, nrZ + nrS); // SW
+    addNewRoomDiagonal(nrX + nrS, nrZ + nrH, nrX + nrH, nrZ + nrS); // SE (terminates at Room 1's wall)
+    const newRoomCeiling = new THREE.Mesh(
+      new THREE.BoxGeometry(NEWROOM_HALF * 2, ROOM_WALL_THICKNESS, NEWROOM_HALF * 2),
+      createCeilingMat(NEWROOM_HALF * 2, NEWROOM_HALF * 2),
+    );
+    newRoomCeiling.position.set(nrX, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, nrZ);
+    scene.add(newRoomCeiling);
 
     // Path arrows — a glowing marker flat on the floor right at each gate
     // along the route to the Boss, pointing which way to walk through it.
