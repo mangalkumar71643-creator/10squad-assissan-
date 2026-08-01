@@ -1261,14 +1261,16 @@ function roomWallObstacles(pos: { x: number; z: number }): Obstacle[] {
   ];
 }
 
-// Storage crates (mirrors the addCrate(...) calls below) — axis-aligned
-// half-extents padded out to cover each crate's rotated footprint so a
-// fighter can't walk straight through the decoration.
+// Storage crates (spawned from the real crate model — see
+// loadCratePrototype/placeCrate) — a symmetric footprint since the model
+// itself is roughly cube-shaped, unlike the old rotated rectangular boxes
+// this replaced (which needed differently-shaped padding per rotation).
+const CRATE_HALF_EXTENT = 0.9;
 function roomCrateObstacles(pos: { x: number; z: number }): Obstacle[] {
   return [
-    { x: pos.x - 2.5, z: pos.z - 2.5, halfX: 0.8, halfZ: 1.12, pad: ROOM_PAD }, // crate 1
-    { x: pos.x + 2.75, z: pos.z - 2, halfX: 0.86, halfZ: 1.13, pad: ROOM_PAD }, // crate 2
-    { x: pos.x + 2, z: pos.z + 2.75, halfX: 1.08, halfZ: 1.07, pad: ROOM_PAD }, // crate 3
+    { x: pos.x - 2.5, z: pos.z - 2.5, halfX: CRATE_HALF_EXTENT, halfZ: CRATE_HALF_EXTENT, pad: ROOM_PAD }, // crate 1
+    { x: pos.x + 2.75, z: pos.z - 2, halfX: CRATE_HALF_EXTENT, halfZ: CRATE_HALF_EXTENT, pad: ROOM_PAD }, // crate 2
+    { x: pos.x + 2, z: pos.z + 2.75, halfX: CRATE_HALF_EXTENT, halfZ: CRATE_HALF_EXTENT, pad: ROOM_PAD }, // crate 3
   ];
 }
 
@@ -1779,6 +1781,64 @@ function loadGunPrototype(): Promise<THREE.Object3D> {
     });
   }
   return gunPrototypePromise;
+}
+
+// A real crate model (decimated from a much heavier ~916k-triangle source
+// asset down to ~3k triangles — game-safe given how many copies of this get
+// placed) replacing the old procedural box-plus-cross-brace crates. Same
+// shared-load-and-clone pattern as the gun above: one glTF load, cloned
+// (with its own material instance, so the shared MeshStandardMaterial isn't
+// mutated by anything per-crate later) for every crate placed in the level.
+let cratePrototypePromise: Promise<THREE.Object3D> | null = null;
+function loadCratePrototype(): Promise<THREE.Object3D> {
+  if (!cratePrototypePromise) {
+    cratePrototypePromise = new Promise((resolve, reject) => {
+      new GLTFLoader().load(
+        "/characters/crate.glb",
+        (gltf) => resolve(gltf.scene),
+        undefined,
+        reject,
+      );
+    });
+  }
+  return cratePrototypePromise;
+}
+
+// The source model's own local bounding box (measured directly off the
+// decimated glb) — its pivot sits at the model's own center, floating
+// above/below the origin on every axis, not resting on its own base the
+// way a prop placed at y=0 needs to. CRATE_NATIVE_MIN_Y/CRATE_NATIVE_CENTER
+// below are what let placeCrate put it flush on the floor and centered
+// over (x,z) instead of embedded partway into the ground off to one side.
+const CRATE_NATIVE_MIN = new THREE.Vector3(-0.9145105481147766, -0.9559427499771118, -0.9144681096076965);
+const CRATE_NATIVE_MAX = new THREE.Vector3(0.9131617546081543, 0.9540873765945435, 0.9155857563018799);
+const CRATE_NATIVE_CENTER = CRATE_NATIVE_MIN.clone().add(CRATE_NATIVE_MAX).multiplyScalar(0.5);
+const CRATE_NATIVE_SIZE = CRATE_NATIVE_MAX.clone().sub(CRATE_NATIVE_MIN);
+
+// Clones the shared crate prototype, uniformly scaled so its own natural
+// footprint matches the given target half-extent, sits flush on the
+// floor, and is centered/rotated at the given spot.
+function placeCrate(scene: THREE.Scene, prototype: THREE.Object3D, x: number, z: number, targetHalfExtent: number, rotY: number) {
+  const crate = prototype.clone();
+  crate.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh) mesh.material = (mesh.material as THREE.MeshStandardMaterial).clone();
+  });
+  const scale = (targetHalfExtent * 2) / Math.max(CRATE_NATIVE_SIZE.x, CRATE_NATIVE_SIZE.z);
+  crate.scale.setScalar(scale);
+  crate.rotation.y = rotY;
+  const cos = Math.cos(rotY);
+  const sin = Math.sin(rotY);
+  // Undo the native center offset in the crate's own rotated local frame,
+  // so it ends up centered over (x,z) regardless of rotY.
+  const localX = -CRATE_NATIVE_CENTER.x * scale;
+  const localZ = -CRATE_NATIVE_CENTER.z * scale;
+  crate.position.set(
+    x + localX * cos + localZ * sin,
+    -CRATE_NATIVE_MIN.y * scale,
+    z - localX * sin + localZ * cos,
+  );
+  scene.add(crate);
 }
 
 // Parents a clone of the shared gun model onto a fighter's RightHand bone,
@@ -2740,9 +2800,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const roomWallMat = new THREE.MeshStandardMaterial({ color: 0x2a323c, roughness: 0.55, metalness: 0.4 });
     const roomEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
     const doorGlowMat = new THREE.MeshStandardMaterial({ color: 0xff3355, emissive: 0xff3355, emissiveIntensity: 1.4, roughness: 0.4 });
-    const crateMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.7, metalness: 0.3 });
-    const crateEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
-    const crateAccentMat = new THREE.MeshStandardMaterial({ color: 0xd8402c, emissive: 0xd8402c, emissiveIntensity: 0.5, roughness: 0.5 });
     const hazardMat = new THREE.MeshStandardMaterial({ map: createHazardStripeTexture(), roughness: 0.8 });
     const screenMat = new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6be2ff, emissiveIntensity: 0.9, roughness: 0.3 });
     const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x232a32, roughness: 0.6, metalness: 0.35, side: THREE.DoubleSide });
@@ -2772,26 +2829,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addDoorGlow(pos.x - ROOM_SIZE / 2, pos.z, ROOM_WALL_THICKNESS + 0.05, ROOM_DOOR_WIDTH); // west (exit)
       addDoorGlow(pos.x + ROOM_SIZE / 2, pos.z, ROOM_WALL_THICKNESS + 0.05, ROOM_DOOR_WIDTH); // east (exit)
 
-      // A few storage crates with a cross-braced accent on their front face.
-      const addCrate = (x: number, z: number, width: number, depth: number, height: number, rotY: number) => {
-        const crate = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), crateMat);
-        crate.position.set(x, height / 2, z);
-        crate.rotation.y = rotY;
-        scene.add(crate);
-        crate.add(new THREE.LineSegments(new THREE.EdgesGeometry(crate.geometry), crateEdgeMat));
-        const diagLen = Math.hypot(width, height) * 1.02;
-        const diagAngle = Math.atan2(height, width);
-        const braceA = new THREE.Mesh(new THREE.BoxGeometry(diagLen, height * 0.12, 0.06), crateAccentMat);
-        braceA.rotation.z = diagAngle;
-        braceA.position.set(0, 0, depth / 2 + 0.03);
-        const braceB = new THREE.Mesh(new THREE.BoxGeometry(diagLen, height * 0.12, 0.06), crateAccentMat);
-        braceB.rotation.z = -diagAngle;
-        braceB.position.set(0, 0, depth / 2 + 0.03);
-        crate.add(braceA, braceB);
-      };
-      addCrate(pos.x - 2.5, pos.z - 2.5, 1, 2, 1.5, 0.3);
-      addCrate(pos.x + 2.75, pos.z - 2, 1, 2, 1.5, -0.4);
-      addCrate(pos.x + 2, pos.z + 2.75, 1, 2, 1.5, 0.8);
+      // Crates themselves are spawned separately (see the loadCratePrototype
+      // block below), once the shared real crate model has actually loaded —
+      // matching roomCrateObstacles' positions exactly.
 
       // No floor decal at the room's exact center anymore — that's now the
       // tunnel-hole's spot (see addFloorHole), and a separate decal there
@@ -2829,6 +2869,20 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     for (const pos of ROOM_POSITIONS) {
       buildRoom(pos);
     }
+
+    // Every crate in the level — the 3 per room (see roomCrateObstacles)
+    // plus the ones scattered through corridors/midroom/ROOM6 (see
+    // EXTRA_CRATES) — is the same real crate model, loaded once and cloned.
+    // Waits on the load rather than blocking scene setup on it.
+    loadCratePrototype().then((proto) => {
+      if (disposed) return;
+      for (const pos of ROOM_POSITIONS) {
+        const crates = roomCrateObstacles(pos);
+        const rotations = [0.3, -0.4, 0.8];
+        crates.forEach((c, i) => placeCrate(scene, proto, c.x, c.z, c.halfX, rotations[i] ?? 0));
+      }
+      EXTRA_CRATES.forEach((c, i) => placeCrate(scene, proto, c.x, c.z, c.halfX, i * 0.7));
+    });
 
     // A real, walkable staircase down through each house's own center to
     // the tunnel below (see ROOM_STAIRS_DOWN_POS/RAMP_RUN_LENGTH and the
@@ -3206,15 +3260,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       scene.add(arrow);
     }
 
-    // Simple crate visuals matching EXTRA_CRATES above (one per corridor and
-    // midroom, three scattered through the much bigger ROOM6).
-    for (const ob of EXTRA_CRATES) {
-      const size = ob.halfX * 2;
-      const crate = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), crateMat);
-      crate.position.set(ob.x, size / 2, ob.z);
-      scene.add(crate);
-      crate.add(new THREE.LineSegments(new THREE.EdgesGeometry(crate.geometry), crateEdgeMat));
-    }
+    // EXTRA_CRATES' own visuals are spawned in the loadCratePrototype block
+    // above, alongside the room crates.
 
     // Sliding gates — one pair of panels per door, closed by default and
     // sliding apart automatically as the player gets close (see the gate
