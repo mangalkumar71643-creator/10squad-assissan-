@@ -3380,36 +3380,55 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     };
     gates.forEach(updateGatePanels); // start fully closed
 
-    // A "DOOR n" number floating above each gate, in the same order as the
-    // DOORS array — drawn once per door onto a small canvas and used as a
-    // billboard sprite (always faces the camera, unlike a plane) so it
-    // reads correctly from any approach angle.
-    const createDoorLabelSprite = (text: string): THREE.Sprite => {
+    // A numbered plaque mounted on the solid wall beside each door (not a
+    // "DOOR n" label floating over the opening) — a small dark rounded-rect
+    // backing with a cyan border and a big glowing digit, like a real room
+    // number sign, at roughly eye height so it's legible while approaching.
+    // Drawn once per door onto a canvas and used as a billboard sprite (
+    // always faces the camera, unlike a flat plane) so it reads correctly
+    // from any angle.
+    const createDoorNumberPlaque = (n: number): THREE.Sprite => {
       const canvas = document.createElement("canvas");
-      canvas.width = 256;
-      canvas.height = 128;
+      canvas.width = 200;
+      canvas.height = 200;
       const ctx = canvas.getContext("2d")!;
-      ctx.font = "bold 64px sans-serif";
+      const pad = 12;
+      ctx.fillStyle = "rgba(10, 18, 26, 0.88)";
+      ctx.strokeStyle = "#6be2ff";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.roundRect(pad, pad, canvas.width - pad * 2, canvas.height - pad * 2, 22);
+      ctx.fill();
+      ctx.stroke();
+      ctx.font = "bold 108px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
-      ctx.shadowBlur = 10;
+      ctx.shadowColor = "rgba(107, 226, 255, 0.7)";
+      ctx.shadowBlur = 16;
       ctx.fillStyle = "#6be2ff";
-      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+      ctx.fillText(String(n), canvas.width / 2, canvas.height / 2 + 6);
       const texture = new THREE.CanvasTexture(canvas);
       texture.colorSpace = THREE.SRGBColorSpace;
       const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
       const sprite = new THREE.Sprite(material);
-      sprite.scale.set(2, 1, 1);
+      sprite.scale.set(0.7, 0.7, 1);
       return sprite;
     };
+    const DOOR_PLAQUE_HEIGHT = 1.7; // eye level, not up near the ceiling
     DOORS.forEach((door, i) => {
-      const label = createDoorLabelSprite(`DOOR ${i + 1}`);
-      // Sits just above the door glow strip but still clear of the ceiling
-      // slab (which starts at ROOM_WALL_HEIGHT) — GATE_PANEL_HEIGHT + 0.7
-      // landed inside the ceiling geometry and was invisible.
-      label.position.set(door.x, GATE_PANEL_HEIGHT + 0.32, door.z);
-      scene.add(label);
+      const plaque = createDoorNumberPlaque(i + 1);
+      // Slide along the door's own axis to clear the opening and land on
+      // the solid wall next to it, then nudge across (perpendicular to the
+      // wall's run) by just over half the wall thickness so the plaque
+      // sits proud of the wall face instead of z-fighting inside it.
+      const alongOffset = door.width / 2 + 0.5;
+      const acrossOffset = ROOM_WALL_THICKNESS / 2 + 0.15;
+      if (door.axis === "x") {
+        plaque.position.set(door.x + alongOffset, DOOR_PLAQUE_HEIGHT, door.z + acrossOffset);
+      } else {
+        plaque.position.set(door.x + acrossOffset, DOOR_PLAQUE_HEIGHT, door.z + alongOffset);
+      }
+      scene.add(plaque);
     });
 
     let player: FighterRig | null = null;
