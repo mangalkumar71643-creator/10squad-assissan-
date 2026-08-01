@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone as cloneSkinnedObject } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 // Main hub screen shown after the splash/loading sequence: the approved
 // concept-art mockup, natively 16:9, rendered full-bleed edge-to-edge
@@ -2540,18 +2541,38 @@ function loadSourceRigData(): Promise<SourceRigData> {
   return sourceRigDataPromise;
 }
 
+// The bot model's own glTF, fetched and parsed once per URL and reused for
+// every instance — six copies of this (5 guards + the Boss, see
+// BOT_SPAWNS/BOSS_SPAWN) each calling `new GLTFLoader().load` fresh used to
+// mean six independent GPU uploads of the same ~29k-triangle mesh and its
+// five PBR textures (diffuse/normal/specular/glossiness/emissive), which is
+// exactly the kind of redundant GPU memory pressure that reads as "lag" on
+// a real phone even though it never showed up in this sandbox's headless
+// testing. Cached the same way loadGunPrototype/loadSourceRigData are.
+const botGltfCache = new Map<string, Promise<Awaited<ReturnType<InstanceType<typeof GLTFLoader>["loadAsync"]>>>>();
+function loadBotGltf(url: string) {
+  let promise = botGltfCache.get(url);
+  if (!promise) {
+    promise = new Promise((resolve, reject) => {
+      new GLTFLoader().load(url, resolve, undefined, reject);
+    });
+    botGltfCache.set(url, promise);
+  }
+  return promise;
+}
+
 // Loads the new bot character model, retargeting char-1's named clips onto
 // its own skeleton (see retargetClip above). Unlike loadFighter, this never
 // tints the material — the user supplied this character with its own
 // finished texture, and it must reach the game exactly as authored.
 function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: FighterRig) => void) {
-  const gltfPromise = new Promise<Awaited<ReturnType<InstanceType<typeof GLTFLoader>["loadAsync"]>>>((resolve, reject) => {
-    new GLTFLoader().load(url, resolve, undefined, reject);
-  });
-
-  Promise.all([gltfPromise, loadSourceRigData()])
+  Promise.all([loadBotGltf(url), loadSourceRigData()])
     .then(([gltf, source]) => {
-      const model = gltf.scene;
+      // SkeletonUtils.clone gives this instance its own bones/skeleton (so
+      // its mixer can pose it independently) while sharing the cached
+      // gltf's geometry and textures — the shared gltf.scene itself is
+      // never touched, so cloning it repeatedly for each bot is safe.
+      const model = cloneSkinnedObject(gltf.scene) as THREE.Object3D;
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
