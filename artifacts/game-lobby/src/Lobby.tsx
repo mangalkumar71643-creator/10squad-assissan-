@@ -2,6 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinnedObject } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 // Main hub screen shown after the splash/loading sequence: the approved
 // concept-art mockup, natively 16:9, rendered full-bleed edge-to-edge
@@ -1910,6 +1914,8 @@ function placeCrate(scene: THREE.Scene, material: THREE.MeshStandardMaterial, x:
   const crate = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), material);
   crate.rotation.y = rotY;
   crate.position.set(x, targetHalfExtent, z);
+  crate.castShadow = true;
+  crate.receiveShadow = true;
   scene.add(crate);
 }
 
@@ -2392,6 +2398,8 @@ function loadFighter(
         if (leftFinger) leftFingers[`${leftFinger[1]}${leftFinger[2]}`] = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
         const src = mesh.material as THREE.MeshStandardMaterial;
         const mat = src.clone();
         const tintColor = new THREE.Color(tint);
@@ -2711,6 +2719,8 @@ function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: Fighter
         // culling the whole (correctly positioned, correctly posed)
         // character as "off camera" even head-on in plain view.
         mesh.frustumCulled = false;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
         // No tint — clone only so this instance's own death-fade opacity
         // (see applyDeathPose) never touches a shared/cached material.
         const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
@@ -2853,7 +2863,27 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Real shadows + filmic tone mapping — walls/crates/characters were
+    // reading flat and "gamey" next to a reference with dramatic directional
+    // shadows and richer contrast. PCFSoftShadowMap gives soft shadow edges
+    // instead of the harsh aliased look of the default shadow type.
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
     container.appendChild(renderer.domElement);
+
+    // Bloom on top of the render — the light strips/door glow/muzzle flash
+    // are already emissive, but with no bloom pass they just render as a
+    // flat bright color instead of actually spreading light into the
+    // surrounding pixels the way a real light source reads. OutputPass
+    // re-applies the renderer's own color space/tone mapping after the
+    // bloom pass, since UnrealBloomPass's own output otherwise skips it.
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.4, 0.82);
+    composer.addPass(bloomPass);
+    composer.addPass(new OutputPass());
 
     // Ground color raised from its original near-black (0x0a0e18) so
     // downward-facing surfaces — chiefly the room/corridor ceiling slabs —
@@ -2864,7 +2894,25 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x5a6478, 1.15));
     const key = new THREE.DirectionalLight(0xffffff, 1.5);
     key.position.set(3, 6, 4);
+    // The arena is 700x700 — far too big for one shadow camera frustum to
+    // cover at any usable resolution, so instead of lighting the whole
+    // level the frustum is a fixed-size window (see SHADOW_FOLLOW_DISTANCE/
+    // SHADOW_FOLLOW_DIR below) that re-centers on the player every frame,
+    // keeping shadow resolution high right where it's actually seen.
+    key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = 50;
+    key.shadow.camera.left = -20;
+    key.shadow.camera.right = 20;
+    key.shadow.camera.top = 20;
+    key.shadow.camera.bottom = -20;
+    key.shadow.bias = -0.0015;
+    key.shadow.normalBias = 0.02;
     scene.add(key);
+    scene.add(key.target);
+    const SHADOW_FOLLOW_DIR = new THREE.Vector3(3, 6, 4).normalize();
+    const SHADOW_FOLLOW_DISTANCE = 20;
 
     // A real hole cut through the main floor at each house's stairwell
     // (not just a decal on top of a solid floor) — otherwise standing at
@@ -2917,6 +2965,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         metalness: 0.35,
       }),
     );
+    ground.receiveShadow = true;
     scene.add(ground);
 
     // Sci-fi outpost room — the wall segments exactly match the OBSTACLES
@@ -2944,6 +2993,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       });
       const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), wallMat);
       wallMesh.position.set(ob.x, centerY, ob.z);
+      wallMesh.castShadow = true;
+      wallMesh.receiveShadow = true;
       scene.add(wallMesh);
       return wallMesh;
     };
@@ -2961,6 +3012,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(length, height, ROOM_WALL_THICKNESS), wallMat);
       wallMesh.position.set(x, centerY, z);
       wallMesh.rotation.y = rotY;
+      wallMesh.castShadow = true;
+      wallMesh.receiveShadow = true;
       scene.add(wallMesh);
       return wallMesh;
     };
@@ -3463,6 +3516,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       const panelB = new THREE.Mesh(geo, panelBMat);
       panelA.position.y = GATE_PANEL_HEIGHT / 2;
       panelB.position.y = GATE_PANEL_HEIGHT / 2;
+      panelA.castShadow = true;
+      panelA.receiveShadow = true;
+      panelB.castShadow = true;
+      panelB.receiveShadow = true;
       scene.add(panelA, panelB);
       return { door, panelA, panelB, panelWidth, openAmount: 0 };
     });
@@ -3580,6 +3637,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       const h = container.clientHeight;
       if (w === 0 || h === 0) return;
       renderer.setSize(w, h);
+      composer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
@@ -4055,6 +4113,16 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
       }
 
+      // Re-center the shadow-casting light's frustum on the player every
+      // frame (see SHADOW_FOLLOW_DIR/DISTANCE above) — same fixed lighting
+      // angle, just recentered, so shadow resolution stays sharp locally
+      // instead of trying to cover the whole 700x700 arena at once.
+      if (player) {
+        key.position.copy(player.root.position).addScaledVector(SHADOW_FOLLOW_DIR, SHADOW_FOLLOW_DISTANCE);
+        key.target.position.copy(player.root.position);
+        key.target.updateMatrixWorld();
+      }
+
       // Chase camera keeps following/rendering even after the match ends,
       // so the loser's/bot's death animation actually plays out on screen
       // instead of the view freezing the instant HP hits zero.
@@ -4091,7 +4159,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         camera.lookAt(camLookAt);
       }
 
-      renderer.render(scene, camera);
+      composer.render();
     };
     tick();
 
