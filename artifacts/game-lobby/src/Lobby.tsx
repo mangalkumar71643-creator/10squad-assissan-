@@ -827,25 +827,6 @@ function createSciFiFloorTexture(repeatCount: number, maxAnisotropy: number): TH
   return texture;
 }
 
-// The floor photo's own light-strip pixels are just flat diffuse color —
-// under real scene lighting they read as dim, not "lit". This is an
-// emissive companion map (black everywhere except those strips) isolated
-// from the source photo by color-thresholding the cyan pixels, then split
-// into the two shapes each floor tile actually has — the long vertical
-// strips stay cyan, the short horizontal cross-seam pairs are recolored
-// red — so both now glow on their own regardless of ambient light,
-// instead of just one dim cyan tone doing all of it. Same repeat/wrap as
-// the diffuse map so the two stay aligned tile-for-tile.
-function createSciFiFloorGlowTexture(repeatCount: number, maxAnisotropy: number): THREE.Texture {
-  const texture = new THREE.TextureLoader().load("/textures/floor-scifi-glow.png");
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(repeatCount, repeatCount);
-  texture.anisotropy = maxAnisotropy;
-  return texture;
-}
-
 // Two real sci-fi wall-panel images (rusted plating, glowing seams) — each
 // loaded once and cloned per wall segment so every segment can carry its
 // own repeat count (walls come in many different lengths across the level;
@@ -2932,9 +2913,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       groundGeo,
       new THREE.MeshStandardMaterial({
         map: createSciFiFloorTexture(SCIFI_FLOOR_REPEAT, renderer.capabilities.getMaxAnisotropy()),
-        emissiveMap: createSciFiFloorGlowTexture(SCIFI_FLOOR_REPEAT, renderer.capabilities.getMaxAnisotropy()),
-        emissive: 0xffffff,
-        emissiveIntensity: 1.6,
         roughness: 0.6,
         metalness: 0.35,
       }),
