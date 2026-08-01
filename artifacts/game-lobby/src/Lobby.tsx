@@ -2024,15 +2024,53 @@ function updateLocomotionAnim(rig: FighterRig, runWeight: number, actualSpeed: n
 }
 
 // A bot's movement is otherwise just "walk straight at the target" — with
-// no pathfinding at all, that reads as mindless the moment a wall, crate,
-// or door frame sits between it and where it's trying to go: it just
-// keeps shoving into the obstacle every frame, pinned in place. This
-// tracks how much ground a bot is actually covering versus how much its
-// straight-line heading implies; once it's been making close to zero
-// progress for a bit, it starts steering mostly sideways (around whatever
-// it's stuck on) instead of straight ahead, flipping which side it tries
-// if that direction turns out blocked too, and only stops steering once
-// it's making real progress again.
+// no awareness of the level's own geometry, that reads as mindless the
+// moment a wall, crate, or door frame sits between it and where it's
+// trying to go: it just keeps shoving into the obstacle every frame,
+// pinned in place until it happens to get shoved clear. chooseHeading
+// below is what actually fixes that — it looks a short distance ahead
+// along the intended heading (the same segment-vs-obstacle test
+// hasLineOfSight uses for gunfire) and, if that's blocked, tries
+// progressively wider swings left/right of it until it finds one that
+// isn't — an actual "which way avoids the wall" decision made before
+// contact, not just a reaction to already being stuck.
+const AVOID_PROBE_DIST = 1.4;
+const AVOID_STEER_ANGLES = [0, 20, -20, 40, -40, 65, -65, 90, -90].map((d) => THREE.MathUtils.degToRad(d));
+
+function probeClear(x: number, z: number, dirX: number, dirZ: number, dist: number): boolean {
+  const toX = x + dirX * dist;
+  const toZ = z + dirZ * dist;
+  for (const ob of OBSTACLES) {
+    if (segmentHitsObstacle(x, z, toX, toZ, ob)) return false;
+  }
+  for (const ob of gateBlockers) {
+    if (segmentHitsObstacle(x, z, toX, toZ, ob)) return false;
+  }
+  return true;
+}
+
+// Tries the intended heading first, then increasingly wide swings to
+// either side of it (see AVOID_STEER_ANGLES), returning the first one
+// whose short look-ahead probe is actually clear — or null if every
+// angle it tried is blocked (properly boxed into a corner), in which
+// case moveWithAvoidance falls back to its older reactive nudge below.
+function chooseHeading(x: number, z: number, dirX: number, dirZ: number): { x: number; z: number } | null {
+  for (const angle of AVOID_STEER_ANGLES) {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const rx = dirX * cos - dirZ * sin;
+    const rz = dirX * sin + dirZ * cos;
+    if (probeClear(x, z, rx, rz, AVOID_PROBE_DIST)) return { x: rx, z: rz };
+  }
+  return null;
+}
+
+// This tracks how much ground a bot is actually covering versus how much
+// its heading implies, purely as a last-resort fallback for the rare case
+// chooseHeading can't find any clear angle at all (a proper dead end) —
+// once it's been making close to zero progress for a bit, it starts
+// steering mostly sideways (around whatever it's stuck on) instead of
+// straight ahead, flipping which side it tries if that's blocked too.
 const STUCK_AVOID_DELAY = 0.35;
 const STUCK_AVOID_FLIP_DELAY = 1.1;
 function moveWithAvoidance(
@@ -2045,14 +2083,23 @@ function moveWithAvoidance(
 ) {
   const beforeX = rig.root.position.x;
   const beforeZ = rig.root.position.z;
-  let moveX = dirX;
-  let moveZ = dirZ;
-  if (st.stuckT > STUCK_AVOID_DELAY) {
+
+  const heading = chooseHeading(beforeX, beforeZ, dirX, dirZ);
+  let moveX: number;
+  let moveZ: number;
+  if (heading) {
+    moveX = heading.x;
+    moveZ = heading.z;
+  } else if (st.stuckT > STUCK_AVOID_DELAY) {
     // Mostly sideways (perpendicular to the blocked heading), with a
     // little forward bias so it still drifts back on course once clear.
     moveX = -dirZ * st.avoidSign * 0.85 + dirX * 0.25;
     moveZ = dirX * st.avoidSign * 0.85 + dirZ * 0.25;
+  } else {
+    moveX = dirX;
+    moveZ = dirZ;
   }
+
   rig.root.position.x = clamp(rig.root.position.x + moveX * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
   rig.root.position.z = clamp(rig.root.position.z + moveZ * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
   resolveObstacleCollisions(rig.root.position);
