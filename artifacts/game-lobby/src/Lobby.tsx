@@ -910,39 +910,6 @@ function createFloorTexture(repeatCount: number, maxAnisotropy: number): THREE.C
   return texture;
 }
 
-// A dark recessed vent grate — thin light bars over a near-black base,
-// dropped flat into the floor in the middle of the sci-fi room.
-function createGrateTexture(): THREE.CanvasTexture {
-  const size = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#05080c";
-  ctx.fillRect(0, 0, size, size);
-  const bars = 9;
-  const barGap = size / bars;
-  ctx.strokeStyle = "rgba(120,150,170,0.8)";
-  ctx.lineWidth = 5;
-  for (let i = 0; i < bars; i++) {
-    const y = barGap * i + barGap / 2;
-    ctx.beginPath();
-    ctx.moveTo(size * 0.08, y);
-    ctx.lineTo(size * 0.92, y);
-    ctx.stroke();
-  }
-  ctx.save();
-  ctx.shadowColor = "#6be2ff";
-  ctx.shadowBlur = 18;
-  ctx.strokeStyle = "rgba(107,226,255,0.5)";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(size * 0.05, size * 0.05, size * 0.9, size * 0.9);
-  ctx.restore();
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
 // Diagonal yellow/black hazard stripes for the floor decal at a doorway
 // threshold.
 function createHazardStripeTexture(): THREE.CanvasTexture {
@@ -1752,13 +1719,8 @@ const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
 // in this mesh, so its own bounding-box center is used directly as the
 // hand target instead of a hand-tuned point.
 const GUN_GRIP_LOCAL = new THREE.Vector3(0, -10.43, 18.33);
-// A point on the handguard, between the grip and the muzzle, in the raw
-// mesh's own local space — this SMG's own named "Grip" part measured
-// directly; kept for reference/tuning even though updateOffHandReach no
-// longer targets it (see GUN_OFFHAND_TARGET_LOCAL).
-const GUN_FOREGRIP_LOCAL = new THREE.Vector3(0, -9.76, 2.01);
 // Where the off-hand actually reaches for (see updateOffHandReach) — much
-// further forward than GUN_FOREGRIP_LOCAL. That point sits only ~11cm
+// further forward than the SMG's own foregrip. That point sits only ~11cm
 // from the main grip on this short SMG, which put both hands so close
 // together they read as one bunched-up fist instead of a two-handed
 // hold; interpolated most of the way from the grip toward the muzzle tip
