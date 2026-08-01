@@ -1628,6 +1628,14 @@ const DETECTION_RANGE = 30;
 // Near-instant reaction once spotted — a beat just long enough to read as
 // noticing the player rather than a jump-cut, not the old telegraphed pause.
 const ALERT_TELEGRAPH_DURATION = 0.15;
+// Gives up the chase and goes back to patrolling once it's genuinely lost
+// the player — no clear line of sight for this long straight, not just
+// one blocked frame while rounding a corner. Without this, a bot chasing a
+// player who runs out through a door and out of the house has nothing to
+// aim for but also nothing telling it to stop trying — it just keeps
+// walking at the player's last known direction and piles up against
+// whatever's in the way (a wall, a door frame) forever.
+const LOSE_SIGHT_GIVEUP = 4;
 // While dormant, the bot doesn't just hold one small loop around its post —
 // it patrols the room's full interior, only steering clear of the narrow
 // strip down the middle where the stairs cut through the floor (see
@@ -3321,6 +3329,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       patrolTarget: null as { x: number; z: number } | null,
       stuckT: 0,
       avoidSign: 1 as 1 | -1,
+      // How long it's been since the bot last actually had a clear line of
+      // sight to the player while chasing — see LOSE_SIGHT_GIVEUP below.
+      loseSightT: 0,
     };
     const damageBot = (amount: number) => {
       if (botState.dead || !bot) return;
@@ -3470,11 +3481,22 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
 
         // Slide each gate open as the player nears its door, closed again
-        // once they've moved away.
+        // once they've moved away. Also opens for the bot, not just the
+        // player — a gate that only ever reacted to the player would slide
+        // shut in the chasing bot's face the moment the player ran back
+        // through it and out of GATE_OPEN_RADIUS, trapping the bot against
+        // a door it has no way to open.
         for (const g of gates) {
           const gateDx = player.root.position.x - g.door.x;
           const gateDz = player.root.position.z - g.door.z;
-          const gateTarget = Math.hypot(gateDx, gateDz) < GATE_OPEN_RADIUS ? 1 : 0;
+          const playerNear = Math.hypot(gateDx, gateDz) < GATE_OPEN_RADIUS;
+          let botNear = false;
+          if (bot) {
+            const botGateDx = bot.root.position.x - g.door.x;
+            const botGateDz = bot.root.position.z - g.door.z;
+            botNear = Math.hypot(botGateDx, botGateDz) < GATE_OPEN_RADIUS;
+          }
+          const gateTarget = playerNear || botNear ? 1 : 0;
           g.openAmount = approach(g.openAmount, gateTarget, GATE_SLIDE_RATE, dt);
           updateGatePanels(g);
         }
@@ -3585,23 +3607,42 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             // the shot (see hasLineOfSight) same as it blocks a real
             // bullet, so being "in range" by distance alone isn't enough.
             const canSeePlayer = hasLineOfSight(bot.root.position.x, bot.root.position.z, player.root.position.x, player.root.position.z);
-            if (botDist > GUN_RANGE * 0.85 || !canSeePlayer) {
-              moveWithAvoidance(bot, botState, botDx / botDist, botDz / botDist, BOT_SPEED, dt);
-              updateLocomotionAnim(bot, 1, BOT_SPEED);
+            if (canSeePlayer) {
+              botState.loseSightT = 0;
             } else {
-              updateLocomotionAnim(bot, 0, 0);
+              botState.loseSightT += dt;
+              if (botState.loseSightT > LOSE_SIGHT_GIVEUP) {
+                // Genuinely lost them (they ran out of the room, around
+                // several corners, whatever) — stop chasing and go back to
+                // patrolling instead of walking at their last known spot
+                // forever. Fresh patrolTarget/stuckT so it doesn't pick up
+                // mid-chase momentum as a patrol waypoint.
+                botState.awake = false;
+                botState.patrolTarget = null;
+                botState.stuckT = 0;
+                botState.loseSightT = 0;
+                updateLocomotionAnim(bot, 0, 0);
+              }
             }
-            bot.root.rotation.y = Math.atan2(botDx, botDz);
+            if (botState.awake) {
+              if (botDist > GUN_RANGE * 0.85 || !canSeePlayer) {
+                moveWithAvoidance(bot, botState, botDx / botDist, botDz / botDist, BOT_SPEED, dt);
+                updateLocomotionAnim(bot, 1, BOT_SPEED);
+              } else {
+                updateLocomotionAnim(bot, 0, 0);
+              }
+              bot.root.rotation.y = Math.atan2(botDx, botDz);
 
-            botState.cooldown = Math.max(0, botState.cooldown - dt);
-            if (botDist <= GUN_RANGE && botState.cooldown <= 0 && canSeePlayer) {
-              playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
-              setPlayerHp(playerHpLocal);
-              botState.cooldown = BOT_ATTACK_COOLDOWN;
-              botState.fireT = 0;
-              bot.fireAction?.reset().play();
-              const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
-              tracers.push(spawnTracer(scene, bot.gun, bot.root.position, targetPoint));
+              botState.cooldown = Math.max(0, botState.cooldown - dt);
+              if (botDist <= GUN_RANGE && botState.cooldown <= 0 && canSeePlayer) {
+                playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
+                setPlayerHp(playerHpLocal);
+                botState.cooldown = BOT_ATTACK_COOLDOWN;
+                botState.fireT = 0;
+                bot.fireAction?.reset().play();
+                const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
+                tracers.push(spawnTracer(scene, bot.gun, bot.root.position, targetPoint));
+              }
             }
             if (botState.fireT >= 0) {
               applyFirePose(bot, botState.fireT);
