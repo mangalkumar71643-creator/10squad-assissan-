@@ -1822,8 +1822,8 @@ function loadCratePrototype(): Promise<THREE.Object3D> {
 // way a prop placed at y=0 needs to. CRATE_NATIVE_MIN_Y/CRATE_NATIVE_CENTER
 // below are what let placeCrate put it flush on the floor and centered
 // over (x,z) instead of embedded partway into the ground off to one side.
-const CRATE_NATIVE_MIN = new THREE.Vector3(-0.9145105481147766, -0.9559427499771118, -0.9144681096076965);
-const CRATE_NATIVE_MAX = new THREE.Vector3(0.9131617546081543, 0.9540873765945435, 0.9155857563018799);
+const CRATE_NATIVE_MIN = new THREE.Vector3(-0.5, -0.49609375, -0.5003492832183838);
+const CRATE_NATIVE_MAX = new THREE.Vector3(0.5006290078163147, 0.4921875, 0.5);
 const CRATE_NATIVE_CENTER = CRATE_NATIVE_MIN.clone().add(CRATE_NATIVE_MAX).multiplyScalar(0.5);
 const CRATE_NATIVE_SIZE = CRATE_NATIVE_MAX.clone().sub(CRATE_NATIVE_MIN);
 
