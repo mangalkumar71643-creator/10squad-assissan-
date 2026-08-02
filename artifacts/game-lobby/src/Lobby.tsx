@@ -3586,6 +3586,26 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       scene.add(plaque);
     });
 
+    // A vent-panel wall decal near door 3 (Room 1's west door), mounted low
+    // on the wall (just above the floor) like the reference photo — a flat
+    // plane facing into the room, sitting just proud of the wall's own
+    // surface (ROOM_WALL_THICKNESS/2 + a small gap) so it doesn't z-fight
+    // with it. Kept clear of the door 3 gap (z -51 to -49) by centering on
+    // the solid wall segment north of the door instead of straddling it.
+    const ventTexture = new THREE.TextureLoader().load("/textures/vent-panel.jpg");
+    ventTexture.colorSpace = THREE.SRGBColorSpace;
+    const VENT_DECAL_WIDTH = 3;
+    const VENT_DECAL_HEIGHT = VENT_DECAL_WIDTH * (222 / 457);
+    const ventDecal = new THREE.Mesh(
+      new THREE.PlaneGeometry(VENT_DECAL_WIDTH, VENT_DECAL_HEIGHT),
+      new THREE.MeshStandardMaterial({ map: ventTexture, roughness: 0.6, metalness: 0.3 }),
+    );
+    ventDecal.position.set(ROOM_POS.x - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2 + 0.05, VENT_DECAL_HEIGHT / 2 + 0.15, ROOM_POS.z - 3);
+    ventDecal.rotation.y = Math.PI / 2;
+    ventDecal.castShadow = true;
+    ventDecal.receiveShadow = true;
+    scene.add(ventDecal);
+
     let player: FighterRig | null = null;
 
     // Preloaded here so it's very likely already resolved by the time each
