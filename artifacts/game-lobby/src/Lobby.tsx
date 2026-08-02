@@ -831,18 +831,17 @@ function createSciFiFloorTexture(repeatCount: number, maxAnisotropy: number): TH
   return texture;
 }
 
-// A real sci-fi wall-panel frame (extracted from the user's reference
-// video, made seamlessly tileable) — loaded once and cloned per wall
-// segment so every segment can carry its own repeat count (walls come in
-// many different lengths across the level; cloning a THREE.Texture is
-// cheap, it shares the same decoded image/GPU upload and only duplicates
-// the small wrapper object holding repeat/wrap state). Both room and
-// corridor walls now share this one image (previously two different
-// photos gave rooms/corridors distinct looks; both slots point at the
-// same file here, kept as an array so addWallMesh's variant parameter and
-// its 9 call sites didn't need touching).
+// Two real sci-fi wall-panel images (rusted plating, glowing seams) — each
+// loaded once and cloned per wall segment so every segment can carry its
+// own repeat count (walls come in many different lengths across the level;
+// cloning a THREE.Texture is cheap, it shares the same decoded image/GPU
+// upload and only duplicates the small wrapper object holding repeat/wrap
+// state). Variant 1 (calmer, intact panels) dresses the rooms; variant 2
+// (bullet-scarred, hazard-striped panels) dresses the corridors/tunnels
+// connecting them, so moving between rooms reads as leaving "clean" zones
+// through more fought-over passageways.
 const sciFiWallTextureBases: (THREE.Texture | null)[] = [null, null];
-const SCIFI_WALL_URLS = ["/textures/wall-video.jpg", "/textures/wall-video.jpg"];
+const SCIFI_WALL_URLS = ["/textures/wall-scifi.jpg", "/textures/wall-scifi-2.jpg"];
 function createSciFiWallTexture(repeatX: number, repeatY: number, maxAnisotropy: number, variant: 0 | 1 = 0): THREE.Texture {
   if (!sciFiWallTextureBases[variant]) {
     const base = new THREE.TextureLoader().load(SCIFI_WALL_URLS[variant]);
@@ -1234,11 +1233,7 @@ const SCIFI_FLOOR_REPEAT = (ARENA_HALF * 2) / SCIFI_FLOOR_TILE_SIZE;
 // The real sci-fi wall panel image, same tiling approach as the floor —
 // sized so each tile covers one wall's full height (so it's never
 // vertically squashed/stretched), repeating along the wall's long side.
-// Source photo is portrait (256x640, not square) so X and Y need separate
-// tile sizes in the same 1:2.5 ratio as the image — a single shared size
-// (like the old square source used) would squash or stretch it.
-const SCIFI_WALL_TILE_SIZE_X = 2;
-const SCIFI_WALL_TILE_SIZE_Y = SCIFI_WALL_TILE_SIZE_X * 2.5;
+const SCIFI_WALL_TILE_SIZE = 2.5;
 const SCIFI_CEILING_TILE_SIZE = 6;
 const FOG_NEAR = ARENA_HALF - 5;
 const FOG_FAR = ARENA_HALF * 2.5;
@@ -2992,7 +2987,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       const depth = ob.halfZ * 2;
       const longSide = Math.max(width, depth);
       const wallMat = new THREE.MeshStandardMaterial({
-        map: createSciFiWallTexture(longSide / SCIFI_WALL_TILE_SIZE_X, height / SCIFI_WALL_TILE_SIZE_Y, wallMaxAnisotropy, variant),
+        map: createSciFiWallTexture(longSide / SCIFI_WALL_TILE_SIZE, height / SCIFI_WALL_TILE_SIZE, wallMaxAnisotropy, variant),
         roughness: 0.7,
         metalness: 0.3,
       });
@@ -3010,7 +3005,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // as one of those.
     const addAngledWallMesh = (x: number, z: number, length: number, height: number, centerY: number, rotY: number, variant: 0 | 1 = 0) => {
       const wallMat = new THREE.MeshStandardMaterial({
-        map: createSciFiWallTexture(length / SCIFI_WALL_TILE_SIZE_X, height / SCIFI_WALL_TILE_SIZE_Y, wallMaxAnisotropy, variant),
+        map: createSciFiWallTexture(length / SCIFI_WALL_TILE_SIZE, height / SCIFI_WALL_TILE_SIZE, wallMaxAnisotropy, variant),
         roughness: 0.7,
         metalness: 0.3,
       });
