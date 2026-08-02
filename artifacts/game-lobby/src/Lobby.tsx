@@ -3606,6 +3606,49 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     ventDecal.receiveShadow = true;
     scene.add(ventDecal);
 
+    // A small family of industrial wall-detail decals dressing out the rest
+    // of Room 1 — a control panel, an electrical box, a server rack, and a
+    // second (larger) vent style — cropped from the same reference photo as
+    // the vent panel above. Spread across the room's other wall segments
+    // (each clear of its own door gap) so the room reads as a dense,
+    // functional facility interior instead of bare metal panels.
+    const addWallDecal = (
+      url: string,
+      width: number,
+      centerY: number,
+      x: number,
+      z: number,
+      rotY: number,
+      aspect: number,
+    ) => {
+      const tex = new THREE.TextureLoader().load(url);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const height = width * aspect;
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, height),
+        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6, metalness: 0.3 }),
+      );
+      mesh.position.set(x, centerY, z);
+      mesh.rotation.y = rotY;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+    };
+
+    const WEST_WALL_X = ROOM_POS.x - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2 + 0.05;
+    const EAST_WALL_X = ROOM_POS.x + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2 - 0.05;
+    const NORTH_WALL_Z = ROOM_POS.z - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2 + 0.05;
+
+    // Control panel — west wall, south segment (clear of the ventDecal above,
+    // which sits on the north segment of this same wall).
+    addWallDecal("/textures/control-panel.jpg", 2.2, 1.87, WEST_WALL_X, ROOM_POS.z + 6, Math.PI / 2, 738 / 640);
+    // Electrical box — east wall, north segment.
+    addWallDecal("/textures/electric-box.jpg", 1.4, 1.2, EAST_WALL_X, ROOM_POS.z - 5, -Math.PI / 2, 620 / 460);
+    // Server rack — east wall, south segment, floor-mounted.
+    addWallDecal("/textures/server-rack.jpg", 2.0, 1.7, EAST_WALL_X, ROOM_POS.z + 5, -Math.PI / 2, 1056 / 640);
+    // Larger vent style — north wall, west segment.
+    addWallDecal("/textures/vent-panel-2.jpg", 3.2, 1.9, ROOM_POS.x - 5, NORTH_WALL_Z, 0, 420 / 720);
+
     let player: FighterRig | null = null;
 
     // Preloaded here so it's very likely already resolved by the time each
