@@ -3635,12 +3635,39 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     // Hero control-unit panel — west wall, south segment (clear of the
     // ventDecal above, which sits on the north segment of this same wall).
-    // The user's own reference wall image used directly and whole rather
-    // than cropped into pieces, sized so its height exactly matches the
-    // room's wall height — bottom flush with the floor, top flush with the
-    // ceiling, no stretching (width follows from the image's own aspect
-    // ratio) — centered on the segment.
-    addWallDecal("/textures/wall-hero-panel.jpg", ROOM_WALL_HEIGHT * (1536 / 1024), ROOM_WALL_HEIGHT / 2, WEST_WALL_X, ROOM_POS.z + ROOM_SEG_OFFSET, Math.PI / 2, 1024 / 1536);
+    // A looping video of this same panel (the user's own reference clip —
+    // a glowing pulse traveling through the pipes, the screen's readout
+    // cycling) used as the material's map instead of a static photo, so the
+    // wall itself animates. Same flush floor-to-ceiling sizing as the other
+    // hero panels, derived from the video's own 1280x720 aspect.
+    const heroVideo = document.createElement("video");
+    // Two sources (WebM/VP9 first, MP4/H.264 fallback) since not every
+    // WebView build ships both codecs — the browser picks whichever it
+    // actually supports.
+    const heroSourceWebm = document.createElement("source");
+    heroSourceWebm.src = "/textures/control-panel-anim.webm";
+    heroSourceWebm.type = "video/webm";
+    const heroSourceMp4 = document.createElement("source");
+    heroSourceMp4.src = "/textures/control-panel-anim.mp4";
+    heroSourceMp4.type = "video/mp4";
+    heroVideo.appendChild(heroSourceWebm);
+    heroVideo.appendChild(heroSourceMp4);
+    heroVideo.loop = true;
+    heroVideo.muted = true;
+    heroVideo.playsInline = true;
+    heroVideo.load();
+    heroVideo.play().catch(() => {});
+    const heroVideoTexture = new THREE.VideoTexture(heroVideo);
+    heroVideoTexture.colorSpace = THREE.SRGBColorSpace;
+    const heroWidth = ROOM_WALL_HEIGHT * (1280 / 720);
+    const heroMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(heroWidth, ROOM_WALL_HEIGHT),
+      new THREE.MeshStandardMaterial({ map: heroVideoTexture, roughness: 0.6, metalness: 0.3 }),
+    );
+    heroMesh.position.set(WEST_WALL_X, ROOM_WALL_HEIGHT / 2, ROOM_POS.z + ROOM_SEG_OFFSET);
+    heroMesh.rotation.y = Math.PI / 2;
+    heroMesh.receiveShadow = true;
+    scene.add(heroMesh);
     // Electrical box — east wall, north segment.
     addWallDecal("/textures/electric-box.jpg", 1.4, 1.2, EAST_WALL_X, ROOM_POS.z - 5, -Math.PI / 2, 620 / 460);
     // Server rack — east wall, south segment, floor-mounted.
@@ -4234,6 +4261,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       disposed = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
+      heroVideo.pause();
+      heroVideo.src = "";
       renderer.dispose();
       container.removeChild(renderer.domElement);
       gateBlockers = [];
