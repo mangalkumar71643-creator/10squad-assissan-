@@ -1914,7 +1914,6 @@ function placeCrate(scene: THREE.Scene, material: THREE.MeshStandardMaterial, x:
   const crate = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), material);
   crate.rotation.y = rotY;
   crate.position.set(x, targetHalfExtent, z);
-  crate.castShadow = true;
   crate.receiveShadow = true;
   scene.add(crate);
 }
@@ -2993,7 +2992,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       });
       const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), wallMat);
       wallMesh.position.set(ob.x, centerY, ob.z);
-      wallMesh.castShadow = true;
       wallMesh.receiveShadow = true;
       scene.add(wallMesh);
       return wallMesh;
@@ -3012,7 +3010,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(length, height, ROOM_WALL_THICKNESS), wallMat);
       wallMesh.position.set(x, centerY, z);
       wallMesh.rotation.y = rotY;
-      wallMesh.castShadow = true;
       wallMesh.receiveShadow = true;
       scene.add(wallMesh);
       return wallMesh;
@@ -3516,9 +3513,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       const panelB = new THREE.Mesh(geo, panelBMat);
       panelA.position.y = GATE_PANEL_HEIGHT / 2;
       panelB.position.y = GATE_PANEL_HEIGHT / 2;
-      panelA.castShadow = true;
       panelA.receiveShadow = true;
-      panelB.castShadow = true;
       panelB.receiveShadow = true;
       scene.add(panelA, panelB);
       return { door, panelA, panelB, panelWidth, openAmount: 0 };
@@ -3602,7 +3597,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     );
     ventDecal.position.set(ROOM_POS.x - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2 + 0.05, VENT_DECAL_HEIGHT / 2 + 0.15, ROOM_POS.z - 3);
     ventDecal.rotation.y = Math.PI / 2;
-    ventDecal.castShadow = true;
     ventDecal.receiveShadow = true;
     scene.add(ventDecal);
 
@@ -3630,7 +3624,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       );
       mesh.position.set(x, centerY, z);
       mesh.rotation.y = rotY;
-      mesh.castShadow = true;
       mesh.receiveShadow = true;
       scene.add(mesh);
     };
