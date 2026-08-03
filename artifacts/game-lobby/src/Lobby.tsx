@@ -3680,8 +3680,15 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       mesh.receiveShadow = true;
       scene.add(mesh);
     };
-    addCornerFace("/textures/corner-right.jpg", 1.7, WEST_WALL_X, -40.85, Math.PI / 2);
-    addCornerFace("/textures/corner-left.jpg", 3.0, 51.5, SOUTH_WALL_Z, Math.PI);
+    // Sized against the wall's true inner surface (ROOM_POS ± ROOM_SIZE/2,
+    // inset by half the wall thickness) rather than the wall centerline —
+    // the earlier version overshot the real corner by half the wall
+    // thickness, poking through the adjoining wall and reading as a
+    // disconnected floating sliver instead of sitting flush in the corner.
+    const CORNER_X = ROOM_POS.x - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2;
+    const CORNER_Z = ROOM_POS.z + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2;
+    addCornerFace("/textures/corner-right.jpg", 1.5, WEST_WALL_X, CORNER_Z - 0.75, Math.PI / 2);
+    addCornerFace("/textures/corner-left.jpg", 2.9, CORNER_X + 1.45, SOUTH_WALL_Z, Math.PI);
 
     let player: FighterRig | null = null;
 
