@@ -1809,25 +1809,6 @@ const FIRE_FADE_OUT = 0.4;
 const TRACER_DURATION = 0.08;
 // Roughly chest height — tracers aim here instead of at the root/feet.
 const TRACER_TARGET_HEIGHT = 1.3;
-// Route to the Boss, as a floor-arrow marker at every gate along the way
-// (not a HUD element) — one glowing arrow on the ground at each doorway,
-// pointing which way to walk through it, from spawn all the way to Room 6.
-const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
-  { x: ROOM_POS.x, z: ROOM_POS.z + ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room1 south — from spawn
-  { x: ROOM_POS.x, z: ROOM_POS.z - ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room1 north — onward to midroom
-  { x: MIDROOM_POS.x, z: MIDROOM_SOUTH_Z, dirX: 0, dirZ: -1 }, // midroom south
-  { x: MIDROOM_POS.x, z: MIDROOM_NORTH_Z, dirX: 0, dirZ: -1 }, // midroom north
-  { x: ROOM2_POS.x, z: ROOM2_POS.z + ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room2 south
-  { x: ROOM2_POS.x, z: ROOM2_POS.z - ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room2 north
-  { x: ROOM3_POS.x, z: ROOM3_POS.z + ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room3 south
-  { x: ROOM3_POS.x + ROOM_SIZE / 2, z: ROOM3_POS.z, dirX: 1, dirZ: 0 }, // room3 east — turn toward room4
-  { x: ROOM4_POS.x - ROOM_SIZE / 2, z: ROOM4_POS.z, dirX: 1, dirZ: 0 }, // room4 west
-  { x: ROOM4_POS.x, z: ROOM4_POS.z - ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room4 north — turn toward room5
-  { x: ROOM5_POS.x, z: ROOM5_POS.z + ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room5 south
-  { x: ROOM5_POS.x, z: ROOM5_POS.z - ROOM_SIZE / 2, dirX: 0, dirZ: -1 }, // room5 north
-  { x: ROOM6_POS.x, z: ROOM6_POS.z + ROOM6_DEPTH / 2, dirX: 0, dirZ: -1 }, // room6's only door
-];
-
 // A new SMG model held in the hand — every fighter actually shoots with it
 // (see the fire logic in the tick loop and applyFirePose/spawnTracer),
 // with this rig's real finger joints curled around the grip on both
@@ -3453,30 +3434,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     );
     newRoomCeiling.position.set(nrX, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, nrZ);
     scene.add(newRoomCeiling);
-
-    // Path arrows — a glowing marker flat on the floor right at each gate
-    // along the route to the Boss, pointing which way to walk through it.
-    // Unlike a HUD compass, this sits in the world at ground level exactly
-    // where the player needs it, gate by gate, all the way to Room 6.
-    const pathArrowMat = new THREE.MeshStandardMaterial({
-      color: 0xffd23f,
-      emissive: 0xffd23f,
-      emissiveIntensity: 1.6,
-      roughness: 0.35,
-      side: THREE.DoubleSide,
-    });
-    for (const gate of PATH_GATES) {
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute(
-        "position",
-        new THREE.Float32BufferAttribute([0, 0, 1.4, -0.7, 0, -0.7, 0.7, 0, -0.7], 3),
-      );
-      geo.computeVertexNormals();
-      const arrow = new THREE.Mesh(geo, pathArrowMat);
-      arrow.position.set(gate.x, 0.03, gate.z);
-      arrow.rotation.y = Math.atan2(gate.dirX, gate.dirZ);
-      scene.add(arrow);
-    }
 
     // EXTRA_CRATES' own visuals are spawned in the loadCrateMaterial block
     // above, alongside the room crates.
