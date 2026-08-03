@@ -3640,8 +3640,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const NORTH_WALL_Z = ROOM_POS.z - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2 + 0.05;
 
     // Control panel — west wall, south segment (clear of the ventDecal above,
-    // which sits on the north segment of this same wall).
-    addWallDecal("/textures/control-panel.jpg", 2.2, 1.87, WEST_WALL_X, ROOM_POS.z + 6, Math.PI / 2, 738 / 640);
+    // which sits on the north segment of this same wall). A richer version
+    // than a bare panel: the control unit with a pipe run connected below it
+    // and its own pair of floor-to-ceiling blue neon strips framing it, all
+    // cropped and composited from the reference sheet, floor-mounted like
+    // the server rack.
+    addWallDecal("/textures/control-panel-pipes.jpg", 2.0, 1.66, WEST_WALL_X, ROOM_POS.z + 6, Math.PI / 2, 900 / 560);
     // Electrical box — east wall, north segment.
     addWallDecal("/textures/electric-box.jpg", 1.4, 1.2, EAST_WALL_X, ROOM_POS.z - 5, -Math.PI / 2, 620 / 460);
     // Server rack — east wall, south segment, floor-mounted.
