@@ -3016,7 +3016,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     };
     const doorGlowMat = new THREE.MeshStandardMaterial({ color: 0xff3355, emissive: 0xff3355, emissiveIntensity: 1.4, roughness: 0.4 });
     const hazardMat = new THREE.MeshStandardMaterial({ map: createHazardStripeTexture(), roughness: 0.8 });
-    const screenMat = new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6be2ff, emissiveIntensity: 0.9, roughness: 0.3 });
+    const screenMat = new THREE.MeshStandardMaterial({ color: 0x1c1f22, roughness: 0.3 });
     // Real sci-fi panel texture for every ceiling slab, scaled to that
     // slab's own footprint the same way addWallMesh scales the wall
     // texture — a small MIDROOM ceiling and ROOM6's big one both read at
@@ -3028,7 +3028,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         metalness: 0.4,
         side: THREE.DoubleSide,
       });
-    const lightStripMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3 });
+    const lightStripMat = new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.5, metalness: 0.3 });
 
     // Builds one full sci-fi outpost room (walls, door glows, crates, floor
     // grate, hazard stripe, wall screen, ceiling) at the given position —
@@ -3111,7 +3111,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // floor (y=0) all the way to the tunnel's actual floor (TUNNEL_Y), so
     // walking down it is a gradual descent you can stop partway through,
     // not a jump into a pit.
-    const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3, side: THREE.DoubleSide });
+    const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide });
     const holeShaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.9, side: THREE.DoubleSide });
     // Bright enough (and lightly self-lit) to actually read as steps
     // against the shaft's dark walls — the darker gray used everywhere
@@ -3212,14 +3212,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       // black pit — these light the run from inside the stairwell
       // itself, one near the top and one near the tunnel floor since the
       // full run is too long now for a single point light to reach.
-      const topLight = new THREE.PointLight(0x9fd8ff, 1.3, RAMP_RUN_LENGTH, 2);
+      const topLight = new THREE.PointLight(0xffffff, 1.3, RAMP_RUN_LENGTH, 2);
       topLight.position.set(
         ROOM_STAIRS_DOWN_POS[i].x + dir.x * (RAMP_RUN_LENGTH * 0.2),
         -0.6,
         ROOM_STAIRS_DOWN_POS[i].z + dir.z * (RAMP_RUN_LENGTH * 0.2),
       );
       scene.add(topLight);
-      const bottomLight = new THREE.PointLight(0x9fd8ff, 1.3, RAMP_RUN_LENGTH, 2);
+      const bottomLight = new THREE.PointLight(0xffffff, 1.3, RAMP_RUN_LENGTH, 2);
       bottomLight.position.set(
         ROOM_STAIRS_DOWN_POS[i].x + dir.x * (RAMP_RUN_LENGTH * 0.8),
         TUNNEL_Y + 0.8,
