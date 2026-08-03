@@ -1,6 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone as cloneSkinnedObject } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 // Main hub screen shown after the splash/loading sequence: the approved
 // concept-art mockup, natively 16:9, rendered full-bleed edge-to-edge
@@ -811,6 +816,83 @@ function terrainColor(v: number): [number, number, number] {
   return TERRAIN_STOPS[TERRAIN_STOPS.length - 1][1];
 }
 
+// A real sci-fi floor-panel image for the main arena ground, tiled with
+// RepeatWrapping the same way createFloorTexture's procedural texture is —
+// same wrapping/repeat/anisotropy setup, just loaded from an image file
+// instead of drawn on a canvas.
+const sciFiFloorTextureLoader = new THREE.TextureLoader();
+function createSciFiFloorTexture(repeatCount: number, maxAnisotropy: number): THREE.Texture {
+  const texture = sciFiFloorTextureLoader.load("/textures/floor-scifi.jpg");
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeatCount, repeatCount);
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
+
+// Two real sci-fi wall-panel images (rusted plating, glowing seams) — each
+// loaded once and cloned per wall segment so every segment can carry its
+// own repeat count (walls come in many different lengths across the level;
+// cloning a THREE.Texture is cheap, it shares the same decoded image/GPU
+// upload and only duplicates the small wrapper object holding repeat/wrap
+// state). Variant 1 (calmer, intact panels) dresses the rooms; variant 2
+// (bullet-scarred, hazard-striped panels) dresses the corridors/tunnels
+// connecting them, so moving between rooms reads as leaving "clean" zones
+// through more fought-over passageways.
+const sciFiWallTextureBases: (THREE.Texture | null)[] = [null, null];
+const SCIFI_WALL_URLS = ["/textures/wall-scifi.jpg", "/textures/wall-scifi-2.jpg"];
+function createSciFiWallTexture(repeatX: number, repeatY: number, maxAnisotropy: number, variant: 0 | 1 = 0): THREE.Texture {
+  if (!sciFiWallTextureBases[variant]) {
+    const base = new THREE.TextureLoader().load(SCIFI_WALL_URLS[variant]);
+    base.colorSpace = THREE.SRGBColorSpace;
+    base.wrapS = THREE.RepeatWrapping;
+    base.wrapT = THREE.RepeatWrapping;
+    sciFiWallTextureBases[variant] = base;
+  }
+  const texture = sciFiWallTextureBases[variant]!.clone();
+  texture.repeat.set(repeatX, repeatY);
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
+
+// A real sci-fi ceiling-panel image (square plating, glowing cyan grid
+// seams) — same load-once/clone-per-slab approach as the wall textures,
+// so every ceiling slab in the level (rooms, corridors, tunnel) can carry
+// its own repeat count sized to its own footprint.
+let sciFiCeilingTextureBase: THREE.Texture | null = null;
+function createSciFiCeilingTexture(repeatX: number, repeatY: number, maxAnisotropy: number): THREE.Texture {
+  if (!sciFiCeilingTextureBase) {
+    const base = new THREE.TextureLoader().load("/textures/ceiling-scifi.jpg");
+    base.colorSpace = THREE.SRGBColorSpace;
+    base.wrapS = THREE.RepeatWrapping;
+    base.wrapT = THREE.RepeatWrapping;
+    sciFiCeilingTextureBase = base;
+  }
+  const texture = sciFiCeilingTextureBase.clone();
+  texture.repeat.set(repeatX, repeatY);
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
+
+// The two sliding gate leaves get their own real door-panel images (frame
+// pillar, keypad, hazard stripe, cyan seams) instead of reusing the plain
+// wall texture — a single decal per leaf, not a repeating tile, so no
+// repeat count is set here (left mirrored to right already at the image
+// level: see the crop in the session that produced these two files).
+const doorPanelTextures: (THREE.Texture | null)[] = [null, null];
+const DOOR_PANEL_URLS = ["/textures/door-left.jpg", "/textures/door-right.jpg"];
+function createDoorPanelTexture(side: 0 | 1, maxAnisotropy: number): THREE.Texture {
+  if (!doorPanelTextures[side]) {
+    const base = new THREE.TextureLoader().load(DOOR_PANEL_URLS[side]);
+    base.colorSpace = THREE.SRGBColorSpace;
+    doorPanelTextures[side] = base;
+  }
+  const texture = doorPanelTextures[side]!.clone();
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
+
 // Procedural sci-fi metal floor texture for the arena — dark blue-grey
 // plating (layered value noise for subtle wear patches, fine speckle for
 // grain) with beveled panel seams and a glowing cyan tactical-grid accent
@@ -891,39 +973,6 @@ function createFloorTexture(repeatCount: number, maxAnisotropy: number): THREE.C
   // regardless of source resolution — anisotropic filtering is what
   // actually fixes that.
   texture.anisotropy = maxAnisotropy;
-  return texture;
-}
-
-// A dark recessed vent grate — thin light bars over a near-black base,
-// dropped flat into the floor in the middle of the sci-fi room.
-function createGrateTexture(): THREE.CanvasTexture {
-  const size = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#05080c";
-  ctx.fillRect(0, 0, size, size);
-  const bars = 9;
-  const barGap = size / bars;
-  ctx.strokeStyle = "rgba(120,150,170,0.8)";
-  ctx.lineWidth = 5;
-  for (let i = 0; i < bars; i++) {
-    const y = barGap * i + barGap / 2;
-    ctx.beginPath();
-    ctx.moveTo(size * 0.08, y);
-    ctx.lineTo(size * 0.92, y);
-    ctx.stroke();
-  }
-  ctx.save();
-  ctx.shadowColor = "#6be2ff";
-  ctx.shadowBlur = 18;
-  ctx.strokeStyle = "rgba(107,226,255,0.5)";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(size * 0.05, size * 0.05, size * 0.9, size * 0.9);
-  ctx.restore();
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
 
@@ -1175,9 +1224,17 @@ const ARENA_HALF = 350; // 700x700 arena, centered on the origin
 // clip plane — is derived from ARENA_HALF below instead of hand-tuned
 // constants, so resizing the arena again later is a one-line change
 // instead of a multi-spot retune.
-const FLOOR_TILE_SIZE = 1.667; // world units per floor texture tile, kept constant regardless of arena size
-const FLOOR_REPEAT = (ARENA_HALF * 2) / FLOOR_TILE_SIZE;
-const GRID_DIVISIONS = ARENA_HALF * 2; // 1 world unit per grid cell
+// The real sci-fi floor image already bakes in its own repeating panel
+// grid, so it's tiled as one whole unit rather than sliced into smaller
+// pieces — sized so each of its panels reads at roughly the same scale a
+// standing fighter would.
+const SCIFI_FLOOR_TILE_SIZE = 6;
+const SCIFI_FLOOR_REPEAT = (ARENA_HALF * 2) / SCIFI_FLOOR_TILE_SIZE;
+// The real sci-fi wall panel image, same tiling approach as the floor —
+// sized so each tile covers one wall's full height (so it's never
+// vertically squashed/stretched), repeating along the wall's long side.
+const SCIFI_WALL_TILE_SIZE = 2.5;
+const SCIFI_CEILING_TILE_SIZE = 6;
 const FOG_NEAR = ARENA_HALF - 5;
 const FOG_FAR = ARENA_HALF * 2.5;
 const SKY_RADIUS = Math.max(350, ARENA_HALF * 4); // stays comfortably beyond the fog and the arena's own far corners
@@ -1185,8 +1242,7 @@ const CAMERA_FAR = SKY_RADIUS + 50;
 // The player's target ground speed is a continuous function of how far the
 // joystick is pushed (see PLAYER_MAX_SPEED below) rather than a fixed
 // constant — full tilt sustained past SPRINT_ENGAGE_MAG additionally ramps
-// in a sprint bonus. BOT_SPEED stays a plain constant; the bot's chase
-// logic isn't part of this pass.
+// in a sprint bonus.
 const PLAYER_MAX_SPEED = 3.4;
 const PLAYER_SPRINT_BONUS = 0.4; // extra fraction of top speed once sprint is fully engaged
 const SPRINT_ENGAGE_MAG = 0.92; // joystick magnitude that starts building sprint
@@ -1194,9 +1250,7 @@ const SPRINT_BLEND_RATE = 2.4; // per-second ease rate in/out of sprint
 const PLAYER_ACCEL_RATE = 9; // per-second damping rate speeding up
 const PLAYER_DECEL_RATE = 15; // per-second damping rate slowing down (snappier stop than start)
 const PLAYER_TURN_RATE = 11; // per-second damping rate turning to face the move direction
-const BOT_SPEED = 1.9;
 const GUN_RANGE = 14; // a shootout distance, not a melee reach
-const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
 
 // A sci-fi outpost room off to the side of the arena — four walls around a
 // 40x40 footprint, each with its own door gap (one "entrance" side, three
@@ -1204,15 +1258,20 @@ const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters 
 // a floor grate, hazard stripes and a wall screen to match the reference
 // sci-fi interior. Placed well away from the default spawn points so it
 // doesn't interfere with the immediate spawn-adjacent fight.
-const ROOM_SIZE = 10;
-const ROOM_WALL_HEIGHT = 2.5;
+const ROOM_SIZE = 20; // doubled from the original 10 — rooms 1-5 only, room 6 has its own fixed ROOM6_WIDTH/ROOM6_DEPTH
+const ROOM_WALL_HEIGHT = 3.5;
 const ROOM_WALL_THICKNESS = 0.6;
 const ROOM_DOOR_WIDTH = 2;
 const ROOM_POS = { x: 60, z: -50 };
-const ROOM2_POS = { x: 60, z: -150 }; // a second, identical room 100 units north of the first
-const ROOM3_POS = { x: 60, z: -200 }; // a third, identical room 50 units north of the second
-const ROOM4_POS = { x: ROOM3_POS.x + 50, z: ROOM3_POS.z }; // a fourth room, 50 units east of the third (off the main line)
-const ROOM5_POS = { x: ROOM4_POS.x, z: ROOM4_POS.z - 50 }; // a fifth room, 50 units north of the fourth (branching again, not a straight extension of corridor3)
+// Room 2-5 centers are pushed out by the same amount ROOM_SIZE grew (5 extra
+// half-extent per room facing a corridor), so every corridor's actual open
+// length (see CORRIDOR_Z_NEAR/FAR etc. below) stays exactly what it was
+// before the rooms doubled in size, instead of shrinking as the bigger
+// rooms eat into the gap.
+const ROOM2_POS = { x: 60, z: -160 }; // a second, identical room, corridor length unchanged from before the resize
+const ROOM3_POS = { x: 60, z: -220 }; // a third, identical room, corridor length unchanged from before the resize
+const ROOM4_POS = { x: ROOM3_POS.x + 60, z: ROOM3_POS.z }; // a fourth room, off the main line — corridor length unchanged from before the resize
+const ROOM5_POS = { x: ROOM4_POS.x, z: ROOM4_POS.z - 60 }; // a fifth room, branching again — corridor length unchanged from before the resize
 const ROOM_POSITIONS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS];
 const ROOM_SEG_WIDTH = (ROOM_SIZE - ROOM_DOOR_WIDTH) / 2;
 const ROOM_SEG_OFFSET = ROOM_DOOR_WIDTH / 2 + ROOM_SEG_WIDTH / 2;
@@ -1241,14 +1300,16 @@ function roomWallObstacles(pos: { x: number; z: number }): Obstacle[] {
   ];
 }
 
-// Storage crates (mirrors the addCrate(...) calls below) — axis-aligned
-// half-extents padded out to cover each crate's rotated footprint so a
-// fighter can't walk straight through the decoration.
+// Storage crates (spawned as plain textured boxes — see
+// loadCrateMaterial/placeCrate) — a symmetric footprint since they're
+// actual cubes, unlike the old rotated rectangular boxes this replaced
+// (which needed differently-shaped padding per rotation).
+const CRATE_HALF_EXTENT = 0.9;
 function roomCrateObstacles(pos: { x: number; z: number }): Obstacle[] {
   return [
-    { x: pos.x - 2.5, z: pos.z - 2.5, halfX: 0.8, halfZ: 1.12, pad: ROOM_PAD }, // crate 1
-    { x: pos.x + 2.75, z: pos.z - 2, halfX: 0.86, halfZ: 1.13, pad: ROOM_PAD }, // crate 2
-    { x: pos.x + 2, z: pos.z + 2.75, halfX: 1.08, halfZ: 1.07, pad: ROOM_PAD }, // crate 3
+    { x: pos.x - 2.5, z: pos.z - 2.5, halfX: CRATE_HALF_EXTENT, halfZ: CRATE_HALF_EXTENT, pad: ROOM_PAD }, // crate 1
+    { x: pos.x + 2.75, z: pos.z - 2, halfX: CRATE_HALF_EXTENT, halfZ: CRATE_HALF_EXTENT, pad: ROOM_PAD }, // crate 2
+    { x: pos.x + 2, z: pos.z + 2.75, halfX: CRATE_HALF_EXTENT, halfZ: CRATE_HALF_EXTENT, pad: ROOM_PAD }, // crate 3
   ];
 }
 
@@ -1388,6 +1449,123 @@ const EXTRA_CRATES: Obstacle[] = [
   { x: ROOM6_POS.x, z: ROOM6_POS.z + 10, halfX: 1, halfZ: 1, pad: ROOM_PAD }, // room6
 ];
 
+// A new octagonal room attached directly to Room 1's west door (door 3) —
+// no connecting corridor at all, the door opens straight into it. 20x20
+// bounding box like the square rooms, but with all 4 corners chamfered at
+// 45° so it reads as an octagon instead of another square or a round room.
+// Only 7 wall segments are built (no separate east wall of its own): Room
+// 1's own west wall — already split around the door 3 gap by
+// roomWallObstacles() — is the shared partition between the two rooms, so
+// this room's north/south walls and its two east-side (NE/SE) corner cuts
+// simply terminate right at that existing wall instead of duplicating it.
+const NEWROOM_HALF = 10; // 20x20 bounding box
+const NEWROOM_CHAMFER = 6; // corner cut distance, in from each side
+const NEWROOM_POS = { x: ROOM_POS.x - ROOM_SIZE / 2 - NEWROOM_HALF, z: ROOM_POS.z }; // flush against Room 1's west wall
+const NEWROOM_STRAIGHT_HALF = (NEWROOM_HALF * 2 - NEWROOM_CHAMFER * 2) / 2; // half-length of each straight edge
+const NEWROOM_WALLS: Obstacle[] = [
+  { x: NEWROOM_POS.x, z: NEWROOM_POS.z - NEWROOM_HALF, halfX: NEWROOM_STRAIGHT_HALF, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // north
+  { x: NEWROOM_POS.x, z: NEWROOM_POS.z + NEWROOM_HALF, halfX: NEWROOM_STRAIGHT_HALF, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }, // south
+  { x: NEWROOM_POS.x - NEWROOM_HALF, z: NEWROOM_POS.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: NEWROOM_STRAIGHT_HALF, pad: ROOM_PAD }, // west
+  // The 4 chamfered corners, approximated as small square blocks for
+  // collision (the collision system is axis-aligned only — see the
+  // Obstacle interface — so a true 45° obstacle isn't possible; this just
+  // conservatively seals each corner to match the diagonal wall mesh).
+  {
+    x: NEWROOM_POS.x - NEWROOM_STRAIGHT_HALF - NEWROOM_CHAMFER / 2,
+    z: NEWROOM_POS.z - NEWROOM_STRAIGHT_HALF - NEWROOM_CHAMFER / 2,
+    halfX: NEWROOM_CHAMFER / 2,
+    halfZ: NEWROOM_CHAMFER / 2,
+    pad: ROOM_PAD,
+  }, // NW
+  {
+    x: NEWROOM_POS.x + NEWROOM_STRAIGHT_HALF + NEWROOM_CHAMFER / 2,
+    z: NEWROOM_POS.z - NEWROOM_STRAIGHT_HALF - NEWROOM_CHAMFER / 2,
+    halfX: NEWROOM_CHAMFER / 2,
+    halfZ: NEWROOM_CHAMFER / 2,
+    pad: ROOM_PAD,
+  }, // NE
+  {
+    x: NEWROOM_POS.x - NEWROOM_STRAIGHT_HALF - NEWROOM_CHAMFER / 2,
+    z: NEWROOM_POS.z + NEWROOM_STRAIGHT_HALF + NEWROOM_CHAMFER / 2,
+    halfX: NEWROOM_CHAMFER / 2,
+    halfZ: NEWROOM_CHAMFER / 2,
+    pad: ROOM_PAD,
+  }, // SW
+  {
+    x: NEWROOM_POS.x + NEWROOM_STRAIGHT_HALF + NEWROOM_CHAMFER / 2,
+    z: NEWROOM_POS.z + NEWROOM_STRAIGHT_HALF + NEWROOM_CHAMFER / 2,
+    halfX: NEWROOM_CHAMFER / 2,
+    halfZ: NEWROOM_CHAMFER / 2,
+    pad: ROOM_PAD,
+  }, // SE
+];
+
+// An underground tunnel actually running beneath the real path between
+// houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
+// unrelated empty arena. Since the collision system only checks X/Z (see
+// resolveObstacleCollisions), reusing the exact same X/Z as the real
+// walls/doors means the underground layer is automatically constrained
+// to the exact same walkable route as the surface (the same door gaps,
+// the same bend through the midroom and corridor 3's jog) — no separate
+// collision needed, just every wall mirrored visually at TUNNEL_Y (see
+// the scene-building code below) plus a staircase in each house dropping
+// straight down through its own center, "piercing through the middle of
+// the house" the way it was asked for, rather than tucked in a corner.
+const TUNNEL_Y = -3.5;
+const TUNNEL_WALL_HEIGHT = 2.2;
+const HOLE_HALF_SIZE = 1.1; // square, not round — half-extent, so 2.2 units per side
+const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
+// The stairway's walkable footprint: a run of real steps descending from
+// the house floor (y=0) all the way to the tunnel floor (y=TUNNEL_Y),
+// oriented along the house's own tunnel connection (see ROOM_TUNNEL_DIR)
+// rather than a single square hole, so it reads and plays like an actual
+// staircase instead of a hole you fall through. RAMP_BAND lets the
+// height-follow logic pick the player up a little before the first step
+// and hold them a little after the last one, so there's no seam.
+const RAMP_HALF_WIDTH = HOLE_INNER_SIZE / 2;
+const RAMP_RUN_LENGTH = 4.5;
+const RAMP_BAND = 0.5;
+const ROOM_STAIRS_DOWN_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS, ROOM6_POS];
+const TUNNEL_STOPS = ROOM_STAIRS_DOWN_POS.map((p) => ({ x: p.x, z: p.z }));
+// Which way each house's staircase actually descends, matching the real
+// relative positions — the stairway (see RAMP_RUN_LENGTH) runs forward
+// from the house center in this direction, toward the next house in the
+// chain. Room 6 is the end of the chain, so it descends back toward Room
+// 5 instead.
+const ROOM_TUNNEL_DIR = [
+  { x: 0, z: -1 }, // Room 1 -> Room 2
+  { x: 0, z: -1 }, // Room 2 -> Room 3
+  { x: 1, z: 0 }, // Room 3 -> Room 4
+  { x: 0, z: -1 }, // Room 4 -> Room 5
+  { x: 0, z: -1 }, // Room 5 -> Room 6
+  { x: 0, z: 1 }, // Room 6 -> back toward Room 5 (end of the chain)
+];
+// The stairway's footprint at house i, as world-space (x,z) corners of
+// the long rectangle running from the house center (along=0) out to
+// RAMP_RUN_LENGTH in that house's descent direction, RAMP_HALF_WIDTH to
+// each side — used to cut the matching hole through both the room floor
+// and the tunnel ceiling below it.
+function stairFootprintCorners(i: number) {
+  const center = ROOM_STAIRS_DOWN_POS[i];
+  const dir = ROOM_TUNNEL_DIR[i];
+  const perpX = -dir.z;
+  const perpZ = dir.x;
+  const farX = center.x + dir.x * RAMP_RUN_LENGTH;
+  const farZ = center.z + dir.z * RAMP_RUN_LENGTH;
+  return {
+    nearA: { x: center.x + perpX * RAMP_HALF_WIDTH, z: center.z + perpZ * RAMP_HALF_WIDTH },
+    nearB: { x: center.x - perpX * RAMP_HALF_WIDTH, z: center.z - perpZ * RAMP_HALF_WIDTH },
+    farA: { x: farX + perpX * RAMP_HALF_WIDTH, z: farZ + perpZ * RAMP_HALF_WIDTH },
+    farB: { x: farX - perpX * RAMP_HALF_WIDTH, z: farZ - perpZ * RAMP_HALF_WIDTH },
+  };
+}
+// A generous bounding box around every room/corridor, for the
+// underground floor+ceiling slabs (see the scene-building code below).
+const UNDERGROUND_MIN_X = Math.min(ROOM_POS.x, ROOM2_POS.x, ROOM3_POS.x, ROOM4_POS.x, ROOM5_POS.x, ROOM6_POS.x - ROOM6_WIDTH / 2) - ROOM_SIZE / 2 - 2;
+const UNDERGROUND_MAX_X = Math.max(ROOM_POS.x, ROOM2_POS.x, ROOM3_POS.x, ROOM4_POS.x, ROOM5_POS.x, ROOM6_POS.x + ROOM6_WIDTH / 2) + ROOM_SIZE / 2 + 2;
+const UNDERGROUND_MIN_Z = Math.min(ROOM_POS.z, ROOM2_POS.z, ROOM3_POS.z, ROOM4_POS.z, ROOM5_POS.z, ROOM6_POS.z - ROOM6_DEPTH / 2) - ROOM_SIZE / 2 - 2;
+const UNDERGROUND_MAX_Z = Math.max(ROOM_POS.z, ROOM2_POS.z, ROOM3_POS.z, ROOM4_POS.z, ROOM5_POS.z, ROOM6_POS.z + ROOM6_DEPTH / 2) + ROOM_SIZE / 2 + 2;
+
 const OBSTACLES: Obstacle[] = [
   ...ROOM_POSITIONS.flatMap((pos) => [...roomWallObstacles(pos), ...roomCrateObstacles(pos)]),
   ...MIDROOM_WALLS,
@@ -1397,6 +1575,7 @@ const OBSTACLES: Obstacle[] = [
   ...CORRIDOR4_WALLS,
   ...ROOM6_WALLS,
   ...CORRIDOR5_WALLS,
+  ...NEWROOM_WALLS,
   ...EXTRA_CRATES,
 ];
 
@@ -1448,10 +1627,164 @@ function resolveObstacleCollisions(pos: { x: number; z: number }) {
   }
 }
 
+// Whether the straight segment from (x1,z1) to (x2,z2) crosses this
+// obstacle's footprint — a standard slab test against its axis-aligned
+// rectangle, walked with the segment's own parametric range so a hit
+// outside [0,1] (before the start or past the end) doesn't count. Uses
+// the bare halfX/halfZ, not the movement-collision `pad` — that padding
+// exists to keep a fighter's body from clipping into a wall, not to
+// decide whether a bullet's sightline is blocked.
+function segmentHitsObstacle(x1: number, z1: number, x2: number, z2: number, ob: Obstacle): boolean {
+  const minX = ob.x - ob.halfX;
+  const maxX = ob.x + ob.halfX;
+  const minZ = ob.z - ob.halfZ;
+  const maxZ = ob.z + ob.halfZ;
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  let tmin = 0;
+  let tmax = 1;
+  if (Math.abs(dx) < 1e-9) {
+    if (x1 < minX || x1 > maxX) return false;
+  } else {
+    let t1 = (minX - x1) / dx;
+    let t2 = (maxX - x1) / dx;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+  if (Math.abs(dz) < 1e-9) {
+    if (z1 < minZ || z1 > maxZ) return false;
+  } else {
+    let t1 = (minZ - z1) / dz;
+    let t2 = (maxZ - z1) / dz;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+  return true;
+}
+
+// Each door opening's sliding gate occupies a *gap* in OBSTACLES (see
+// roomWallObstacles) — the wall geometry itself never blocks a shot
+// through a doorway, open or closed. The gate panels are what actually
+// seal it, and they move (see updateGatePanels in the tick loop), so
+// their current footprint can't be a fixed entry in OBSTACLES; it's
+// recomputed into this module-level list every tick (see the gate-slide
+// block below) and checked by hasLineOfSight right alongside the static
+// walls, so a shot is blocked by a still-closed or half-open gate the
+// same way it's blocked by a solid wall, and clears the instant the gate
+// finishes sliding open.
+let gateBlockers: Obstacle[] = [];
+
+// Whether a shot fired from (x1,z1) toward (x2,z2) actually has a clear
+// path — walls are modelled as gapped segments (see roomWallObstacles;
+// each door opening is a real gap in the geometry, not a separate flag),
+// so this needs no special-casing for doors on its own: a shot through an
+// open doorway simply never intersects any wall rectangle. The gate
+// panels filling that gap (see gateBlockers) are checked separately,
+// since a closed door should still stop a shot even though the wall
+// behind it has no geometry there.
+function hasLineOfSight(x1: number, z1: number, x2: number, z2: number): boolean {
+  for (const ob of OBSTACLES) {
+    if (segmentHitsObstacle(x1, z1, x2, z2, ob)) return false;
+  }
+  for (const ob of gateBlockers) {
+    if (segmentHitsObstacle(x1, z1, x2, z2, ob)) return false;
+  }
+  return true;
+}
+
 const PLAYER_DAMAGE = 14;
+const BODY_SEPARATION = 0.85; // minimum center-to-center distance the fighters can close to
+const BOT_SPEED = 3.8; // doubled — a fast, aggressive chase once it's spotted the player
 const BOT_DAMAGE = 10;
-const PLAYER_ATTACK_COOLDOWN = 0.55;
 const BOT_ATTACK_COOLDOWN = 1.3;
+// The Boss — a sixth, tougher fighter stationed in Room 6 rather than
+// roaming with the five regular guards. It doesn't patrol or chase; it
+// stands its ground, already armed, and opens fire the moment the player
+// comes within range and line of sight.
+const BOSS_HP = 260;
+const BOSS_DAMAGE = 16;
+const BOSS_ATTACK_COOLDOWN = 1.0;
+const BOSS_SCALE = 1.35; // visibly bigger than the regular guards
+// Each guard's post — off to the side of its own room's center (the
+// stairs down to the tunnel sit exactly at that center — see
+// ROOM_STAIRS_DOWN_POS — and standing right on top of them used to carry
+// a fighter through the stairway's height-follow zone), offset
+// perpendicular to that room's own descent direction.
+const BOT_GUARD_OFFSET = 6;
+function guardSpawnFor(roomIndex: number) {
+  const pos = ROOM_STAIRS_DOWN_POS[roomIndex];
+  const dir = ROOM_TUNNEL_DIR[roomIndex];
+  return { x: pos.x - dir.z * BOT_GUARD_OFFSET, z: pos.z + dir.x * BOT_GUARD_OFFSET };
+}
+const BOT_SPAWNS = ROOM_POSITIONS.map((_, i) => guardSpawnFor(i));
+const BOSS_SPAWN = guardSpawnFor(5); // Room 6
+// Wakes the instant the player is actually visible (see hasLineOfSight in
+// the tick loop's alert check) rather than only within a small radius —
+// DETECTION_RANGE just caps how far off that sight check still counts, set
+// generously past the room's own diagonal so "visible anywhere in the
+// room" is effectively "visible at all".
+const DETECTION_RANGE = 30;
+// Near-instant reaction once spotted — a beat just long enough to read as
+// noticing the player rather than a jump-cut, not the old telegraphed pause.
+const ALERT_TELEGRAPH_DURATION = 0.15;
+// Gives up the chase and goes back to patrolling once it's genuinely lost
+// the player — no clear line of sight for this long straight, not just
+// one blocked frame while rounding a corner. Without this, a bot chasing a
+// player who runs out through a door and out of the house has nothing to
+// aim for but also nothing telling it to stop trying — it just keeps
+// walking at the player's last known direction and piles up against
+// whatever's in the way (a wall, a door frame) forever.
+const LOSE_SIGHT_GIVEUP = 4;
+// While dormant, the bot doesn't just hold one small loop around its post —
+// it patrols the room's full interior, only steering clear of the narrow
+// strip down the middle where the stairs cut through the floor (see
+// PATROL_STAIRS_CLEARANCE below); once it's actually spotted the player it
+// switches to the direct chase behavior below instead of these waypoints.
+const PATROL_MARGIN = 2; // stays this far in from the room's own walls
+const PATROL_STAIRS_CLEARANCE = 2.5; // wider than the stairs' own RAMP_HALF_WIDTH, so a waypoint never lands over the hole
+const PATROL_SPEED = BOT_SPEED * 0.9;
+const PATROL_ARRIVE_DIST = 0.6;
+// There's no dedicated walk clip on this rig (only Idle and a full-sprint
+// Running clip) — slowing the run clip's timeScale down to match the
+// patrol speed still keeps its full running stride, which reads as a
+// slow-motion sprint rather than an actual stroll. Blending it down
+// toward idle instead (a partial run weight) softens that stride into
+// something closer to an unhurried, restrained walk.
+const PATROL_RUN_WEIGHT = 0.65;
+
+// Picks a random waypoint anywhere in the given room's interior (room
+// index into ROOM_POSITIONS, i.e. rooms 1-5 — each guard patrols its own
+// room) — rejection-sampled against the stairs' own footprint (same
+// along/perp rectangle the player's own height-follow check uses, just
+// padded out by PATROL_STAIRS_CLEARANCE) so a waypoint never lands over
+// the hole in the floor: the bot has no height-follow logic for the
+// stairs the way the player does, so walking onto that hole would
+// visibly clip it through the floor.
+function pickRoomPatrolTarget(roomIndex: number): { x: number; z: number } {
+  const roomPos = ROOM_POSITIONS[roomIndex];
+  const half = ROOM_SIZE / 2 - PATROL_MARGIN;
+  const dir = ROOM_TUNNEL_DIR[roomIndex];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const x = roomPos.x + (Math.random() * 2 - 1) * half;
+    const z = roomPos.z + (Math.random() * 2 - 1) * half;
+    const dx = x - roomPos.x;
+    const dz = z - roomPos.z;
+    const along = dx * dir.x + dz * dir.z;
+    const perp = dz * dir.x - dx * dir.z;
+    const overStairs =
+      Math.abs(perp) < PATROL_STAIRS_CLEARANCE &&
+      along > -RAMP_BAND - PATROL_STAIRS_CLEARANCE &&
+      along < RAMP_RUN_LENGTH + RAMP_BAND + PATROL_STAIRS_CLEARANCE;
+    if (!overStairs) return { x, z };
+  }
+  return { x: BOT_SPAWNS[roomIndex].x, z: BOT_SPAWNS[roomIndex].z };
+}
+
+const PLAYER_ATTACK_COOLDOWN = 0.55;
 const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
@@ -1476,41 +1809,6 @@ const FIRE_FADE_OUT = 0.4;
 const TRACER_DURATION = 0.08;
 // Roughly chest height — tracers aim here instead of at the root/feet.
 const TRACER_TARGET_HEIGHT = 1.3;
-const BOT1_TINT = 0xff6b5e;
-const BOT2_TINT = 0xffb703;
-const BOT3_TINT = 0x8a5cff;
-const BOT4_TINT = 0x4dff9e;
-const BOT5_TINT = 0x4dd0ff;
-const BOT1_SPAWN = { x: ROOM_POS.x, z: ROOM_POS.z };
-const BOT2_SPAWN = { x: ROOM2_POS.x, z: ROOM2_POS.z };
-const BOT3_SPAWN = { x: ROOM3_POS.x, z: ROOM3_POS.z };
-const BOT4_SPAWN = { x: ROOM4_POS.x, z: ROOM4_POS.z };
-const BOT5_SPAWN = { x: ROOM5_POS.x, z: ROOM5_POS.z };
-const GUARD_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS];
-const GUARD_ALERT_RADIUS = 6;
-const ALERT_TELEGRAPH_DURATION = 0.7;
-const ALERT_MARK_HEIGHT = 2.15; // just above a guard's head
-// While dormant, a guard doesn't just freeze on one spot — it wanders a
-// short walking loop around its post (left/right/forward/back at random),
-// well within its room's walls, until the player's entry wakes it up.
-const PATROL_RADIUS = 3;
-const PATROL_SPEED = BOT_SPEED * 0.5; // an unhurried walk, not a chase sprint
-const PATROL_ARRIVE_DIST = 0.4;
-// There's no dedicated walk clip on this rig (only Idle2 and a full-sprint
-// Running clip) — slowing the run clip's timeScale down to match the
-// patrol speed still keeps its full running stride, which reads as a
-// slow-motion sprint rather than an actual stroll. Blending it down
-// toward idle instead (a partial run weight) softens that stride into
-// something closer to an unhurried, restrained walk.
-const PATROL_RUN_WEIGHT = 0.42;
-// The Boss — a tougher fifth enemy stationed in Room 6 rather than roaming
-// with the other four. It doesn't chase; it stands its ground, already
-// armed, and opens fire the moment the player comes within range.
-const BOSS_TINT = 0xb3122b;
-const BOSS_SPAWN = { x: ROOM6_POS.x, z: ROOM6_POS.z };
-const BOSS_HP = 220;
-const BOSS_DAMAGE = 14;
-const BOSS_ATTACK_COOLDOWN = 1.1;
 // Route to the Boss, as a floor-arrow marker at every gate along the way
 // (not a HUD element) — one glowing arrow on the ground at each doorway,
 // pointing which way to walk through it, from spawn all the way to Room 6.
@@ -1544,13 +1842,8 @@ const PATH_GATES: { x: number; z: number; dirX: number; dirZ: number }[] = [
 // in this mesh, so its own bounding-box center is used directly as the
 // hand target instead of a hand-tuned point.
 const GUN_GRIP_LOCAL = new THREE.Vector3(0, -10.43, 18.33);
-// A point on the handguard, between the grip and the muzzle, in the raw
-// mesh's own local space — this SMG's own named "Grip" part measured
-// directly; kept for reference/tuning even though updateOffHandReach no
-// longer targets it (see GUN_OFFHAND_TARGET_LOCAL).
-const GUN_FOREGRIP_LOCAL = new THREE.Vector3(0, -9.76, 2.01);
 // Where the off-hand actually reaches for (see updateOffHandReach) — much
-// further forward than GUN_FOREGRIP_LOCAL. That point sits only ~11cm
+// further forward than the SMG's own foregrip. That point sits only ~11cm
 // from the main grip on this short SMG, which put both hands so close
 // together they read as one bunched-up fist instead of a two-handed
 // hold; interpolated most of the way from the grip toward the muzzle tip
@@ -1586,6 +1879,43 @@ function loadGunPrototype(): Promise<THREE.Object3D> {
     });
   }
   return gunPrototypePromise;
+}
+
+// A plain textured box crate — every face samples the same single crate-face
+// texture (a self-contained panel design cropped from the user's own
+// texture atlas), rather than loading and UV-mapping a real multi-thousand-
+// triangle mesh. Far cheaper (12 triangles vs thousands per instance) and,
+// since a flat box face maps that square texture 1:1 with no stretching or
+// seams, it actually reads sharper than the real mesh did.
+let crateMaterialPromise: Promise<THREE.MeshStandardMaterial> | null = null;
+function loadCrateMaterial(): Promise<THREE.MeshStandardMaterial> {
+  if (!crateMaterialPromise) {
+    crateMaterialPromise = new Promise((resolve, reject) => {
+      new THREE.TextureLoader().load(
+        "/characters/crate_face.png",
+        (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          resolve(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 }));
+        },
+        undefined,
+        reject,
+      );
+    });
+  }
+  return crateMaterialPromise;
+}
+
+// Places one box crate at (x,z), sized to the given half-extent and
+// resting flush on the floor. Shares the one crate material/texture across
+// every instance — crates are static props, nothing ever mutates their
+// material per-instance the way a fighter's death-fade does.
+function placeCrate(scene: THREE.Scene, material: THREE.MeshStandardMaterial, x: number, z: number, targetHalfExtent: number, rotY: number) {
+  const size = targetHalfExtent * 2;
+  const crate = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), material);
+  crate.rotation.y = rotY;
+  crate.position.set(x, targetHalfExtent, z);
+  crate.receiveShadow = true;
+  scene.add(crate);
 }
 
 // Parents a clone of the shared gun model onto a fighter's RightHand bone,
@@ -1838,17 +2168,54 @@ function updateLocomotionAnim(rig: FighterRig, runWeight: number, actualSpeed: n
   rig.runAction.timeScale = clamp(actualSpeed / RUN_REFERENCE_SPEED, RUN_CLIP_MIN_TIMESCALE, RUN_CLIP_MAX_TIMESCALE);
 }
 
-
 // A bot's movement is otherwise just "walk straight at the target" — with
-// no pathfinding at all, that reads as mindless the moment a wall, crate,
-// or door frame sits between it and where it's trying to go: it just
-// keeps shoving into the obstacle every frame, pinned in place. This
-// tracks how much ground a bot is actually covering versus how much its
-// straight-line heading implies; once it's been making close to zero
-// progress for a bit, it starts steering mostly sideways (around whatever
-// it's stuck on) instead of straight ahead, flipping which side it tries
-// if that direction turns out blocked too, and only stops steering once
-// it's making real progress again.
+// no awareness of the level's own geometry, that reads as mindless the
+// moment a wall, crate, or door frame sits between it and where it's
+// trying to go: it just keeps shoving into the obstacle every frame,
+// pinned in place until it happens to get shoved clear. chooseHeading
+// below is what actually fixes that — it looks a short distance ahead
+// along the intended heading (the same segment-vs-obstacle test
+// hasLineOfSight uses for gunfire) and, if that's blocked, tries
+// progressively wider swings left/right of it until it finds one that
+// isn't — an actual "which way avoids the wall" decision made before
+// contact, not just a reaction to already being stuck.
+const AVOID_PROBE_DIST = 1.4;
+const AVOID_STEER_ANGLES = [0, 20, -20, 40, -40, 65, -65, 90, -90].map((d) => THREE.MathUtils.degToRad(d));
+
+function probeClear(x: number, z: number, dirX: number, dirZ: number, dist: number): boolean {
+  const toX = x + dirX * dist;
+  const toZ = z + dirZ * dist;
+  for (const ob of OBSTACLES) {
+    if (segmentHitsObstacle(x, z, toX, toZ, ob)) return false;
+  }
+  for (const ob of gateBlockers) {
+    if (segmentHitsObstacle(x, z, toX, toZ, ob)) return false;
+  }
+  return true;
+}
+
+// Tries the intended heading first, then increasingly wide swings to
+// either side of it (see AVOID_STEER_ANGLES), returning the first one
+// whose short look-ahead probe is actually clear — or null if every
+// angle it tried is blocked (properly boxed into a corner), in which
+// case moveWithAvoidance falls back to its older reactive nudge below.
+function chooseHeading(x: number, z: number, dirX: number, dirZ: number): { x: number; z: number } | null {
+  for (const angle of AVOID_STEER_ANGLES) {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const rx = dirX * cos - dirZ * sin;
+    const rz = dirX * sin + dirZ * cos;
+    if (probeClear(x, z, rx, rz, AVOID_PROBE_DIST)) return { x: rx, z: rz };
+  }
+  return null;
+}
+
+// This tracks how much ground a bot is actually covering versus how much
+// its heading implies, purely as a last-resort fallback for the rare case
+// chooseHeading can't find any clear angle at all (a proper dead end) —
+// once it's been making close to zero progress for a bit, it starts
+// steering mostly sideways (around whatever it's stuck on) instead of
+// straight ahead, flipping which side it tries if that's blocked too.
 const STUCK_AVOID_DELAY = 0.35;
 const STUCK_AVOID_FLIP_DELAY = 1.1;
 function moveWithAvoidance(
@@ -1861,14 +2228,23 @@ function moveWithAvoidance(
 ) {
   const beforeX = rig.root.position.x;
   const beforeZ = rig.root.position.z;
-  let moveX = dirX;
-  let moveZ = dirZ;
-  if (st.stuckT > STUCK_AVOID_DELAY) {
+
+  const heading = chooseHeading(beforeX, beforeZ, dirX, dirZ);
+  let moveX: number;
+  let moveZ: number;
+  if (heading) {
+    moveX = heading.x;
+    moveZ = heading.z;
+  } else if (st.stuckT > STUCK_AVOID_DELAY) {
     // Mostly sideways (perpendicular to the blocked heading), with a
     // little forward bias so it still drifts back on course once clear.
     moveX = -dirZ * st.avoidSign * 0.85 + dirX * 0.25;
     moveZ = dirX * st.avoidSign * 0.85 + dirZ * 0.25;
+  } else {
+    moveX = dirX;
+    moveZ = dirZ;
   }
+
   rig.root.position.x = clamp(rig.root.position.x + moveX * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
   rig.root.position.z = clamp(rig.root.position.z + moveZ * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
   resolveObstacleCollisions(rig.root.position);
@@ -1884,31 +2260,35 @@ function moveWithAvoidance(
   }
 }
 
-const DEATH_FALL_DURATION = 0.6;
-const DEATH_FADE_DELAY = 0.3;
+// "DeathFromBackHeadshot" is a real mocap collapse clip (retargeted from
+// Mixamo, same skeleton, grafted into the glb) — its length here must
+// match the merged clip's actual duration (see the merge that grafted it
+// in). Root motion (the stagger/fall itself) is baked into the Hips
+// bone's own keyframes, so playing the clip is enough; nothing needs to
+// drive rig.root's transform by hand anymore.
+const DEATH_ANIM_DURATION = 3.7;
+const DEATH_FADE_DELAY = 2.7;
 const DEATH_FADE_DURATION = 1.0;
-const DEATH_TOTAL_DURATION = DEATH_FALL_DURATION + DEATH_FADE_DURATION;
-// A full -90° tip rotates the whole body around the feet like a rigid
-// plank hinged at the ankles — the chest and head swing through a huge
-// arc, which read as a broken/glitchy pose. A much shallower stagger,
-// combined with sinking down (selling a knee-buckle collapse instead of
-// a stiff topple) and a slight asymmetric side lean (so it isn't a
-// perfectly symmetric fall), reads as a knockback stumble instead —
-// closer to how other third-person shooters sell a death without an
-// actual ragdoll or death animation clip.
-const DEATH_TILT_ANGLE = 0.62; // radians, ~35°
-const DEATH_SIDE_TILT = 0.22; // radians, ~13°
-const DEATH_SINK_DEPTH = 0.35; // world units
+const DEATH_TOTAL_DURATION = DEATH_ANIM_DURATION;
 
-// Staggers a defeated fighter into a knockback collapse and fades it out —
-// there's no death clip either, so this drives the root transform and
-// each mesh's material opacity directly instead.
+// Starts a defeated fighter's real death animation — cuts idle/run/fire
+// to silence (a terminal pose doesn't need to keep blending against
+// them) and plays the mocap collapse once, holding its last frame.
+function startDeath(rig: FighterRig) {
+  rig.idleAction?.setEffectiveWeight(0);
+  rig.runAction?.setEffectiveWeight(0);
+  rig.fireAction?.setEffectiveWeight(0);
+  if (rig.deathAction) {
+    rig.deathAction.reset();
+    rig.deathAction.setEffectiveWeight(1);
+    rig.deathAction.play();
+  }
+}
+
+// Fades a defeated fighter out once the death animation has had time to
+// land — the clip itself doesn't disappear the body, so this still
+// drives material opacity by hand.
 function applyDeathPose(rig: FighterRig, t: number) {
-  const fallP = clamp(t / DEATH_FALL_DURATION, 0, 1);
-  const eased = fallP * fallP * (3 - 2 * fallP); // smoothstep
-  rig.root.rotation.x = -eased * DEATH_TILT_ANGLE;
-  rig.root.rotation.z = eased * DEATH_SIDE_TILT;
-  rig.root.position.y = -eased * DEATH_SINK_DEPTH;
   const fadeP = clamp((t - DEATH_FADE_DELAY) / DEATH_FADE_DURATION, 0, 1);
   for (const mat of rig.materials) {
     mat.transparent = true;
@@ -1948,6 +2328,10 @@ interface FighterRig {
   // (see the fire trigger sites in the tick loop), crossfaded against
   // idle/run every tick afterward while it plays out (see applyFirePose).
   fireAction: THREE.AnimationAction | null;
+  // The real "DeathFromBackHeadshot" mocap clip — reset and (re)started
+  // once a fighter's HP hits zero (see startDeath), then just left to
+  // play out and hold its last frame (LoopOnce + clampWhenFinished).
+  deathAction: THREE.AnimationAction | null;
   rightArm: THREE.Object3D | null;
   rightForeArm: THREE.Object3D | null;
   rightHand: THREE.Object3D | null;
@@ -2013,6 +2397,8 @@ function loadFighter(
         if (leftFinger) leftFingers[`${leftFinger[1]}${leftFinger[2]}`] = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
         const src = mesh.material as THREE.MeshStandardMaterial;
         const mat = src.clone();
         const tintColor = new THREE.Color(tint);
@@ -2033,6 +2419,7 @@ function loadFighter(
       let idleAction: THREE.AnimationAction | null = null;
       let runAction: THREE.AnimationAction | null = null;
       let fireAction: THREE.AnimationAction | null = null;
+      let deathAction: THREE.AnimationAction | null = null;
       if (gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
         // "RifleIdle" is a real two-handed rifle-holding mocap clip
@@ -2066,13 +2453,334 @@ function loadFighter(
           fireAction.play();
           fireAction.setEffectiveWeight(0);
         }
+        // "DeathFromBackHeadshot" — a real mocap collapse, played once on
+        // death (LoopOnce + clampWhenFinished) and left holding its last
+        // frame (see startDeath).
+        const deathClip = gltf.animations.find((c) => c.name === "DeathFromBackHeadshot");
+        if (deathClip) {
+          deathAction = mixer.clipAction(deathClip);
+          deathAction.setLoop(THREE.LoopOnce, 1);
+          deathAction.clampWhenFinished = true;
+          deathAction.play();
+          deathAction.setEffectiveWeight(0);
+        }
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, fireAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
+      onLoaded({ root, mixer, idleAction, runAction, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
   );
+}
+
+// --- New bot character (a different Mixamo model/skeleton from char-1,
+// supplied with its own textures) ---------------------------------------
+//
+// This model only comes with a single frozen-pose "animation" baked in (no
+// real idle/run/fire/death mocap of its own), so instead it borrows char-1's
+// named clips (RifleIdle/RifleRun/RifleFire/DeathFromBackHeadshot) and
+// retargets them onto its own skeleton at load time. Both are genuine
+// Mixamo rigs sharing the same bone-naming/axis convention, so a clip
+// authored for one plays back correctly on the other once each bone's
+// rotation is re-expressed as a delta from its OWN rest pose (rather than
+// copied as an absolute value from char-1's rest pose) — literal copying
+// (tried first) produced a wildly mangled pose, since the two models don't
+// share an identical rest pose or unit scale.
+
+// Captures every named node's local rest transform (position + rotation)
+// right after load, before any clip has been played — this is what
+// retargetClip measures each animated frame against.
+function captureRestPose(root: THREE.Object3D): Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }> {
+  const map = new Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }>();
+  root.traverse((o) => {
+    map.set(o.name, { pos: o.position.clone(), quat: o.quaternion.clone() });
+  });
+  return map;
+}
+
+// Re-expresses `clip` (authored against skeleton A's rest pose) onto
+// skeleton B: each quaternion keyframe becomes restB * (restA^-1 * animQ) —
+// the same rotation *delta* from A's own rest pose, reapplied on top of B's
+// own rest pose. Position keyframes (root motion, e.g. the Hips bone's
+// bounce) get the same delta-from-rest treatment, additionally scaled by
+// posRatio (the two models' native, pre-normalization heights) since the
+// two source assets were exported in different real-world unit scales.
+function retargetClip(
+  clip: THREE.AnimationClip,
+  restA: Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }>,
+  restB: Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }>,
+  posRatio: number,
+): THREE.AnimationClip {
+  const newTracks: THREE.KeyframeTrack[] = [];
+  for (const track of clip.tracks) {
+    const dot = track.name.lastIndexOf(".");
+    const boneName = track.name.slice(0, dot);
+    const prop = track.name.slice(dot + 1);
+    const a = restA.get(boneName);
+    const b = restB.get(boneName);
+    if (!a || !b) {
+      newTracks.push(track.clone());
+      continue;
+    }
+    if (prop === "quaternion" && track instanceof THREE.QuaternionKeyframeTrack) {
+      const values = track.values.slice();
+      const restAInv = a.quat.clone().invert();
+      for (let i = 0; i < values.length; i += 4) {
+        const animQ = new THREE.Quaternion(values[i], values[i + 1], values[i + 2], values[i + 3]);
+        const delta = restAInv.clone().multiply(animQ);
+        const newQ = b.quat.clone().multiply(delta);
+        values[i] = newQ.x;
+        values[i + 1] = newQ.y;
+        values[i + 2] = newQ.z;
+        values[i + 3] = newQ.w;
+      }
+      newTracks.push(new THREE.QuaternionKeyframeTrack(track.name, track.times.slice() as unknown as number[], values as unknown as number[]));
+    } else if (prop === "position") {
+      const values = track.values.slice();
+      for (let i = 0; i < values.length; i += 3) {
+        const dx = (values[i] - a.pos.x) * posRatio;
+        const dy = (values[i + 1] - a.pos.y) * posRatio;
+        const dz = (values[i + 2] - a.pos.z) * posRatio;
+        values[i] = b.pos.x + dx;
+        values[i + 1] = b.pos.y + dy;
+        values[i + 2] = b.pos.z + dz;
+      }
+      newTracks.push(new THREE.VectorKeyframeTrack(track.name, track.times.slice() as unknown as number[], values as unknown as number[]));
+    } else {
+      newTracks.push(track.clone());
+    }
+  }
+  return new THREE.AnimationClip(clip.name + "Retarget", clip.duration, newTracks);
+}
+
+// A reference video the user supplied — a crouched, forward-leaning
+// tactical sprint (a different, stealthier style than char-1's upright
+// rifle run) — showed the sprint style they wanted the bot to move like.
+// True per-frame motion capture from that clip isn't possible (it's
+// gameplay footage of another game viewed from a steep isometric camera,
+// not a real person on video a pose-estimator could read), so instead
+// this leans the bot's real running mocap forward and drops its hip
+// height a bit — the actual foot-timing/weight-shift stays real motion
+// capture, just biased toward that crouched-sprint silhouette.
+const RUN_LEAN_BONES = ["mixamorigSpine", "mixamorigSpine1", "mixamorigSpine2"];
+const RUN_LEAN_PER_BONE = THREE.MathUtils.degToRad(9); // ~27 total forward lean across the three
+const RUN_HIP_DROP_FRACTION = 0.05; // as a fraction of the source rig's native height
+function applyCrouchedSprintBias(clip: THREE.AnimationClip, hipsBoneName: string, hipDropNative: number): THREE.AnimationClip {
+  const leanQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), RUN_LEAN_PER_BONE);
+  const newTracks = clip.tracks.map((track) => {
+    const dot = track.name.lastIndexOf(".");
+    const boneName = track.name.slice(0, dot);
+    const prop = track.name.slice(dot + 1);
+    if (prop === "quaternion" && RUN_LEAN_BONES.includes(boneName) && track instanceof THREE.QuaternionKeyframeTrack) {
+      const values = track.values.slice();
+      for (let i = 0; i < values.length; i += 4) {
+        const q = new THREE.Quaternion(values[i], values[i + 1], values[i + 2], values[i + 3]);
+        q.multiply(leanQuat);
+        values[i] = q.x;
+        values[i + 1] = q.y;
+        values[i + 2] = q.z;
+        values[i + 3] = q.w;
+      }
+      return new THREE.QuaternionKeyframeTrack(track.name, track.times.slice() as unknown as number[], values as unknown as number[]);
+    }
+    if (prop === "position" && boneName === hipsBoneName) {
+      const values = track.values.slice();
+      for (let i = 1; i < values.length; i += 3) {
+        values[i] -= hipDropNative;
+      }
+      return new THREE.VectorKeyframeTrack(track.name, track.times.slice() as unknown as number[], values as unknown as number[]);
+    }
+    return track.clone();
+  });
+  return new THREE.AnimationClip(clip.name + "CrouchSprint", clip.duration, newTracks);
+}
+
+interface SourceRigData {
+  clips: Map<string, THREE.AnimationClip>;
+  rest: Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }>;
+  nativeHeight: number;
+}
+
+// char-1.glb loaded once purely to harvest its named clips + rest pose for
+// retargeting onto the new bot — cached the same way loadGunPrototype
+// caches the gun model, so a second bot spawn wouldn't reload it.
+let sourceRigDataPromise: Promise<SourceRigData> | null = null;
+function loadSourceRigData(): Promise<SourceRigData> {
+  if (!sourceRigDataPromise) {
+    sourceRigDataPromise = new Promise((resolve, reject) => {
+      new GLTFLoader().load(
+        "/characters/char-1.glb",
+        (gltf) => {
+          const box = new THREE.Box3().setFromObject(gltf.scene);
+          const nativeHeight = box.getSize(new THREE.Vector3()).y || 1;
+          const rest = captureRestPose(gltf.scene);
+          const clips = new Map<string, THREE.AnimationClip>();
+          for (const name of ["RifleIdle", "RifleRun", "RifleFire", "DeathFromBackHeadshot"]) {
+            const clip = gltf.animations.find((c) => c.name === name);
+            if (clip) clips.set(name, clip);
+          }
+          resolve({ clips, rest, nativeHeight });
+        },
+        undefined,
+        reject,
+      );
+    });
+  }
+  return sourceRigDataPromise;
+}
+
+// The bot model's own glTF, fetched and parsed once per URL and reused for
+// every instance — six copies of this (5 guards + the Boss, see
+// BOT_SPAWNS/BOSS_SPAWN) each calling `new GLTFLoader().load` fresh used to
+// mean six independent GPU uploads of the same ~29k-triangle mesh and its
+// five PBR textures (diffuse/normal/specular/glossiness/emissive), which is
+// exactly the kind of redundant GPU memory pressure that reads as "lag" on
+// a real phone even though it never showed up in this sandbox's headless
+// testing. Cached the same way loadGunPrototype/loadSourceRigData are.
+const botGltfCache = new Map<string, Promise<Awaited<ReturnType<InstanceType<typeof GLTFLoader>["loadAsync"]>>>>();
+function loadBotGltf(url: string) {
+  let promise = botGltfCache.get(url);
+  if (!promise) {
+    promise = new Promise((resolve, reject) => {
+      new GLTFLoader().load(url, resolve, undefined, reject);
+    });
+    botGltfCache.set(url, promise);
+  }
+  return promise;
+}
+
+// Loads the new bot character model, retargeting char-1's named clips onto
+// its own skeleton (see retargetClip above). Unlike loadFighter, this never
+// tints the material — the user supplied this character with its own
+// finished texture, and it must reach the game exactly as authored.
+function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: FighterRig) => void) {
+  Promise.all([loadBotGltf(url), loadSourceRigData()])
+    .then(([gltf, source]) => {
+      // Object3D.copy() (which Object3D.clone() calls under the hood, and
+      // which SkeletonUtils.clone uses internally for the initial deep
+      // copy) copies matrixWorld by value from source to clone — it's
+      // never recomputed fresh for the clone. The cached gltf.scene here
+      // never gets added to a real scene/rendered on its own (only clones
+      // of it are), so its bones' matrixWorld is still each Bone's
+      // default-constructed identity the first time anything clones it —
+      // and every clone then inherits that same never-posed identity
+      // matrixWorld, making a cloned SkinnedMesh's own computeBoundingBox()
+      // (which Box3.setFromObject ends up calling below, and which reads
+      // bone.matrixWorld, not the bones' local transforms) come back
+      // wildly wrong on the very first clone (seen in testing as a
+      // fighter measuring ~600x too tall, rendered as giant legs floating
+      // over the player's head). Forcing one Box3 computation directly on
+      // the shared source first — which recursively walks its hierarchy
+      // and does correctly populate every bone's matrixWorld from its
+      // local transform, bottom-up — fixes every clone made afterward,
+      // since each one now inherits valid matrixWorld from the source
+      // instead of the default identity.
+      new THREE.Box3().setFromObject(gltf.scene);
+      const model = cloneSkinnedObject(gltf.scene) as THREE.Object3D;
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const nativeHeight = size.y || 1;
+      const restNewbot = captureRestPose(model);
+      const posRatio = nativeHeight / source.nativeHeight;
+
+      const scale = 1.6 / nativeHeight;
+      model.scale.setScalar(scale);
+      model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+
+      let rightArm: THREE.Object3D | null = null;
+      let rightForeArm: THREE.Object3D | null = null;
+      let rightHand: THREE.Object3D | null = null;
+      let leftArm: THREE.Object3D | null = null;
+      let leftForeArm: THREE.Object3D | null = null;
+      let leftHand: THREE.Object3D | null = null;
+      const rightFingers: Record<string, THREE.Object3D> = {};
+      const leftFingers: Record<string, THREE.Object3D> = {};
+      const materials: THREE.MeshStandardMaterial[] = [];
+
+      model.traverse((o) => {
+        if (o.name === "mixamorigRightArm") rightArm = o;
+        if (o.name === "mixamorigRightForeArm") rightForeArm = o;
+        if (o.name === "mixamorigRightHand") rightHand = o;
+        if (o.name === "mixamorigLeftArm") leftArm = o;
+        if (o.name === "mixamorigLeftForeArm") leftForeArm = o;
+        if (o.name === "mixamorigLeftHand") leftHand = o;
+        const rightFinger = o.name.match(/^mixamorigRightHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
+        if (rightFinger) rightFingers[`${rightFinger[1]}${rightFinger[2]}`] = o;
+        const leftFinger = o.name.match(/^mixamorigLeftHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
+        if (leftFinger) leftFingers[`${leftFinger[1]}${leftFinger[2]}`] = o;
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        // This rig's skinned meshes get frustum-culled against their
+        // un-skinned bind-pose bounding sphere (computed in the mesh
+        // node's own local space, which Blender's exporter placed away
+        // from where the bones actually pose it) — so three.js was
+        // culling the whole (correctly positioned, correctly posed)
+        // character as "off camera" even head-on in plain view.
+        mesh.frustumCulled = false;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        // No tint — clone only so this instance's own death-fade opacity
+        // (see applyDeathPose) never touches a shared/cached material.
+        const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+        mesh.material = mat;
+        materials.push(mat);
+      });
+
+      const root = new THREE.Group();
+      root.add(model);
+      scene.add(root);
+
+      let mixer: THREE.AnimationMixer | null = null;
+      let idleAction: THREE.AnimationAction | null = null;
+      let runAction: THREE.AnimationAction | null = null;
+      let fireAction: THREE.AnimationAction | null = null;
+      let deathAction: THREE.AnimationAction | null = null;
+
+      mixer = new THREE.AnimationMixer(model);
+      const idleClip = source.clips.get("RifleIdle");
+      if (idleClip) {
+        idleAction = mixer.clipAction(retargetClip(idleClip, source.rest, restNewbot, posRatio));
+        idleAction.play();
+      }
+      const runClip = source.clips.get("RifleRun");
+      if (runClip) {
+        const retargetedRun = retargetClip(runClip, source.rest, restNewbot, posRatio);
+        const styledRun = applyCrouchedSprintBias(retargetedRun, "mixamorigHips", nativeHeight * RUN_HIP_DROP_FRACTION);
+        runAction = mixer.clipAction(styledRun);
+        runAction.play();
+        runAction.setEffectiveWeight(0);
+      }
+      const fireClip = source.clips.get("RifleFire");
+      if (fireClip) {
+        fireAction = mixer.clipAction(retargetClip(fireClip, source.rest, restNewbot, posRatio));
+        fireAction.setLoop(THREE.LoopOnce, 1);
+        fireAction.clampWhenFinished = true;
+        fireAction.play();
+        fireAction.setEffectiveWeight(0);
+      }
+      const deathClip = source.clips.get("DeathFromBackHeadshot");
+      if (deathClip) {
+        deathAction = mixer.clipAction(retargetClip(deathClip, source.rest, restNewbot, posRatio));
+        deathAction.setLoop(THREE.LoopOnce, 1);
+        deathAction.clampWhenFinished = true;
+        deathAction.play();
+        deathAction.setEffectiveWeight(0);
+      }
+
+      onLoaded({ root, mixer, idleAction, runAction, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
+    })
+    .catch((err) => console.error("Failed to load bot model", err));
+}
+
+// Tints a fighter's own cloned materials toward a menacing red — used only
+// on the Boss (see BOSS_SCALE/BOSS_TINT) so it visibly reads as tougher
+// than the regular guards at a glance, on top of standing taller.
+const BOSS_TINT = new THREE.Color(0x8a1616);
+function tintBossFighter(rig: FighterRig) {
+  for (const mat of rig.materials) {
+    mat.color.lerp(BOSS_TINT, 0.55);
+  }
 }
 
 // A minimal single-player vs. bot skirmish on a 10x10 arena: touch
@@ -2091,11 +2799,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const [runActive, setRunActive] = useState(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
-  // One floating "?" mark per guard bot (bot1..bot5), screen-projected and
-  // positioned directly via ref each tick (same reasoning as the joystick
-  // knob above) — shown for the brief alert telegraph right before a
-  // dormant guard wakes up and starts chasing.
-  const alertRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
   // buttons) orbits the camera around the player, independent of movement.
   // Horizontal drag turns cameraYaw; vertical drag adds to cameraPitch,
@@ -2108,7 +2811,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const lookLastY = useRef(0);
 
   const [playerHp, setPlayerHp] = useState(100);
+  // One HP percentage + floating bar ref per fighter — index 0-4 are the
+  // five room guards, index 5 is the Boss.
   const [botHps, setBotHps] = useState<number[]>([100, 100, 100, 100, 100, 100]);
+  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
@@ -2156,36 +2862,173 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Real shadows + filmic tone mapping — walls/crates/characters were
+    // reading flat and "gamey" next to a reference with dramatic directional
+    // shadows and richer contrast. PCFSoftShadowMap gives soft shadow edges
+    // instead of the harsh aliased look of the default shadow type.
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
     container.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x0a0e18, 1.15));
+    // Bloom on top of the render — the light strips/door glow/muzzle flash
+    // are already emissive, but with no bloom pass they just render as a
+    // flat bright color instead of actually spreading light into the
+    // surrounding pixels the way a real light source reads. OutputPass
+    // re-applies the renderer's own color space/tone mapping after the
+    // bloom pass, since UnrealBloomPass's own output otherwise skips it.
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.4, 0.82);
+    composer.addPass(bloomPass);
+    composer.addPass(new OutputPass());
+
+    // Ground color raised from its original near-black (0x0a0e18) so
+    // downward-facing surfaces — chiefly the room/corridor ceiling slabs —
+    // pick up enough ambient fill to actually show their panel texture,
+    // instead of rendering as a flat black void overhead. Floor/wall
+    // brightness (driven mostly by the sky color and the key light below)
+    // is unaffected.
+    scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x5a6478, 1.15));
     const key = new THREE.DirectionalLight(0xffffff, 1.5);
     key.position.set(3, 6, 4);
+    // The arena is 700x700 — far too big for one shadow camera frustum to
+    // cover at any usable resolution, so instead of lighting the whole
+    // level the frustum is a fixed-size window (see SHADOW_FOLLOW_DISTANCE/
+    // SHADOW_FOLLOW_DIR below) that re-centers on the player every frame,
+    // keeping shadow resolution high right where it's actually seen.
+    key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = 50;
+    key.shadow.camera.left = -20;
+    key.shadow.camera.right = 20;
+    key.shadow.camera.top = 20;
+    key.shadow.camera.bottom = -20;
+    key.shadow.bias = -0.0015;
+    key.shadow.normalBias = 0.02;
     scene.add(key);
+    scene.add(key.target);
+    const SHADOW_FOLLOW_DIR = new THREE.Vector3(3, 6, 4).normalize();
+    const SHADOW_FOLLOW_DISTANCE = 20;
 
+    // A real hole cut through the main floor at each house's stairwell
+    // (not just a decal on top of a solid floor) — otherwise standing at
+    // the hole and looking down would still hit this solid ground plane
+    // a few units below the room's own floor, instead of actually seeing
+    // down into the tunnel.
+    const groundShape = new THREE.Shape();
+    groundShape.moveTo(-ARENA_HALF, -ARENA_HALF);
+    groundShape.lineTo(ARENA_HALF, -ARENA_HALF);
+    groundShape.lineTo(ARENA_HALF, ARENA_HALF);
+    groundShape.lineTo(-ARENA_HALF, ARENA_HALF);
+    groundShape.lineTo(-ARENA_HALF, -ARENA_HALF);
+    for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
+      // Shape-local Y maps to world -Z after the rotateX(-PI/2) below
+      // (rotateX(θ) sends (x,y,z) to (x, z, -y) at θ=-90°), so world Z
+      // needs to be negated to land the hole at its actual world
+      // position — hence -c.z below for every corner.
+      const { nearA, nearB, farA, farB } = stairFootprintCorners(i);
+      const hole = new THREE.Path();
+      hole.moveTo(nearA.x, -nearA.z);
+      hole.lineTo(farA.x, -farA.z);
+      hole.lineTo(farB.x, -farB.z);
+      hole.lineTo(nearB.x, -nearB.z);
+      hole.lineTo(nearA.x, -nearA.z);
+      groundShape.holes.push(hole);
+    }
+    const groundGeo = new THREE.ShapeGeometry(groundShape);
+    // ShapeGeometry's default UVs are the shape's raw local coordinates
+    // (here, -ARENA_HALF..ARENA_HALF) rather than the usual 0-1 range, so
+    // texture.repeat further below was silently multiplying against that
+    // whole 700-unit span instead of a unit square — over-tiling any real
+    // image so heavily it blurred into a flat, featureless color. A
+    // fine-grained procedural noise texture still happened to read as
+    // "textured" even that heavily aliased, which is why this went
+    // unnoticed until a real photo replaced it. Remap to a proper 0-1 UV
+    // here so texture.repeat means what it says.
+    {
+      const uv = groundGeo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) {
+        uv.setXY(i, (uv.getX(i) + ARENA_HALF) / (ARENA_HALF * 2), (uv.getY(i) + ARENA_HALF) / (ARENA_HALF * 2));
+      }
+      uv.needsUpdate = true;
+    }
+    groundGeo.rotateX(-Math.PI / 2);
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(ARENA_HALF * 2, ARENA_HALF * 2),
-      new THREE.MeshStandardMaterial({ map: createFloorTexture(FLOOR_REPEAT, renderer.capabilities.getMaxAnisotropy()), roughness: 0.6, metalness: 0.35 }),
+      groundGeo,
+      new THREE.MeshStandardMaterial({
+        map: createSciFiFloorTexture(SCIFI_FLOOR_REPEAT, renderer.capabilities.getMaxAnisotropy()),
+        roughness: 0.6,
+        metalness: 0.35,
+      }),
     );
-    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
     scene.add(ground);
-    scene.add(new THREE.GridHelper(ARENA_HALF * 2, GRID_DIVISIONS, 0x6be2ff, 0x1c4560));
 
     // Sci-fi outpost room — the wall segments exactly match the OBSTACLES
     // rects above (built straight from that array, so visuals and
     // collision can never drift apart), plus crates, a floor grate, a
     // hazard-stripe decal and a wall screen for detail.
-    const roomWallMat = new THREE.MeshStandardMaterial({ color: 0x2a323c, roughness: 0.55, metalness: 0.4 });
-    const roomEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
+    const wallMaxAnisotropy = renderer.capabilities.getMaxAnisotropy();
+    // Builds one wall segment's box + real sci-fi panel texture (see
+    // createSciFiWallTexture), and adds it to the scene — every
+    // roomWallObstacles/CORRIDOR*_WALLS/etc. entry in the level goes
+    // through this one helper instead of repeating the same lines at each
+    // call site. Repeat count is derived from this particular wall's own
+    // length/height, so a short corridor wall and a long room wall both
+    // read at the same real-world panel scale instead of one stretching or
+    // squashing the texture. `variant` picks between the two source
+    // photos: 0 for room walls, 1 for corridor/tunnel walls.
+    const addWallMesh = (ob: Obstacle, height: number, centerY: number, variant: 0 | 1 = 0) => {
+      const width = ob.halfX * 2;
+      const depth = ob.halfZ * 2;
+      const longSide = Math.max(width, depth);
+      const wallMat = new THREE.MeshStandardMaterial({
+        map: createSciFiWallTexture(longSide / SCIFI_WALL_TILE_SIZE, height / SCIFI_WALL_TILE_SIZE, wallMaxAnisotropy, variant),
+        roughness: 0.7,
+        metalness: 0.3,
+      });
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), wallMat);
+      wallMesh.position.set(ob.x, centerY, ob.z);
+      wallMesh.receiveShadow = true;
+      scene.add(wallMesh);
+      return wallMesh;
+    };
+    // Same as addWallMesh, but for a wall segment that isn't axis-aligned
+    // (the chamfered corners of the new octagonal room) — takes an explicit
+    // world-space length and Y rotation instead of deriving a Box's width/
+    // depth from an Obstacle rect, since a rotated rect can't be expressed
+    // as one of those.
+    const addAngledWallMesh = (x: number, z: number, length: number, height: number, centerY: number, rotY: number, variant: 0 | 1 = 0) => {
+      const wallMat = new THREE.MeshStandardMaterial({
+        map: createSciFiWallTexture(length / SCIFI_WALL_TILE_SIZE, height / SCIFI_WALL_TILE_SIZE, wallMaxAnisotropy, variant),
+        roughness: 0.7,
+        metalness: 0.3,
+      });
+      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(length, height, ROOM_WALL_THICKNESS), wallMat);
+      wallMesh.position.set(x, centerY, z);
+      wallMesh.rotation.y = rotY;
+      wallMesh.receiveShadow = true;
+      scene.add(wallMesh);
+      return wallMesh;
+    };
     const doorGlowMat = new THREE.MeshStandardMaterial({ color: 0xff3355, emissive: 0xff3355, emissiveIntensity: 1.4, roughness: 0.4 });
-    const crateMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.7, metalness: 0.3 });
-    const crateEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
-    const crateAccentMat = new THREE.MeshStandardMaterial({ color: 0xd8402c, emissive: 0xd8402c, emissiveIntensity: 0.5, roughness: 0.5 });
-    const grateMat = new THREE.MeshStandardMaterial({ map: createGrateTexture(), roughness: 0.5, metalness: 0.5 });
     const hazardMat = new THREE.MeshStandardMaterial({ map: createHazardStripeTexture(), roughness: 0.8 });
-    const screenMat = new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6be2ff, emissiveIntensity: 0.9, roughness: 0.3 });
-    const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x232a32, roughness: 0.6, metalness: 0.35, side: THREE.DoubleSide });
-    const lightStripMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3 });
+    const screenMat = new THREE.MeshStandardMaterial({ color: 0x1c1f22, roughness: 0.3 });
+    // Real sci-fi panel texture for every ceiling slab, scaled to that
+    // slab's own footprint the same way addWallMesh scales the wall
+    // texture — a small MIDROOM ceiling and ROOM6's big one both read at
+    // the same real-world panel size instead of one stretching the other.
+    const createCeilingMat = (width: number, depth: number) =>
+      new THREE.MeshStandardMaterial({
+        map: createSciFiCeilingTexture(width / SCIFI_CEILING_TILE_SIZE, depth / SCIFI_CEILING_TILE_SIZE, wallMaxAnisotropy),
+        roughness: 0.6,
+        metalness: 0.4,
+        side: THREE.DoubleSide,
+      });
+    const lightStripMat = new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.5, metalness: 0.3 });
 
     // Builds one full sci-fi outpost room (walls, door glows, crates, floor
     // grate, hazard stripe, wall screen, ceiling) at the given position —
@@ -2193,11 +3036,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // and structurally identical.
     const buildRoom = (pos: { x: number; z: number }) => {
       for (const ob of roomWallObstacles(pos)) {
-        const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-        wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-        scene.add(wallMesh);
-        const wallEdges = new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat);
-        wallMesh.add(wallEdges);
+        addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
       }
 
       // Glowing red door-frame lintel over each of the 4 openings.
@@ -2211,32 +3050,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addDoorGlow(pos.x - ROOM_SIZE / 2, pos.z, ROOM_WALL_THICKNESS + 0.05, ROOM_DOOR_WIDTH); // west (exit)
       addDoorGlow(pos.x + ROOM_SIZE / 2, pos.z, ROOM_WALL_THICKNESS + 0.05, ROOM_DOOR_WIDTH); // east (exit)
 
-      // A few storage crates with a cross-braced accent on their front face.
-      const addCrate = (x: number, z: number, width: number, depth: number, height: number, rotY: number) => {
-        const crate = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), crateMat);
-        crate.position.set(x, height / 2, z);
-        crate.rotation.y = rotY;
-        scene.add(crate);
-        crate.add(new THREE.LineSegments(new THREE.EdgesGeometry(crate.geometry), crateEdgeMat));
-        const diagLen = Math.hypot(width, height) * 1.02;
-        const diagAngle = Math.atan2(height, width);
-        const braceA = new THREE.Mesh(new THREE.BoxGeometry(diagLen, height * 0.12, 0.06), crateAccentMat);
-        braceA.rotation.z = diagAngle;
-        braceA.position.set(0, 0, depth / 2 + 0.03);
-        const braceB = new THREE.Mesh(new THREE.BoxGeometry(diagLen, height * 0.12, 0.06), crateAccentMat);
-        braceB.rotation.z = -diagAngle;
-        braceB.position.set(0, 0, depth / 2 + 0.03);
-        crate.add(braceA, braceB);
-      };
-      addCrate(pos.x - 2.5, pos.z - 2.5, 1, 2, 1.5, 0.3);
-      addCrate(pos.x + 2.75, pos.z - 2, 1, 2, 1.5, -0.4);
-      addCrate(pos.x + 2, pos.z + 2.75, 1, 2, 1.5, 0.8);
+      // Crates themselves are spawned separately (see the loadCrateMaterial
+      // block below), once the shared crate texture has actually loaded —
+      // matching roomCrateObstacles' positions exactly.
 
-      // A recessed vent grate flush with the floor in the room's center.
-      const grate = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), grateMat);
-      grate.rotation.x = -Math.PI / 2;
-      grate.position.set(pos.x, 0.02, pos.z);
-      scene.add(grate);
+      // No floor decal at the room's exact center anymore — that's now the
+      // tunnel-hole's spot (see addFloorHole), and a separate decal there
+      // z-fought with it, reading as a flickering, jagged edge.
 
       // Hazard-stripe floor decal at the entrance threshold.
       const hazard = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_DOOR_WIDTH, 2), hazardMat);
@@ -2252,10 +3072,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
       // Ceiling slab sealing the room, with embedded cyan light-strip panels
       // matching the reference image's overhead detailing.
-      const ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM_SIZE, ROOM_WALL_THICKNESS, ROOM_SIZE), ceilingMat);
+      const ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM_SIZE, ROOM_WALL_THICKNESS, ROOM_SIZE), createCeilingMat(ROOM_SIZE, ROOM_SIZE));
       ceiling.position.set(pos.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, pos.z);
       scene.add(ceiling);
-      ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(ceiling.geometry), roomEdgeMat));
 
       const addCeilingStrip = (x: number, z: number, sizeX: number, sizeZ: number) => {
         const strip = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.08, sizeZ), lightStripMat);
@@ -2271,14 +3090,224 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       buildRoom(pos);
     }
 
+    // Every crate in the level — the 3 per room (see roomCrateObstacles)
+    // plus the ones scattered through corridors/midroom/ROOM6 (see
+    // EXTRA_CRATES) — is the same textured box, one material loaded and
+    // shared. Waits on the load rather than blocking scene setup on it.
+    loadCrateMaterial().then((material) => {
+      if (disposed) return;
+      for (const pos of ROOM_POSITIONS) {
+        const crates = roomCrateObstacles(pos);
+        const rotations = [0.3, -0.4, 0.8];
+        crates.forEach((c, i) => placeCrate(scene, material, c.x, c.z, c.halfX, rotations[i] ?? 0));
+      }
+      EXTRA_CRATES.forEach((c, i) => placeCrate(scene, material, c.x, c.z, c.halfX, i * 0.7));
+    });
+
+    // A real, walkable staircase down through each house's own center to
+    // the tunnel below (see ROOM_STAIRS_DOWN_POS/RAMP_RUN_LENGTH and the
+    // tick loop's continuous height-follow) — a long run of real steps,
+    // not a single square hole, spanning the full drop from the house
+    // floor (y=0) all the way to the tunnel's actual floor (TUNNEL_Y), so
+    // walking down it is a gradual descent you can stop partway through,
+    // not a jump into a pit.
+    const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide });
+    const holeShaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.9, side: THREE.DoubleSide });
+    // Bright enough (and lightly self-lit) to actually read as steps
+    // against the shaft's dark walls — the darker gray used everywhere
+    // else in the level disappeared completely into the shadow down
+    // there with no direct light reaching it.
+    const stairMat = new THREE.MeshStandardMaterial({ color: 0x8a929c, emissive: 0x2a3138, emissiveIntensity: 0.6, roughness: 0.5, metalness: 0.3 });
+    const stairEdgeMat = new THREE.LineBasicMaterial({ color: 0xff9a4a });
+    // Every stair element below is built in the stairway's own local
+    // "along" (distance from the house center, in the direction it
+    // descends — see ROOM_TUNNEL_DIR) / "perp" (distance off to the
+    // side) axes, then converted to world X/Z here. Since every
+    // ROOM_TUNNEL_DIR entry is axis-aligned, the along/perp axes are
+    // always some (possibly swapped) combination of world X/Z, which is
+    // all stairBoxSize is doing — no rotation needed.
+    function stairWorldPos(x: number, z: number, dirX: number, dirZ: number, along: number, perp: number) {
+      const perpX = -dirZ;
+      const perpZ = dirX;
+      return { x: x + dirX * along + perpX * perp, z: z + dirZ * along + perpZ * perp };
+    }
+    function stairBoxSize(dirX: number, dirZ: number, alongLen: number, widthLen: number) {
+      return {
+        sizeX: alongLen * Math.abs(dirX) + widthLen * Math.abs(dirZ),
+        sizeZ: alongLen * Math.abs(dirZ) + widthLen * Math.abs(dirX),
+      };
+    }
+    // A hollow frame (four border strips), not a solid plane — a solid
+    // glowing rectangle here would just paper over the stairs inside it
+    // instead of framing the opening around them.
+    function addFloorHoleRim(x: number, y: number, z: number, dirX: number, dirZ: number) {
+      const border = HOLE_HALF_SIZE - HOLE_INNER_SIZE / 2;
+      const width = RAMP_HALF_WIDTH * 2;
+      const addStrip = (along: number, perp: number, alongLen: number, widthLen: number) => {
+        const pos = stairWorldPos(x, z, dirX, dirZ, along, perp);
+        const { sizeX, sizeZ } = stairBoxSize(dirX, dirZ, alongLen, widthLen);
+        const strip = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeZ), holeRimMat);
+        strip.rotation.x = -Math.PI / 2;
+        strip.position.set(pos.x, y + 0.015, pos.z);
+        scene.add(strip);
+      };
+      addStrip(RAMP_RUN_LENGTH / 2, -(RAMP_HALF_WIDTH + border / 2), RAMP_RUN_LENGTH + border * 2, border);
+      addStrip(RAMP_RUN_LENGTH / 2, RAMP_HALF_WIDTH + border / 2, RAMP_RUN_LENGTH + border * 2, border);
+      addStrip(-border / 2, 0, border, width);
+      addStrip(RAMP_RUN_LENGTH + border / 2, 0, border, width);
+    }
+    // The pit's side walls and near-end cap, between a house's floor and
+    // the tunnel ceiling below it — the far end is left open, since that
+    // end just opens straight into the tunnel corridor's own space.
+    function addHoleShaft(x: number, z: number, topY: number, bottomY: number, dirX: number, dirZ: number) {
+      const height = topY - bottomY;
+      const midY = (topY + bottomY) / 2;
+      const width = RAMP_HALF_WIDTH * 2;
+      const addWall = (along: number, perp: number, alongLen: number, widthLen: number) => {
+        const pos = stairWorldPos(x, z, dirX, dirZ, along, perp);
+        const { sizeX, sizeZ } = stairBoxSize(dirX, dirZ, alongLen, widthLen);
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(sizeX, height, sizeZ), holeShaftMat);
+        wall.position.set(pos.x, midY, pos.z);
+        scene.add(wall);
+      };
+      addWall(RAMP_RUN_LENGTH / 2, -RAMP_HALF_WIDTH, RAMP_RUN_LENGTH, 0.05);
+      addWall(RAMP_RUN_LENGTH / 2, RAMP_HALF_WIDTH, RAMP_RUN_LENGTH, 0.05);
+      addWall(0, 0, 0.05, width);
+    }
+    // Real steps filling the stairway's exact footprint (RAMP_HALF_WIDTH
+    // wide) and full height (topY to bottomY), descending along (dirX,
+    // dirZ) — the direction that house's tunnel connection actually runs
+    // (see ROOM_TUNNEL_DIR) — so it reads as one natural staircase
+    // leading all the way down into the tunnel floor.
+    function addStairsInHole(x: number, z: number, topY: number, bottomY: number, dirX: number, dirZ: number) {
+      const steps = 14;
+      const stepHeight = (topY - bottomY) / steps;
+      const stepDepth = RAMP_RUN_LENGTH / steps;
+      const width = RAMP_HALF_WIDTH * 2;
+      for (let i = 0; i < steps; i++) {
+        const stepCenterY = topY - stepHeight * (i + 0.5);
+        const along = stepDepth * (i + 0.5);
+        const pos = stairWorldPos(x, z, dirX, dirZ, along, 0);
+        const { sizeX, sizeZ } = stairBoxSize(dirX, dirZ, stepDepth, width);
+        const step = new THREE.Mesh(new THREE.BoxGeometry(sizeX, stepHeight, sizeZ), stairMat);
+        step.position.set(pos.x, stepCenterY, pos.z);
+        step.add(new THREE.LineSegments(new THREE.EdgesGeometry(step.geometry), stairEdgeMat));
+        scene.add(step);
+      }
+    }
+    // One stairway down through each house's own center, its matching rim
+    // up at that same spot underground (in the ceiling there), the pit
+    // walls between the two, and the real steps filling the whole run
+    // down to the tunnel floor.
+    for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
+      const tunnelCeilingY = TUNNEL_Y + TUNNEL_WALL_HEIGHT;
+      const dir = ROOM_TUNNEL_DIR[i];
+      addFloorHoleRim(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z, dir.x, dir.z);
+      addFloorHoleRim(TUNNEL_STOPS[i].x, tunnelCeilingY, TUNNEL_STOPS[i].z, dir.x, dir.z);
+      addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY, dir.x, dir.z);
+      addStairsInHole(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, TUNNEL_Y, dir.x, dir.z);
+      // Nothing else reaches down into the shaft otherwise (it sits
+      // below the room's own ambient light and above the tunnel's floor
+      // strip), which is exactly why the stairs were reading as a flat
+      // black pit — these light the run from inside the stairwell
+      // itself, one near the top and one near the tunnel floor since the
+      // full run is too long now for a single point light to reach.
+      const topLight = new THREE.PointLight(0xffffff, 1.3, RAMP_RUN_LENGTH, 2);
+      topLight.position.set(
+        ROOM_STAIRS_DOWN_POS[i].x + dir.x * (RAMP_RUN_LENGTH * 0.2),
+        -0.6,
+        ROOM_STAIRS_DOWN_POS[i].z + dir.z * (RAMP_RUN_LENGTH * 0.2),
+      );
+      scene.add(topLight);
+      const bottomLight = new THREE.PointLight(0xffffff, 1.3, RAMP_RUN_LENGTH, 2);
+      bottomLight.position.set(
+        ROOM_STAIRS_DOWN_POS[i].x + dir.x * (RAMP_RUN_LENGTH * 0.8),
+        TUNNEL_Y + 0.8,
+        ROOM_STAIRS_DOWN_POS[i].z + dir.z * (RAMP_RUN_LENGTH * 0.8),
+      );
+      scene.add(bottomLight);
+    }
+
+    // The tunnel itself — every wall in the level, mirrored at TUNNEL_Y
+    // (see the comment above ROOM_STAIRS_DOWN_POS for why this makes the
+    // underground layer automatically follow the exact same walkable
+    // route as the surface, no separate collision needed), plus a floor
+    // and ceiling slab spanning the whole thing.
+    const mirrorWallsUnderground = (obstacles: Obstacle[]) => {
+      for (const ob of obstacles) {
+        addWallMesh(ob, TUNNEL_WALL_HEIGHT, TUNNEL_Y + TUNNEL_WALL_HEIGHT / 2, 1);
+      }
+    };
+    mirrorWallsUnderground(ROOM_POSITIONS.flatMap(roomWallObstacles));
+    mirrorWallsUnderground(MIDROOM_WALLS);
+    mirrorWallsUnderground(CORRIDOR_WALLS);
+    mirrorWallsUnderground(CORRIDOR2_WALLS);
+    mirrorWallsUnderground(CORRIDOR3_WALLS);
+    mirrorWallsUnderground(CORRIDOR4_WALLS);
+    mirrorWallsUnderground(CORRIDOR5_WALLS);
+    mirrorWallsUnderground(ROOM6_WALLS);
+    const undergroundWidth = UNDERGROUND_MAX_X - UNDERGROUND_MIN_X;
+    const undergroundDepth = UNDERGROUND_MAX_Z - UNDERGROUND_MIN_Z;
+    const undergroundCenterX = (UNDERGROUND_MIN_X + UNDERGROUND_MAX_X) / 2;
+    const undergroundCenterZ = (UNDERGROUND_MIN_Z + UNDERGROUND_MAX_Z) / 2;
+    const undergroundFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(undergroundWidth, undergroundDepth),
+      new THREE.MeshStandardMaterial({ map: createFloorTexture(8, renderer.capabilities.getMaxAnisotropy()), roughness: 0.7, metalness: 0.25 }),
+    );
+    undergroundFloor.rotation.x = -Math.PI / 2;
+    undergroundFloor.position.set(undergroundCenterX, TUNNEL_Y, undergroundCenterZ);
+    scene.add(undergroundFloor);
+    // A real hole cut through the ceiling slab at each house's stop (not
+    // just a decal sitting on top of a solid slab) — otherwise standing
+    // at the hole up on the surface, the view straight down would hit
+    // this solid ceiling a few units below instead of actually seeing
+    // into the tunnel.
+    const ceilingShape = new THREE.Shape();
+    const halfW = undergroundWidth / 2;
+    const halfD = undergroundDepth / 2;
+    ceilingShape.moveTo(-halfW, -halfD);
+    ceilingShape.lineTo(halfW, -halfD);
+    ceilingShape.lineTo(halfW, halfD);
+    ceilingShape.lineTo(-halfW, halfD);
+    ceilingShape.lineTo(-halfW, -halfD);
+    for (let i = 0; i < TUNNEL_STOPS.length; i++) {
+      // The shape's local Y axis ends up mapped to world -Z after the
+      // rotateX(-PI/2) below (rotateX(θ) sends (x,y,z) to (x, z, -y) at
+      // θ=-90°), so world Z needs to be negated to land the hole at its
+      // actual world position instead of its mirror image — hence
+      // -(c.z - undergroundCenterZ) below for every corner.
+      const { nearA, nearB, farA, farB } = stairFootprintCorners(i);
+      const toLocal = (c: { x: number; z: number }) => ({ x: c.x - undergroundCenterX, z: -(c.z - undergroundCenterZ) });
+      const a = toLocal(nearA);
+      const b = toLocal(farA);
+      const c = toLocal(farB);
+      const d = toLocal(nearB);
+      const hole = new THREE.Path();
+      hole.moveTo(a.x, a.z);
+      hole.lineTo(b.x, b.z);
+      hole.lineTo(c.x, c.z);
+      hole.lineTo(d.x, d.z);
+      hole.lineTo(a.x, a.z);
+      ceilingShape.holes.push(hole);
+    }
+    const ceilingGeo = new THREE.ExtrudeGeometry(ceilingShape, { depth: ROOM_WALL_THICKNESS, bevelEnabled: false });
+    ceilingGeo.rotateX(-Math.PI / 2);
+    const undergroundCeiling = new THREE.Mesh(ceilingGeo, createCeilingMat(halfW * 2, halfD * 2));
+    undergroundCeiling.position.set(undergroundCenterX, TUNNEL_Y + TUNNEL_WALL_HEIGHT, undergroundCenterZ);
+    scene.add(undergroundCeiling);
+    // A light strip over each house's own stop, so the tunnel doesn't
+    // read as one featureless dark space.
+    for (const stop of TUNNEL_STOPS) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
+      strip.position.set(stop.x, TUNNEL_Y + TUNNEL_WALL_HEIGHT - 0.06, stop.z);
+      scene.add(strip);
+    }
+
     // Covered corridor joining the two rooms' facing doors — same wall/
     // ceiling materials as the rooms so it reads as one connected structure.
     // Built in two segments since MIDROOM sits in the middle of it.
     for (const ob of CORRIDOR_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 1);
     }
     const addCorridorStrip = (z: number) => {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
@@ -2288,11 +3317,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     for (const seg of CORRIDOR_SEGMENTS) {
       const segCeiling = new THREE.Mesh(
         new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, seg.length),
-        ceilingMat,
+        createCeilingMat(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, seg.length),
       );
       segCeiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, seg.centerZ);
       scene.add(segCeiling);
-      segCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(segCeiling.geometry), roomEdgeMat));
       addCorridorStrip(seg.centerZ - seg.length / 4);
       addCorridorStrip(seg.centerZ + seg.length / 4);
     }
@@ -2300,10 +3328,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // MIDROOM — a small single-door outpost built into the middle of the
     // corridor (see MIDROOM_WALLS above for its wall layout).
     for (const ob of MIDROOM_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 1);
     }
     const midDoorGlowSouth = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_DOOR_WIDTH, 0.15, ROOM_WALL_THICKNESS + 0.05), doorGlowMat);
     midDoorGlowSouth.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT - 0.3, MIDROOM_SOUTH_Z);
@@ -2311,44 +3336,35 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const midDoorGlowNorth = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_DOOR_WIDTH, 0.15, ROOM_WALL_THICKNESS + 0.05), doorGlowMat);
     midDoorGlowNorth.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT - 0.3, MIDROOM_NORTH_Z);
     scene.add(midDoorGlowNorth);
-    const midCeiling = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_SIZE, ROOM_WALL_THICKNESS, MIDROOM_SIZE), ceilingMat);
+    const midCeiling = new THREE.Mesh(new THREE.BoxGeometry(MIDROOM_SIZE, ROOM_WALL_THICKNESS, MIDROOM_SIZE), createCeilingMat(MIDROOM_SIZE, MIDROOM_SIZE));
     midCeiling.position.set(MIDROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, MIDROOM_POS.z);
     scene.add(midCeiling);
-    midCeiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(midCeiling.geometry), roomEdgeMat));
 
     // Second corridor — a plain walled/roofed passage (no mid-house) joining
     // ROOM2_POS to ROOM3_POS.
     for (const ob of CORRIDOR2_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 1);
     }
     const corridor2Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR2_LENGTH),
-      ceilingMat,
+      createCeilingMat(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, CORRIDOR2_LENGTH),
     );
     corridor2Ceiling.position.set(ROOM_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR2_CENTER_Z);
     scene.add(corridor2Ceiling);
-    corridor2Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridor2Ceiling.geometry), roomEdgeMat));
     addCorridorStrip(CORRIDOR2_CENTER_Z - CORRIDOR2_LENGTH / 4);
     addCorridorStrip(CORRIDOR2_CENTER_Z + CORRIDOR2_LENGTH / 4);
 
     // Third corridor — runs east-west, joining ROOM3_POS to ROOM4_POS which
     // branches off to the side instead of continuing the main line.
     for (const ob of CORRIDOR3_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 1);
     }
     const corridor3Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR3_LENGTH, ROOM_WALL_THICKNESS, CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2),
-      ceilingMat,
+      createCeilingMat(CORRIDOR3_LENGTH, CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2),
     );
     corridor3Ceiling.position.set(CORRIDOR3_CENTER_X, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM3_POS.z);
     scene.add(corridor3Ceiling);
-    corridor3Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridor3Ceiling.geometry), roomEdgeMat));
     const addCorridor3Strip = (x: number) => {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 1.5), lightStripMat);
       strip.position.set(x, ROOM_WALL_HEIGHT - 0.06, ROOM3_POS.z);
@@ -2359,18 +3375,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     // Fourth corridor — north-south again, joining ROOM4_POS to ROOM5_POS.
     for (const ob of CORRIDOR4_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 1);
     }
     const corridor4Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR4_LENGTH),
-      ceilingMat,
+      createCeilingMat(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, CORRIDOR4_LENGTH),
     );
     corridor4Ceiling.position.set(ROOM4_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR4_CENTER_Z);
     scene.add(corridor4Ceiling);
-    corridor4Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridor4Ceiling.geometry), roomEdgeMat));
     const addCorridor4Strip = (z: number) => {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
       strip.position.set(ROOM4_POS.x, ROOM_WALL_HEIGHT - 0.06, z);
@@ -2381,18 +3393,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 
     // Fifth corridor — joins ROOM5_POS to the larger ROOM6_POS ahead of it.
     for (const ob of CORRIDOR5_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 1);
     }
     const corridor5Ceiling = new THREE.Mesh(
       new THREE.BoxGeometry(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, ROOM_WALL_THICKNESS, CORRIDOR5_LENGTH),
-      ceilingMat,
+      createCeilingMat(CORRIDOR_WIDTH + ROOM_WALL_THICKNESS * 2, CORRIDOR5_LENGTH),
     );
     corridor5Ceiling.position.set(ROOM5_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, CORRIDOR5_CENTER_Z);
     scene.add(corridor5Ceiling);
-    corridor5Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(corridor5Ceiling.geometry), roomEdgeMat));
     const addCorridor5Strip = (z: number) => {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.3), lightStripMat);
       strip.position.set(ROOM5_POS.x, ROOM_WALL_HEIGHT - 0.06, z);
@@ -2405,10 +3413,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // buildRoom(), since it isn't square) plus door glows on all 4 sides
     // and a matching ceiling.
     for (const ob of ROOM6_WALLS) {
-      const wallMesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), roomWallMat);
-      wallMesh.position.set(ob.x, ROOM_WALL_HEIGHT / 2, ob.z);
-      scene.add(wallMesh);
-      wallMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(wallMesh.geometry), roomEdgeMat));
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
     }
     const addRoom6DoorGlow = (x: number, z: number, sizeX: number, sizeZ: number) => {
       const glow = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 0.15, sizeZ), doorGlowMat);
@@ -2416,10 +3421,38 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       scene.add(glow);
     };
     addRoom6DoorGlow(ROOM6_POS.x, ROOM6_POS.z + ROOM6_DEPTH / 2, ROOM6_DOOR_WIDTH, ROOM_WALL_THICKNESS + 0.05); // south — the only remaining door
-    const room6Ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM6_WIDTH, ROOM_WALL_THICKNESS, ROOM6_DEPTH), ceilingMat);
+    const room6Ceiling = new THREE.Mesh(new THREE.BoxGeometry(ROOM6_WIDTH, ROOM_WALL_THICKNESS, ROOM6_DEPTH), createCeilingMat(ROOM6_WIDTH, ROOM6_DEPTH));
     room6Ceiling.position.set(ROOM6_POS.x, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, ROOM6_POS.z);
     scene.add(room6Ceiling);
-    room6Ceiling.add(new THREE.LineSegments(new THREE.EdgesGeometry(room6Ceiling.geometry), roomEdgeMat));
+
+    // New octagonal room off Room 1's west door (door 3, see NEWROOM_WALLS
+    // above) — straight north/south/west walls plus 4 diagonal corner
+    // segments computed from their two world-space endpoints rather than
+    // from an axis-aligned Obstacle rect, since a 45° wall can't be
+    // expressed as one of those (see addAngledWallMesh).
+    for (const ob of [NEWROOM_WALLS[0], NEWROOM_WALLS[1], NEWROOM_WALLS[2]]) {
+      addWallMesh(ob, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2);
+    }
+    const addNewRoomDiagonal = (x1: number, z1: number, x2: number, z2: number) => {
+      const dx = x2 - x1;
+      const dz = z2 - z1;
+      const length = Math.hypot(dx, dz);
+      addAngledWallMesh((x1 + x2) / 2, (z1 + z2) / 2, length, ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, -Math.atan2(dz, dx));
+    };
+    const nrX = NEWROOM_POS.x;
+    const nrZ = NEWROOM_POS.z;
+    const nrH = NEWROOM_HALF;
+    const nrS = NEWROOM_STRAIGHT_HALF;
+    addNewRoomDiagonal(nrX - nrS, nrZ - nrH, nrX - nrH, nrZ - nrS); // NW
+    addNewRoomDiagonal(nrX + nrS, nrZ - nrH, nrX + nrH, nrZ - nrS); // NE (terminates at Room 1's wall)
+    addNewRoomDiagonal(nrX - nrS, nrZ + nrH, nrX - nrH, nrZ + nrS); // SW
+    addNewRoomDiagonal(nrX + nrS, nrZ + nrH, nrX + nrH, nrZ + nrS); // SE (terminates at Room 1's wall)
+    const newRoomCeiling = new THREE.Mesh(
+      new THREE.BoxGeometry(NEWROOM_HALF * 2, ROOM_WALL_THICKNESS, NEWROOM_HALF * 2),
+      createCeilingMat(NEWROOM_HALF * 2, NEWROOM_HALF * 2),
+    );
+    newRoomCeiling.position.set(nrX, ROOM_WALL_HEIGHT + ROOM_WALL_THICKNESS / 2, nrZ);
+    scene.add(newRoomCeiling);
 
     // Path arrows — a glowing marker flat on the floor right at each gate
     // along the route to the Boss, pointing which way to walk through it.
@@ -2445,21 +3478,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       scene.add(arrow);
     }
 
-    // Simple crate visuals matching EXTRA_CRATES above (one per corridor and
-    // midroom, three scattered through the much bigger ROOM6).
-    for (const ob of EXTRA_CRATES) {
-      const size = ob.halfX * 2;
-      const crate = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), crateMat);
-      crate.position.set(ob.x, size / 2, ob.z);
-      scene.add(crate);
-      crate.add(new THREE.LineSegments(new THREE.EdgesGeometry(crate.geometry), crateEdgeMat));
-    }
+    // EXTRA_CRATES' own visuals are spawned in the loadCrateMaterial block
+    // above, alongside the room crates.
 
     // Sliding gates — one pair of panels per door, closed by default and
     // sliding apart automatically as the player gets close (see the gate
     // update loop further down, in the per-frame tick).
-    const gateMat = new THREE.MeshStandardMaterial({ color: 0x30383f, roughness: 0.5, metalness: 0.5 });
-    const gateEdgeMat = new THREE.LineBasicMaterial({ color: 0x6be2ff });
     const GATE_PANEL_HEIGHT = ROOM_WALL_HEIGHT - 0.4;
     const GATE_THICKNESS = ROOM_WALL_THICKNESS * 0.9;
     const GATE_OPEN_RADIUS = 3.5;
@@ -2470,12 +3494,27 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         door.axis === "x"
           ? new THREE.BoxGeometry(panelWidth, GATE_PANEL_HEIGHT, GATE_THICKNESS)
           : new THREE.BoxGeometry(GATE_THICKNESS, GATE_PANEL_HEIGHT, panelWidth);
-      const panelA = new THREE.Mesh(geo, gateMat);
-      const panelB = new THREE.Mesh(geo, gateMat);
+      // Real door-leaf artwork (frame pillar, keypad, hazard stripe) instead
+      // of the plain wall texture — panelA (the negative-side leaf) gets the
+      // left-crop image with its pillar facing outward and detail toward the
+      // gap; panelB (positive-side) gets the mirrored right-crop, so the two
+      // leaves reconstruct one coherent door when slid shut.
+      const panelAMat = new THREE.MeshStandardMaterial({
+        map: createDoorPanelTexture(0, wallMaxAnisotropy),
+        roughness: 0.5,
+        metalness: 0.4,
+      });
+      const panelBMat = new THREE.MeshStandardMaterial({
+        map: createDoorPanelTexture(1, wallMaxAnisotropy),
+        roughness: 0.5,
+        metalness: 0.4,
+      });
+      const panelA = new THREE.Mesh(geo, panelAMat);
+      const panelB = new THREE.Mesh(geo, panelBMat);
       panelA.position.y = GATE_PANEL_HEIGHT / 2;
       panelB.position.y = GATE_PANEL_HEIGHT / 2;
-      panelA.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), gateEdgeMat));
-      panelB.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), gateEdgeMat));
+      panelA.receiveShadow = true;
+      panelB.receiveShadow = true;
       scene.add(panelA, panelB);
       return { door, panelA, panelB, panelWidth, openAmount: 0 };
     });
@@ -2491,13 +3530,157 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     };
     gates.forEach(updateGatePanels); // start fully closed
 
+    // A numbered plaque mounted on the solid wall beside each door (not a
+    // "DOOR n" label floating over the opening) — a small dark rounded-rect
+    // backing with a cyan border and a big glowing digit, like a real room
+    // number sign, at roughly eye height so it's legible while approaching.
+    // Drawn once per door onto a canvas and used as a billboard sprite (
+    // always faces the camera, unlike a flat plane) so it reads correctly
+    // from any angle.
+    const createDoorNumberPlaque = (n: number): THREE.Sprite => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 200;
+      canvas.height = 200;
+      const ctx = canvas.getContext("2d")!;
+      const pad = 12;
+      ctx.fillStyle = "rgba(10, 18, 26, 0.88)";
+      ctx.strokeStyle = "#6be2ff";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.roundRect(pad, pad, canvas.width - pad * 2, canvas.height - pad * 2, 22);
+      ctx.fill();
+      ctx.stroke();
+      ctx.font = "bold 108px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.shadowColor = "rgba(107, 226, 255, 0.7)";
+      ctx.shadowBlur = 16;
+      ctx.fillStyle = "#6be2ff";
+      ctx.fillText(String(n), canvas.width / 2, canvas.height / 2 + 6);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(0.7, 0.7, 1);
+      return sprite;
+    };
+    const DOOR_PLAQUE_HEIGHT = 1.7; // eye level, not up near the ceiling
+    DOORS.forEach((door, i) => {
+      const plaque = createDoorNumberPlaque(i + 1);
+      // Slide along the door's own axis to clear the opening and land on
+      // the solid wall next to it, then nudge across (perpendicular to the
+      // wall's run) by just over half the wall thickness so the plaque
+      // sits proud of the wall face instead of z-fighting inside it.
+      const alongOffset = door.width / 2 + 0.5;
+      const acrossOffset = ROOM_WALL_THICKNESS / 2 + 0.15;
+      if (door.axis === "x") {
+        plaque.position.set(door.x + alongOffset, DOOR_PLAQUE_HEIGHT, door.z + acrossOffset);
+      } else {
+        plaque.position.set(door.x + acrossOffset, DOOR_PLAQUE_HEIGHT, door.z + alongOffset);
+      }
+      scene.add(plaque);
+    });
+
+    // A vent-panel wall decal near door 3 (Room 1's west door), mounted low
+    // on the wall (just above the floor) like the reference photo — a flat
+    // plane facing into the room, sitting just proud of the wall's own
+    // surface (ROOM_WALL_THICKNESS/2 + a small gap) so it doesn't z-fight
+    // with it. Kept clear of the door 3 gap (z -51 to -49) by centering on
+    // the solid wall segment north of the door instead of straddling it.
+    const ventTexture = new THREE.TextureLoader().load("/textures/vent-panel.jpg");
+    ventTexture.colorSpace = THREE.SRGBColorSpace;
+    const VENT_DECAL_WIDTH = 3;
+    const VENT_DECAL_HEIGHT = VENT_DECAL_WIDTH * (222 / 457);
+    const ventDecal = new THREE.Mesh(
+      new THREE.PlaneGeometry(VENT_DECAL_WIDTH, VENT_DECAL_HEIGHT),
+      new THREE.MeshStandardMaterial({ map: ventTexture, roughness: 0.6, metalness: 0.3 }),
+    );
+    ventDecal.position.set(ROOM_POS.x - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2 + 0.05, VENT_DECAL_HEIGHT / 2 + 0.15, ROOM_POS.z - 3);
+    ventDecal.rotation.y = Math.PI / 2;
+    ventDecal.receiveShadow = true;
+    scene.add(ventDecal);
+
+    // A small family of industrial wall-detail decals dressing out the rest
+    // of Room 1 — a control panel, an electrical box, a server rack, and a
+    // second (larger) vent style — cropped from the same reference photo as
+    // the vent panel above. Spread across the room's other wall segments
+    // (each clear of its own door gap) so the room reads as a dense,
+    // functional facility interior instead of bare metal panels.
+    const addWallDecal = (
+      url: string,
+      width: number,
+      centerY: number,
+      x: number,
+      z: number,
+      rotY: number,
+      aspect: number,
+    ) => {
+      const tex = new THREE.TextureLoader().load(url);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const height = width * aspect;
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, height),
+        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6, metalness: 0.3 }),
+      );
+      mesh.position.set(x, centerY, z);
+      mesh.rotation.y = rotY;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+    };
+
+    const WEST_WALL_X = ROOM_POS.x - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2 + 0.05;
+    const EAST_WALL_X = ROOM_POS.x + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2 - 0.05;
+    const NORTH_WALL_Z = ROOM_POS.z - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2 + 0.05;
+    const SOUTH_WALL_Z = ROOM_POS.z + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2 - 0.05;
+
+    // Hero control-unit panel — west wall, south segment (clear of the
+    // ventDecal above, which sits on the north segment of this same wall).
+    // A looping video of this same panel (the user's own reference clip —
+    // a glowing pulse traveling through the pipes, the screen's readout
+    // cycling) used as the material's map instead of a static photo, so the
+    // wall itself animates. Same flush floor-to-ceiling sizing as the other
+    // hero panels, derived from the video's own 1280x720 aspect.
+    const heroVideo = document.createElement("video");
+    // Two sources (WebM/VP9 first, MP4/H.264 fallback) since not every
+    // WebView build ships both codecs — the browser picks whichever it
+    // actually supports.
+    const heroSourceWebm = document.createElement("source");
+    heroSourceWebm.src = "/textures/control-panel-anim.webm";
+    heroSourceWebm.type = "video/webm";
+    const heroSourceMp4 = document.createElement("source");
+    heroSourceMp4.src = "/textures/control-panel-anim.mp4";
+    heroSourceMp4.type = "video/mp4";
+    heroVideo.appendChild(heroSourceWebm);
+    heroVideo.appendChild(heroSourceMp4);
+    heroVideo.loop = true;
+    heroVideo.muted = true;
+    heroVideo.playsInline = true;
+    heroVideo.load();
+    heroVideo.play().catch(() => {});
+    const heroVideoTexture = new THREE.VideoTexture(heroVideo);
+    heroVideoTexture.colorSpace = THREE.SRGBColorSpace;
+    const heroWidth = ROOM_WALL_HEIGHT * (1280 / 720);
+    const heroMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(heroWidth, ROOM_WALL_HEIGHT),
+      new THREE.MeshStandardMaterial({ map: heroVideoTexture, roughness: 0.6, metalness: 0.3 }),
+    );
+    heroMesh.position.set(WEST_WALL_X, ROOM_WALL_HEIGHT / 2, ROOM_POS.z + ROOM_SEG_OFFSET);
+    heroMesh.rotation.y = Math.PI / 2;
+    heroMesh.receiveShadow = true;
+    scene.add(heroMesh);
+    // Electrical box — east wall, north segment.
+    addWallDecal("/textures/electric-box.jpg", 1.4, 1.2, EAST_WALL_X, ROOM_POS.z - 5, -Math.PI / 2, 620 / 460);
+    // Server rack — east wall, south segment, floor-mounted.
+    addWallDecal("/textures/server-rack.jpg", 2.0, 1.7, EAST_WALL_X, ROOM_POS.z + 5, -Math.PI / 2, 1056 / 640);
+    // Larger vent style — north wall, west segment.
+    addWallDecal("/textures/vent-panel-2.jpg", 3.2, 1.9, ROOM_POS.x - 5, NORTH_WALL_Z, 0, 420 / 720);
+    // A second hero panel ("48 A") — south wall, west segment, right next to
+    // door 2's gap (the gate itself, at x 59-61, is left untouched) but
+    // pulled in just enough to keep clear of it. Same floor-to-ceiling,
+    // no-stretch sizing as the door-3 hero panel.
+    addWallDecal("/textures/wall-hero-panel-2.jpg", ROOM_WALL_HEIGHT * (1536 / 1024), ROOM_WALL_HEIGHT / 2, 55.9, SOUTH_WALL_Z, Math.PI, 1024 / 1536);
+
     let player: FighterRig | null = null;
-    let bot1: FighterRig | null = null;
-    let bot2: FighterRig | null = null;
-    let bot3: FighterRig | null = null;
-    let bot4: FighterRig | null = null;
-    let bot5: FighterRig | null = null;
-    let boss: FighterRig | null = null;
 
     // Preloaded here so it's very likely already resolved by the time each
     // fighter's rig finishes loading — every fighter is armed on spawn now,
@@ -2520,59 +3703,35 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       player = rig;
       equipGun(rig);
     });
-    // Each bot stands guard inside its own room, dormant until the player
-    // actually walks in (see GUARD_POS / the alert check in the tick loop)
-    // rather than roaming near spawn.
-    loadFighter(scene, BOT1_TINT, (rig) => {
-      if (disposed) return;
-      rig.root.position.set(BOT1_SPAWN.x, 0, BOT1_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      bot1 = rig;
-      equipGun(rig);
-    });
-    loadFighter(scene, BOT2_TINT, (rig) => {
-      if (disposed) return;
-      rig.root.position.set(BOT2_SPAWN.x, 0, BOT2_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      bot2 = rig;
-      equipGun(rig);
-    });
-    loadFighter(scene, BOT3_TINT, (rig) => {
-      if (disposed) return;
-      rig.root.position.set(BOT3_SPAWN.x, 0, BOT3_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      bot3 = rig;
-      equipGun(rig);
-    });
-    loadFighter(scene, BOT4_TINT, (rig) => {
-      if (disposed) return;
-      rig.root.position.set(BOT4_SPAWN.x, 0, BOT4_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      bot4 = rig;
-      equipGun(rig);
-    });
-    loadFighter(scene, BOT5_TINT, (rig) => {
-      if (disposed) return;
-      rig.root.position.set(BOT5_SPAWN.x, 0, BOT5_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      bot5 = rig;
-      equipGun(rig);
-    });
-    // The Boss stands guard in Room 6 — tougher and hitting harder, still
-    // fighting bare-handed like everyone else, just holding a gun too.
-    loadFighter(scene, BOSS_TINT, (rig) => {
+
+    // Six fighters total: five room guards (index 0-4, one patrolling each
+    // of ROOM_POSITIONS) plus the Boss (index 5, stationed in Room 6) —
+    // all loaded from the same rig/model, just spawned at different posts
+    // and the Boss additionally scaled up and tinted (see tintBossFighter).
+    const bots: (FighterRig | null)[] = [null, null, null, null, null, null];
+    for (let i = 0; i < BOT_SPAWNS.length; i++) {
+      const spawn = BOT_SPAWNS[i];
+      loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
+        if (disposed) return;
+        rig.root.position.set(spawn.x, 0, spawn.z);
+        bots[i] = rig;
+        equipGun(rig);
+      });
+    }
+    loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
       if (disposed) return;
       rig.root.position.set(BOSS_SPAWN.x, 0, BOSS_SPAWN.z);
-      rig.root.rotation.y = Math.PI;
-      boss = rig;
+      rig.root.scale.setScalar(BOSS_SCALE);
+      tintBossFighter(rig);
+      bots[5] = rig;
       equipGun(rig);
     });
-
     const resize = () => {
       const w = container.clientWidth;
       const h = container.clientHeight;
       if (w === 0 || h === 0) return;
       renderer.setSize(w, h);
+      composer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
@@ -2593,26 +3752,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
-    // All four regular bots plus the Boss fight simultaneously (not one at
-    // a time) — each has its own hp/cooldown/pose/death timeline, tracked
-    // in parallel here rather than a single shared set of "the current
-    // bot" variables. Index 4 is the Boss: stationary and much tougher.
-    const botMaxHp = [100, 100, 100, 100, 100, BOSS_HP];
-    const botStates = botMaxHp.map((hp, i) => ({
-      hp,
-      cooldown: 0,
-      fireT: -1,
-      deathT: -1,
-      dead: false,
-      isBoss: i === 5,
-      // Guard bots start dormant (idle, not attacking) until the player
-      // steps into their room; the Boss has no guard behavior to wait on.
-      awake: i === 5,
-      alertT: -1,
-      patrolTarget: null as { x: number; z: number } | null,
-      stuckT: 0,
-      avoidSign: 1 as 1 | -1,
-    }));
     // Short-lived tracer lines from a gun to its target, spawned per shot
     // and cleaned up once their life runs out (see spawnTracer/updateTracers).
     const tracers: Tracer[] = [];
@@ -2622,20 +3761,43 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
 
+    // Index 0-4: the five room guards, one per ROOM_POSITIONS entry (see
+    // roomIndex). Index 5: the Boss — tougher, and isBoss skips the
+    // patrol/chase behavior entirely in favor of holding its ground.
+    const botMaxHps = [100, 100, 100, 100, 100, BOSS_HP];
+    const botStates = botMaxHps.map((hp, i) => ({
+      hp,
+      cooldown: 0,
+      fireT: -1,
+      deathT: -1,
+      dead: false,
+      isBoss: i === 5,
+      roomIndex: i, // only meaningful for guards (0-4); Boss ignores it
+      awake: i === 5, // the Boss has no guard/patrol behavior to wait on
+      alertT: -1,
+      patrolTarget: null as { x: number; z: number } | null,
+      stuckT: 0,
+      avoidSign: 1 as 1 | -1,
+      // How long it's been since this fighter last actually had a clear
+      // line of sight to the player while chasing — see LOSE_SIGHT_GIVEUP.
+      loseSightT: 0,
+    }));
     // Applies damage to one bot by index, handling its death (topple pose)
-    // and the overall win condition (every bot dead).
+    // and the overall win condition (every fighter dead).
     const damageBot = (idx: number, amount: number) => {
       const st = botStates[idx];
-      if (st.dead) return;
+      const rig = bots[idx];
+      if (st.dead || !rig) return;
       st.hp = Math.max(0, st.hp - amount);
       setBotHps((prev) => {
         const next = prev.slice();
-        next[idx] = (st.hp / botMaxHp[idx]) * 100;
+        next[idx] = (st.hp / botMaxHps[idx]) * 100;
         return next;
       });
       if (st.hp <= 0) {
         st.dead = true;
         st.deathT = 0;
+        startDeath(rig);
         if (botStates.every((s) => s.dead)) {
           ended = true;
           pendingResult = "win";
@@ -2647,37 +3809,57 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       raf = requestAnimationFrame(tick);
       const dt = Math.min(clock.getDelta(), 0.05);
       player?.mixer?.update(dt);
-      bot1?.mixer?.update(dt);
-      bot2?.mixer?.update(dt);
-      bot3?.mixer?.update(dt);
-      bot4?.mixer?.update(dt);
-      bot5?.mixer?.update(dt);
-      boss?.mixer?.update(dt);
+      for (const rig of bots) rig?.mixer?.update(dt);
       // Re-bend the off-hand toward the gun's foregrip after the mixer has
       // (re)applied this frame's idle/run/fire pose — see
-      // updateOffHandReach.
-      if (player) updateOffHandReach(player);
-      if (bot1) updateOffHandReach(bot1);
-      if (bot2) updateOffHandReach(bot2);
-      if (bot3) updateOffHandReach(bot3);
-      if (bot4) updateOffHandReach(bot4);
-      if (bot5) updateOffHandReach(bot5);
-      if (boss) updateOffHandReach(boss);
+      // updateOffHandReach. Skipped once dead: the death clip already
+      // drives the arm bones for the collapse, and re-bending the off-hand
+      // onto the gun every frame would fight that pose (and just looks
+      // wrong — a dropped body shouldn't still be gripping the gun).
+      if (player && playerDeathT < 0) updateOffHandReach(player);
+      for (let i = 0; i < bots.length; i++) {
+        const rig = bots[i];
+        if (rig && botStates[i].deathT < 0) updateOffHandReach(rig);
+      }
       updateTracers(tracers, dt);
 
-      const rigs = [bot1, bot2, bot3, bot4, bot5, boss];
-      for (let i = 0; i < 6; i++) {
-        const rig = rigs[i];
+      if (player && playerDeathT >= 0) {
+        applyDeathPose(player, playerDeathT);
+        playerDeathT += dt;
+      }
+
+      // Each fighter's own health bar floats directly over its head in the
+      // 3D view instead of a fixed corner list — hidden once dead, once
+      // it's behind the camera, or while it's still above half health
+      // (only worth calling out once it's actually hurting).
+      for (let i = 0; i < bots.length; i++) {
+        const rig = bots[i];
         const st = botStates[i];
         if (rig && st.deathT >= 0) {
           applyDeathPose(rig, st.deathT);
           st.deathT += dt;
         }
+        const barEl = botHpBarRefs.current[i];
+        if (barEl) {
+          if (rig && !st.dead && st.hp / botMaxHps[i] <= 0.5) {
+            const markPoint = rig.root.position.clone();
+            markPoint.y += st.isBoss ? 2.6 : 1.95;
+            markPoint.project(camera);
+            if (markPoint.z < 1) {
+              const w = container.clientWidth;
+              const h = container.clientHeight;
+              barEl.style.display = "block";
+              barEl.style.left = `${(markPoint.x + 1) * 0.5 * w}px`;
+              barEl.style.top = `${(1 - markPoint.y) * 0.5 * h}px`;
+            } else {
+              barEl.style.display = "none";
+            }
+          } else {
+            barEl.style.display = "none";
+          }
+        }
       }
-      if (player && playerDeathT >= 0) {
-        applyDeathPose(player, playerDeathT);
-        playerDeathT += dt;
-      }
+
       if (ended && pendingResult) {
         resultRevealT += dt;
         if (resultRevealT > DEATH_TOTAL_DURATION) {
@@ -2686,7 +3868,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }
       }
 
-      if (!ended && player && bot1 && bot2 && bot3 && bot4 && bot5 && boss) {
+      if (!ended && player) {
         const jv = joystickVec.current;
         const joyMag = Math.min(1, Math.hypot(jv.x, jv.y));
 
@@ -2740,16 +3922,72 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         player.root.position.z = clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         resolveObstacleCollisions(player.root.position);
 
+        // Each house's stairs down through its own center to the
+        // underground tunnel — real, walkable stairs, not a teleport.
+        // Y is a continuous function of where the player physically is
+        // relative to the stair run: "along" is signed distance from the
+        // house center in the direction the stairs descend (see
+        // ROOM_TUNNEL_DIR), "perp" is signed distance off to the side of
+        // that line. Standing anywhere within the stairway's width and
+        // run length pins the player's height to the matching point on
+        // the slope, so walking forward/back moves them up/down
+        // gradually and stopping mid-stride just holds them there —
+        // exactly like real stairs, including being able to pause partway
+        // and look around at whichever floor is above.
+        for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
+          const spot = ROOM_STAIRS_DOWN_POS[i];
+          const dir = ROOM_TUNNEL_DIR[i];
+          const dx = player.root.position.x - spot.x;
+          const dz = player.root.position.z - spot.z;
+          const along = dx * dir.x + dz * dir.z;
+          const perp = dz * dir.x - dx * dir.z;
+          if (Math.abs(perp) < RAMP_HALF_WIDTH && along > -RAMP_BAND && along < RAMP_RUN_LENGTH + RAMP_BAND) {
+            const progress = clamp(along / RAMP_RUN_LENGTH, 0, 1);
+            player.root.position.y = THREE.MathUtils.lerp(0, TUNNEL_Y, progress);
+            break;
+          }
+        }
+
         // Slide each gate open as the player nears its door, closed again
-        // once they've moved away.
+        // once they've moved away. Also opens for any bot, not just the
+        // player — a gate that only ever reacted to the player would slide
+        // shut in a chasing bot's face the moment the player ran back
+        // through it and out of GATE_OPEN_RADIUS, trapping the bot against
+        // a door it has no way to open.
         for (const g of gates) {
           const gateDx = player.root.position.x - g.door.x;
           const gateDz = player.root.position.z - g.door.z;
-          const gateTarget = Math.hypot(gateDx, gateDz) < GATE_OPEN_RADIUS ? 1 : 0;
+          let anyNear = Math.hypot(gateDx, gateDz) < GATE_OPEN_RADIUS;
+          if (!anyNear) {
+            for (const rig of bots) {
+              if (!rig) continue;
+              const botGateDx = rig.root.position.x - g.door.x;
+              const botGateDz = rig.root.position.z - g.door.z;
+              if (Math.hypot(botGateDx, botGateDz) < GATE_OPEN_RADIUS) {
+                anyNear = true;
+                break;
+              }
+            }
+          }
+          const gateTarget = anyNear ? 1 : 0;
           g.openAmount = approach(g.openAmount, gateTarget, GATE_SLIDE_RATE, dt);
           updateGatePanels(g);
         }
-
+        // Recomputed every tick from each gate's current slide position —
+        // see gateBlockers/hasLineOfSight — so a shot is stopped by a
+        // still-closed or half-open gate exactly like a wall, and clears
+        // the instant it finishes sliding open.
+        gateBlockers = gates.flatMap((g) =>
+          g.door.axis === "x"
+            ? [
+                { x: g.panelA.position.x, z: g.panelA.position.z, halfX: g.panelWidth / 2, halfZ: GATE_THICKNESS / 2, pad: 0 },
+                { x: g.panelB.position.x, z: g.panelB.position.z, halfX: g.panelWidth / 2, halfZ: GATE_THICKNESS / 2, pad: 0 },
+              ]
+            : [
+                { x: g.panelA.position.x, z: g.panelA.position.z, halfX: GATE_THICKNESS / 2, halfZ: g.panelWidth / 2, pad: 0 },
+                { x: g.panelB.position.x, z: g.panelB.position.z, halfX: GATE_THICKNESS / 2, halfZ: g.panelWidth / 2, pad: 0 },
+              ],
+        );
         playerSpeedNow = Math.hypot(playerVelX, playerVelZ);
         // Face the direction actually being moved in (not the raw stick
         // input) and ease into it instead of snapping, which keeps the
@@ -2765,41 +4003,47 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         const speedFrac = clamp(playerSpeedNow / PLAYER_MAX_SPEED, 0, 1.15);
         updateLocomotionAnim(player, speedFrac, playerSpeedNow);
 
-        // All bots act independently and simultaneously — every one still
-        // alive chases the player and can land its own hit, rather than
-        // only "the current" one taking its turn. Track the nearest alive
-        // one as we go, as the player's own melee target.
+        // While stationary, the player's body keeps whatever facing it had
+        // from its last movement — free-look camera drags orbit the view
+        // around the character without spinning the character itself
+        // (matching Free Fire: panning the screen doesn't turn your body).
+
+        // All six fighters act independently and simultaneously — every
+        // one still alive (the five guards, plus the Boss) can land its
+        // own hit, rather than only "the current" one taking a turn.
+        // Track the nearest one the player can actually see, as the
+        // player's own auto-aim target.
         let nearestIdx = -1;
         let nearestDist = Infinity;
-        for (let i = 0; i < 6; i++) {
-          const rig = rigs[i];
+        for (let i = 0; i < bots.length; i++) {
+          const rig = bots[i];
           const st = botStates[i];
           if (!rig || st.dead) continue;
 
-          let dx = player.root.position.x - rig.root.position.x;
-          let dz = player.root.position.z - rig.root.position.z;
-          let dist = Math.hypot(dx, dz);
+          let botDx = player.root.position.x - rig.root.position.x;
+          let botDz = player.root.position.z - rig.root.position.z;
+          let botDist = Math.hypot(botDx, botDz);
 
-          // Keep fighters from walking through each other's bodies — push
-          // the player back out to the minimum separation distance.
-          if (dist < BODY_SEPARATION) {
-            const nx = dist > 0.0001 ? dx / dist : 0;
-            const nz = dist > 0.0001 ? dz / dist : 1;
+          // Keep the two bodies from walking through each other.
+          if (botDist < BODY_SEPARATION) {
+            const nx = botDist > 0.0001 ? botDx / botDist : 0;
+            const nz = botDist > 0.0001 ? botDz / botDist : 1;
             player.root.position.x = clamp(rig.root.position.x + nx * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
             player.root.position.z = clamp(rig.root.position.z + nz * BODY_SEPARATION, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-            dx = player.root.position.x - rig.root.position.x;
-            dz = player.root.position.z - rig.root.position.z;
-            dist = Math.hypot(dx, dz);
+            botDx = player.root.position.x - rig.root.position.x;
+            botDz = player.root.position.z - rig.root.position.z;
+            botDist = Math.hypot(botDx, botDz);
           }
 
           if (st.isBoss) {
-            // The Boss holds its ground in Room 6 — it never chases, but
-            // opens fire the instant the player comes within range.
+            // The Boss holds its ground in Room 6 — it never patrols or
+            // chases, but opens fire the instant the player comes within
+            // range and line of sight.
             updateLocomotionAnim(rig, 0, 0);
-            rig.root.rotation.y = Math.atan2(dx, dz);
-
+            rig.root.rotation.y = Math.atan2(botDx, botDz);
+            const canSeePlayer = hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z);
             st.cooldown = Math.max(0, st.cooldown - dt);
-            if (dist <= GUN_RANGE && st.cooldown <= 0) {
+            if (botDist <= GUN_RANGE && st.cooldown <= 0 && canSeePlayer) {
               playerHpLocal = Math.max(0, playerHpLocal - BOSS_DAMAGE);
               setPlayerHp(playerHpLocal);
               st.cooldown = BOSS_ATTACK_COOLDOWN;
@@ -2813,21 +4057,29 @@ function CombatArena({ onExit }: { onExit: () => void }) {
               st.fireT = st.fireT + dt > FIRE_ANIM_DURATION ? -1 : st.fireT + dt;
             }
           } else if (!st.awake) {
-            // Dormant guard: rather than freezing on one spot, it wanders a
-            // short walking loop around its post — until the player
-            // actually walks into the room, at which point it freezes,
-            // faces them, and shows a "?" over its head for a beat before
-            // waking into the normal chase/attack behavior below.
-            const guard = GUARD_POS[i];
+            // Dormant guard: patrols its own room (see pickRoomPatrolTarget)
+            // until it actually spots the player — the instant it has a
+            // clear line of sight within DETECTION_RANGE, not just when
+            // they're within some fixed radius — then freezes, faces
+            // them, and holds for a near-instant beat (alertT) before
+            // waking into the chase below.
             if (st.alertT < 0) {
               if (
                 !st.patrolTarget ||
-                Math.hypot(rig.root.position.x - st.patrolTarget.x, rig.root.position.z - st.patrolTarget.z) < PATROL_ARRIVE_DIST
+                Math.hypot(rig.root.position.x - st.patrolTarget.x, rig.root.position.z - st.patrolTarget.z) < PATROL_ARRIVE_DIST ||
+                // A wider room-wide patrol crosses paths with the room's
+                // own crates far more than the old small loop around the
+                // guard post did — moveWithAvoidance's simple sideways
+                // steering can still end up oscillating in a stable loop
+                // against a corner rather than actually clearing it (seen
+                // in testing: pinned dead against a crate edge for 45+s
+                // straight). Once it's been stuck that long, abandon the
+                // current waypoint for a fresh one instead of fixating on
+                // one that may not be reachable from here.
+                st.stuckT > STUCK_AVOID_FLIP_DELAY * 2
               ) {
-                st.patrolTarget = {
-                  x: guard.x + (Math.random() * 2 - 1) * PATROL_RADIUS,
-                  z: guard.z + (Math.random() * 2 - 1) * PATROL_RADIUS,
-                };
+                st.patrolTarget = pickRoomPatrolTarget(st.roomIndex);
+                st.stuckT = 0;
               }
               const pdx = st.patrolTarget.x - rig.root.position.x;
               const pdz = st.patrolTarget.z - rig.root.position.z;
@@ -2837,55 +4089,61 @@ function CombatArena({ onExit }: { onExit: () => void }) {
                 rig.root.rotation.y = Math.atan2(pdx, pdz);
                 updateLocomotionAnim(rig, PATROL_RUN_WEIGHT, PATROL_SPEED);
               }
-
-              const gdx = player.root.position.x - guard.x;
-              const gdz = player.root.position.z - guard.z;
-              if (Math.hypot(gdx, gdz) <= GUARD_ALERT_RADIUS) {
+              if (
+                botDist <= DETECTION_RANGE &&
+                hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z)
+              ) {
                 st.alertT = ALERT_TELEGRAPH_DURATION;
               }
             } else {
               updateLocomotionAnim(rig, 0, 0);
-              rig.root.rotation.y = Math.atan2(dx, dz);
+              rig.root.rotation.y = Math.atan2(botDx, botDz);
               st.alertT -= dt;
-              if (st.alertT <= 0) {
-                st.awake = true;
-              }
-            }
-            if (st.alertT >= 0 && alertRefs.current[i]) {
-              const markPoint = rig.root.position.clone();
-              markPoint.y += ALERT_MARK_HEIGHT;
-              markPoint.project(camera);
-              const el = alertRefs.current[i]!;
-              if (markPoint.z < 1) {
-                const w = container.clientWidth;
-                const h = container.clientHeight;
-                el.style.display = "block";
-                el.style.left = `${(markPoint.x + 1) * 0.5 * w}px`;
-                el.style.top = `${(1 - markPoint.y) * 0.5 * h}px`;
-              } else {
-                el.style.display = "none";
-              }
-            } else if (alertRefs.current[i]) {
-              alertRefs.current[i]!.style.display = "none";
+              if (st.alertT <= 0) st.awake = true;
             }
           } else {
-            if (dist > GUN_RANGE * 0.85) {
-              moveWithAvoidance(rig, st, dx / dist, dz / dist, BOT_SPEED, dt);
-              updateLocomotionAnim(rig, 1, BOT_SPEED);
+            // Awake guard: closes the gap until it has a clear shot, then
+            // holds position and fires. A wall between it and the player
+            // blocks the shot (see hasLineOfSight) same as it blocks a
+            // real bullet, so being "in range" by distance alone isn't
+            // enough.
+            const canSeePlayer = hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z);
+            if (canSeePlayer) {
+              st.loseSightT = 0;
             } else {
-              updateLocomotionAnim(rig, 0, 0);
+              st.loseSightT += dt;
+              if (st.loseSightT > LOSE_SIGHT_GIVEUP) {
+                // Genuinely lost them (they ran out of the room, around
+                // several corners, whatever) — stop chasing and go back to
+                // patrolling instead of walking at their last known spot
+                // forever. Fresh patrolTarget/stuckT so it doesn't pick up
+                // mid-chase momentum as a patrol waypoint.
+                st.awake = false;
+                st.patrolTarget = null;
+                st.stuckT = 0;
+                st.loseSightT = 0;
+                updateLocomotionAnim(rig, 0, 0);
+              }
             }
-            rig.root.rotation.y = Math.atan2(dx, dz);
+            if (st.awake) {
+              if (botDist > GUN_RANGE * 0.85 || !canSeePlayer) {
+                moveWithAvoidance(rig, st, botDx / botDist, botDz / botDist, BOT_SPEED, dt);
+                updateLocomotionAnim(rig, 1, BOT_SPEED);
+              } else {
+                updateLocomotionAnim(rig, 0, 0);
+              }
+              rig.root.rotation.y = Math.atan2(botDx, botDz);
 
-            st.cooldown = Math.max(0, st.cooldown - dt);
-            if (dist <= GUN_RANGE && st.cooldown <= 0) {
-              playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
-              setPlayerHp(playerHpLocal);
-              st.cooldown = BOT_ATTACK_COOLDOWN;
-              st.fireT = 0;
-              rig.fireAction?.reset().play();
-              const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
-              tracers.push(spawnTracer(scene, rig.gun, rig.root.position, targetPoint));
+              st.cooldown = Math.max(0, st.cooldown - dt);
+              if (botDist <= GUN_RANGE && st.cooldown <= 0 && canSeePlayer) {
+                playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
+                setPlayerHp(playerHpLocal);
+                st.cooldown = BOT_ATTACK_COOLDOWN;
+                st.fireT = 0;
+                rig.fireAction?.reset().play();
+                const targetPoint = new THREE.Vector3(player.root.position.x, TRACER_TARGET_HEIGHT, player.root.position.z);
+                tracers.push(spawnTracer(scene, rig.gun, rig.root.position, targetPoint));
+              }
             }
             if (st.fireT >= 0) {
               applyFirePose(rig, st.fireT);
@@ -2893,16 +4151,15 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             }
           }
 
-          if (dist < nearestDist) {
-            nearestDist = dist;
+          // Only a fighter the player can actually see counts as a
+          // target — a closer one hidden behind a wall (or a gate)
+          // shouldn't steal the auto-aim (or the shot's damage) from a
+          // farther one actually in view.
+          if (botDist < nearestDist && hasLineOfSight(player.root.position.x, player.root.position.z, rig.root.position.x, rig.root.position.z)) {
+            nearestDist = botDist;
             nearestIdx = i;
           }
         }
-
-        // While stationary, the player's body keeps whatever facing it had
-        // from its last movement — free-look camera drags orbit the view
-        // around the character without spinning the character itself
-        // (matching Free Fire: panning the screen doesn't turn your body).
 
         playerCooldown = Math.max(0, playerCooldown - dt);
 
@@ -2914,29 +4171,26 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         if (attackRequested.current) {
           if (playerCooldown <= 0) {
             // The shot always fires — recoil, cooldown, tracer, the works —
-            // on press, whether or not a bot is actually in range right
-            // now; the character's hands respond the same way regardless.
-            // Only the damage is conditional on a bot actually being in
-            // range. Snap the body to face wherever the camera is pointed
-            // the instant it fires, so it always visibly faces the shot
-            // direction rather than whatever it happened to face before.
+            // on press. Snap the body to face wherever the camera is
+            // pointed the instant it fires, so it always visibly faces the
+            // shot direction rather than whatever it happened to face
+            // before.
             player.root.rotation.y = cameraYaw.current;
             playerCooldown = PLAYER_ATTACK_COOLDOWN;
             playerFireT = 0;
             player.fireAction?.reset().play();
             const aimYaw = cameraYaw.current;
+            const canHitBot = nearestIdx !== -1 && nearestDist <= GUN_RANGE;
             const targetPoint =
-              nearestIdx !== -1 && nearestDist <= GUN_RANGE
-                ? new THREE.Vector3(rigs[nearestIdx]!.root.position.x, TRACER_TARGET_HEIGHT, rigs[nearestIdx]!.root.position.z)
+              canHitBot && bots[nearestIdx]
+                ? new THREE.Vector3(bots[nearestIdx]!.root.position.x, TRACER_TARGET_HEIGHT, bots[nearestIdx]!.root.position.z)
                 : new THREE.Vector3(
                     player.root.position.x + Math.sin(aimYaw) * GUN_RANGE,
                     TRACER_TARGET_HEIGHT,
                     player.root.position.z + Math.cos(aimYaw) * GUN_RANGE,
                   );
             tracers.push(spawnTracer(scene, player.gun, player.root.position, targetPoint));
-            if (nearestIdx !== -1 && nearestDist <= GUN_RANGE) {
-              damageBot(nearestIdx, PLAYER_DAMAGE);
-            }
+            if (canHitBot) damageBot(nearestIdx, PLAYER_DAMAGE);
           }
         }
 
@@ -2948,8 +4202,19 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         if (playerHpLocal <= 0) {
           ended = true;
           playerDeathT = 0;
+          startDeath(player);
           pendingResult = "lose";
         }
+      }
+
+      // Re-center the shadow-casting light's frustum on the player every
+      // frame (see SHADOW_FOLLOW_DIR/DISTANCE above) — same fixed lighting
+      // angle, just recentered, so shadow resolution stays sharp locally
+      // instead of trying to cover the whole 700x700 arena at once.
+      if (player) {
+        key.position.copy(player.root.position).addScaledVector(SHADOW_FOLLOW_DIR, SHADOW_FOLLOW_DISTANCE);
+        key.target.position.copy(player.root.position);
+        key.target.updateMatrixWorld();
       }
 
       // Chase camera keeps following/rendering even after the match ends,
@@ -2988,7 +4253,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         camera.lookAt(camLookAt);
       }
 
-      renderer.render(scene, camera);
+      composer.render();
     };
     tick();
 
@@ -2996,8 +4261,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       disposed = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
+      heroVideo.pause();
+      heroVideo.src = "";
       renderer.dispose();
       container.removeChild(renderer.domElement);
+      gateBlockers = [];
     };
   }, []);
 
@@ -3075,34 +4343,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
       />
 
-      {/* Guard alert marks — a "?" popping up over a dormant guard's head
-          for a beat right before it wakes and attacks, positioned each
-          tick via alertRefs (screen-projected from its 3D position),
-          hidden by default. */}
-      {[0, 1, 2, 3, 4].map((i) => (
-        <div
-          key={i}
-          ref={(el) => {
-            alertRefs.current[i] = el;
-          }}
-          style={{
-            position: "absolute",
-            display: "none",
-            transform: "translate(-50%, -100%)",
-            color: "#ffe14d",
-            fontFamily: "'Rajdhani', sans-serif",
-            fontWeight: 800,
-            fontSize: 26,
-            textShadow: "0 0 8px rgba(255,225,77,0.9), 0 0 2px rgba(0,0,0,0.8)",
-            pointerEvents: "none",
-            zIndex: 6,
-          }}
-        >
-          ❓
-        </div>
-      ))}
-
-      {/* Health bars */}
+      {/* Health bar */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
         <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
           YOU
@@ -3111,21 +4352,52 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
         </div>
       </div>
-      {/* All four bots plus the Boss fight at once now, so each gets its own
-          compact bar instead of a single shared one — dimmed out once that
-          one is down. */}
-      <div style={{ position: "absolute", top: 16, right: 16, width: "min(38%, 260px)" }}>
-        {botHps.map((hp, i) => (
-          <div key={i} style={{ marginBottom: i < botHps.length - 1 ? 6 : 0, opacity: hp > 0 ? 1 : 0.35 }}>
-            <div style={{ color: i === 5 ? "#ff8a8a" : "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 11, letterSpacing: "0.08em", marginBottom: 2, textAlign: "right" }}>
-              {i === 5 ? "BOSS" : `BOT ${i + 1}`}
-            </div>
-            <div style={{ height: i === 5 ? 9 : 7, borderRadius: 4, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${hp}%`, marginLeft: `${100 - hp}%`, background: i === 5 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff8a6b,#ff5e4e)", transition: "width 150ms ease-out, margin-left 150ms ease-out" }} />
-            </div>
+
+      {/* Each fighter's own health bar floats directly above its head
+          in-world (see the screen-projection block in the tick loop),
+          not fixed to a screen corner, so it stays pinned to whichever
+          bot it belongs to. Index 5 is the Boss — wider bar, own label. */}
+      {botHps.map((hp, i) => (
+        <div
+          key={i}
+          ref={(el) => {
+            botHpBarRefs.current[i] = el;
+          }}
+          style={{
+            position: "absolute",
+            width: i === 5 ? 110 : 90,
+            marginLeft: i === 5 ? -55 : -45,
+            marginTop: -30,
+            display: "none",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              color: i === 5 ? "#ff8a8a" : "#dce8f5",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 10,
+              letterSpacing: "0.08em",
+              marginBottom: 2,
+              textAlign: "center",
+              textShadow: "0 0 4px rgba(0,0,0,0.9)",
+            }}
+          >
+            {i === 5 ? "BOSS" : `GUARD ${i + 1}`}
           </div>
-        ))}
-      </div>
+          <div style={{ height: i === 5 ? 8 : 6, borderRadius: 3, background: "rgba(255,255,255,0.18)", overflow: "hidden" }}>
+            <div
+              style={{
+                height: "100%",
+                width: `${hp}%`,
+                background: i === 5 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff6b5e,#ff9a4d)",
+                transition: "width 150ms ease-out",
+              }}
+            />
+          </div>
+        </div>
+      ))}
 
       <button
         onClick={onExit}
