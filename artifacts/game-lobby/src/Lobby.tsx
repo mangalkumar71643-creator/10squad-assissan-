@@ -3660,6 +3660,29 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // no-stretch sizing as the door-3 hero panel.
     addWallDecal("/textures/wall-hero-panel-2.jpg", ROOM_WALL_HEIGHT * (1536 / 1024), ROOM_WALL_HEIGHT / 2, 55.9, SOUTH_WALL_Z, Math.PI, 1024 / 1536);
 
+    // A two-piece corner-wrap decal filling the small bare gap left at Room
+    // 1's SW corner (west wall meets south wall) between the two hero panels
+    // above and the corner itself — split from a single folded reference
+    // image down its own seam (the vertical light strip) so the two faces
+    // line up visually at the corner, each stretched to exactly fill its own
+    // side's remaining gap width (unequal, since the two hero panels aren't
+    // equidistant from the corner) at the room's full wall height.
+    const addCornerFace = (url: string, width: number, x: number, z: number, rotY: number) => {
+      const tex = new THREE.TextureLoader().load(url);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, ROOM_WALL_HEIGHT),
+        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6, metalness: 0.3 }),
+      );
+      mesh.position.set(x, ROOM_WALL_HEIGHT / 2, z);
+      mesh.rotation.y = rotY;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+    };
+    addCornerFace("/textures/corner-right.jpg", 1.7, WEST_WALL_X, -40.85, Math.PI / 2);
+    addCornerFace("/textures/corner-left.jpg", 3.0, 51.5, SOUTH_WALL_Z, Math.PI);
+
     let player: FighterRig | null = null;
 
     // Preloaded here so it's very likely already resolved by the time each
