@@ -3639,13 +3639,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const EAST_WALL_X = ROOM_POS.x + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2 - 0.05;
     const NORTH_WALL_Z = ROOM_POS.z - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2 + 0.05;
 
-    // Control panel — west wall, south segment (clear of the ventDecal above,
-    // which sits on the north segment of this same wall). A richer version
-    // than a bare panel: the control unit with a pipe run connected below it
-    // and its own pair of floor-to-ceiling blue neon strips framing it, all
-    // cropped and composited from the reference sheet, floor-mounted like
-    // the server rack.
-    addWallDecal("/textures/control-panel-pipes.jpg", 2.0, 1.66, WEST_WALL_X, ROOM_POS.z + 6, Math.PI / 2, 900 / 560);
+    // Hero control-unit panel — west wall, south segment (clear of the
+    // ventDecal above, which sits on the north segment of this same wall).
+    // The user's own reference wall image used directly and whole rather
+    // than cropped into pieces, sized so its height exactly matches the
+    // room's wall height — bottom flush with the floor, top flush with the
+    // ceiling, no stretching (width follows from the image's own aspect
+    // ratio) — centered on the segment.
+    addWallDecal("/textures/wall-hero-panel.jpg", ROOM_WALL_HEIGHT * (1536 / 1024), ROOM_WALL_HEIGHT / 2, WEST_WALL_X, ROOM_POS.z + ROOM_SEG_OFFSET, Math.PI / 2, 1024 / 1536);
     // Electrical box — east wall, north segment.
     addWallDecal("/textures/electric-box.jpg", 1.4, 1.2, EAST_WALL_X, ROOM_POS.z - 5, -Math.PI / 2, 620 / 460);
     // Server rack — east wall, south segment, floor-mounted.
