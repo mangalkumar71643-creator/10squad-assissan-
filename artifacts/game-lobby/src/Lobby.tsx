@@ -3638,6 +3638,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const WEST_WALL_X = ROOM_POS.x - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2 + 0.05;
     const EAST_WALL_X = ROOM_POS.x + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2 - 0.05;
     const NORTH_WALL_Z = ROOM_POS.z - ROOM_SIZE / 2 + ROOM_WALL_THICKNESS / 2 + 0.05;
+    const SOUTH_WALL_Z = ROOM_POS.z + ROOM_SIZE / 2 - ROOM_WALL_THICKNESS / 2 - 0.05;
 
     // Hero control-unit panel — west wall, south segment (clear of the
     // ventDecal above, which sits on the north segment of this same wall).
@@ -3653,6 +3654,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     addWallDecal("/textures/server-rack.jpg", 2.0, 1.7, EAST_WALL_X, ROOM_POS.z + 5, -Math.PI / 2, 1056 / 640);
     // Larger vent style — north wall, west segment.
     addWallDecal("/textures/vent-panel-2.jpg", 3.2, 1.9, ROOM_POS.x - 5, NORTH_WALL_Z, 0, 420 / 720);
+    // A second hero panel ("48 A") — south wall, west segment, right next to
+    // door 2's gap (the gate itself, at x 59-61, is left untouched) but
+    // pulled in just enough to keep clear of it. Same floor-to-ceiling,
+    // no-stretch sizing as the door-3 hero panel.
+    addWallDecal("/textures/wall-hero-panel-2.jpg", ROOM_WALL_HEIGHT * (1536 / 1024), ROOM_WALL_HEIGHT / 2, 55.9, SOUTH_WALL_Z, Math.PI, 1024 / 1536);
 
     let player: FighterRig | null = null;
 
