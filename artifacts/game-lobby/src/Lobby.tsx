@@ -3085,21 +3085,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       EXTRA_CRATES.forEach((c, i) => placeCrate(scene, material, c.x, c.z, c.halfX, i * 0.7));
     });
 
-    // A real, walkable staircase down through each house's own center to
-    // the tunnel below (see ROOM_STAIRS_DOWN_POS/RAMP_RUN_LENGTH and the
-    // tick loop's continuous height-follow) — a long run of real steps,
-    // not a single square hole, spanning the full drop from the house
-    // floor (y=0) all the way to the tunnel's actual floor (TUNNEL_Y), so
-    // walking down it is a gradual descent you can stop partway through,
-    // not a jump into a pit.
+    // The open shaft down through each house's own center to the tunnel
+    // below (see ROOM_STAIRS_DOWN_POS/RAMP_RUN_LENGTH and the tick loop's
+    // continuous height-follow, which still lets the player descend
+    // smoothly through it) — no physical stair-step meshes, on purpose:
+    // just the hole itself, so it stays a clear window straight down into
+    // the tunnel from the house floor above.
     const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide });
     const holeShaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.9, side: THREE.DoubleSide });
-    // Bright enough (and lightly self-lit) to actually read as steps
-    // against the shaft's dark walls — the darker gray used everywhere
-    // else in the level disappeared completely into the shadow down
-    // there with no direct light reaching it.
-    const stairMat = new THREE.MeshStandardMaterial({ color: 0x8a929c, emissive: 0x2a3138, emissiveIntensity: 0.6, roughness: 0.5, metalness: 0.3 });
-    const stairEdgeMat = new THREE.LineBasicMaterial({ color: 0xff9a4a });
     // Every stair element below is built in the stairway's own local
     // "along" (distance from the house center, in the direction it
     // descends — see ROOM_TUNNEL_DIR) / "perp" (distance off to the
@@ -3155,38 +3148,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addWall(RAMP_RUN_LENGTH / 2, RAMP_HALF_WIDTH, RAMP_RUN_LENGTH, 0.05);
       addWall(0, 0, 0.05, width);
     }
-    // Real steps filling the stairway's exact footprint (RAMP_HALF_WIDTH
-    // wide) and full height (topY to bottomY), descending along (dirX,
-    // dirZ) — the direction that house's tunnel connection actually runs
-    // (see ROOM_TUNNEL_DIR) — so it reads as one natural staircase
-    // leading all the way down into the tunnel floor.
-    function addStairsInHole(x: number, z: number, topY: number, bottomY: number, dirX: number, dirZ: number) {
-      const steps = 14;
-      const stepHeight = (topY - bottomY) / steps;
-      const stepDepth = RAMP_RUN_LENGTH / steps;
-      const width = RAMP_HALF_WIDTH * 2;
-      for (let i = 0; i < steps; i++) {
-        const stepCenterY = topY - stepHeight * (i + 0.5);
-        const along = stepDepth * (i + 0.5);
-        const pos = stairWorldPos(x, z, dirX, dirZ, along, 0);
-        const { sizeX, sizeZ } = stairBoxSize(dirX, dirZ, stepDepth, width);
-        const step = new THREE.Mesh(new THREE.BoxGeometry(sizeX, stepHeight, sizeZ), stairMat);
-        step.position.set(pos.x, stepCenterY, pos.z);
-        step.add(new THREE.LineSegments(new THREE.EdgesGeometry(step.geometry), stairEdgeMat));
-        scene.add(step);
-      }
-    }
-    // One stairway down through each house's own center, its matching rim
-    // up at that same spot underground (in the ceiling there), the pit
-    // walls between the two, and the real steps filling the whole run
-    // down to the tunnel floor.
+    // One stairway hole down through each house's own center, its matching
+    // rim up at that same spot underground (in the ceiling there), and the
+    // pit walls between the two — no physical steps filling the run, so
+    // it's an open shaft you can look straight down through from the house
+    // floor and see the tunnel below.
     for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
       const tunnelCeilingY = TUNNEL_Y + TUNNEL_WALL_HEIGHT;
       const dir = ROOM_TUNNEL_DIR[i];
       addFloorHoleRim(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z, dir.x, dir.z);
       addFloorHoleRim(TUNNEL_STOPS[i].x, tunnelCeilingY, TUNNEL_STOPS[i].z, dir.x, dir.z);
       addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY, dir.x, dir.z);
-      addStairsInHole(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, TUNNEL_Y, dir.x, dir.z);
       // Nothing else reaches down into the shaft otherwise (it sits
       // below the room's own ambient light and above the tunnel's floor
       // strip), which is exactly why the stairs were reading as a flat
