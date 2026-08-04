@@ -1525,6 +1525,10 @@ const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
 const RAMP_HALF_WIDTH = HOLE_INNER_SIZE / 2;
 const RAMP_RUN_LENGTH = 4.5;
 const RAMP_BAND = 0.5;
+// Fall acceleration through a stairwell hole — tuned for a quick, snappy
+// drop to the tunnel floor (the ~3.5-unit fall takes well under a second)
+// rather than a slow, floaty one.
+const FALL_GRAVITY = 14;
 const ROOM_STAIRS_DOWN_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS, ROOM6_POS];
 const TUNNEL_STOPS = ROOM_STAIRS_DOWN_POS.map((p) => ({ x: p.x, z: p.z }));
 // Which way each house's staircase actually descends, matching the real
@@ -3678,6 +3682,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // gives the accel/decel and the turning its weight.
     let playerVelX = 0;
     let playerVelZ = 0;
+    // Downward speed while falling through a stairwell hole (see the
+    // gravity check further down in the tick loop) — reset to 0 the
+    // moment the player lands on solid ground again.
+    let playerFallVel = 0;
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
@@ -3850,6 +3858,43 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         player.root.position.x = clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         player.root.position.z = clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         resolveObstacleCollisions(player.root.position);
+
+        // Real gravity through each house's stairwell hole (see
+        // ROOM_STAIRS_DOWN_POS/ROOM_TUNNEL_DIR for its footprint) — there's
+        // no floor there, so standing over the opening drops the player
+        // straight down to the tunnel floor below instead of leaving them
+        // floating over it. Off the hole, they're just snapped to whichever
+        // solid floor they're already closer to (a no-op unless they've
+        // just left the hole's footprint horizontally), so nothing here
+        // fights with normal ground-level movement above or below.
+        let playerOverHole = false;
+        for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
+          const spot = ROOM_STAIRS_DOWN_POS[i];
+          const dir = ROOM_TUNNEL_DIR[i];
+          const dx = player.root.position.x - spot.x;
+          const dz = player.root.position.z - spot.z;
+          const along = dx * dir.x + dz * dir.z;
+          const perp = dz * dir.x - dx * dir.z;
+          if (Math.abs(perp) < RAMP_HALF_WIDTH && along > 0 && along < RAMP_RUN_LENGTH) {
+            playerOverHole = true;
+            break;
+          }
+        }
+        // Once a fall has actually started, it keeps going until landing
+        // even if a frame of horizontal drift briefly carries the player
+        // just outside the hole's (fairly narrow) footprint — otherwise a
+        // tiny sideways nudge mid-air would cancel the fall and snap them
+        // straight back up, which reads as a glitch, not gravity.
+        const midFall = playerFallVel > 0 && player.root.position.y > TUNNEL_Y;
+        if (midFall || (playerOverHole && player.root.position.y > TUNNEL_Y)) {
+          playerFallVel += FALL_GRAVITY * dt;
+          player.root.position.y = Math.max(player.root.position.y - playerFallVel * dt, TUNNEL_Y);
+        } else {
+          playerFallVel = 0;
+          if (!playerOverHole) {
+            player.root.position.y = player.root.position.y > TUNNEL_Y / 2 ? 0 : TUNNEL_Y;
+          }
+        }
 
         // Slide each gate open as the player nears its door, closed again
         // once they've moved away. Also opens for any bot, not just the
