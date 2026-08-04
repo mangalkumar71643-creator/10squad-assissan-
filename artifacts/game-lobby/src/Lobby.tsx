@@ -1508,20 +1508,20 @@ const NEWROOM_WALLS: Obstacle[] = [
 // to the exact same walkable route as the surface (the same door gaps,
 // the same bend through the midroom and corridor 3's jog) — no separate
 // collision needed, just every wall mirrored visually at TUNNEL_Y (see
-// the scene-building code below) plus a staircase in each house dropping
-// straight down through its own center, "piercing through the middle of
-// the house" the way it was asked for, rather than tucked in a corner.
+// the scene-building code below) plus an open shaft in each house,
+// "piercing through the middle of the house" the way it was asked for,
+// rather than tucked in a corner.
 const TUNNEL_Y = -3.5;
 const TUNNEL_WALL_HEIGHT = 2.2;
 const HOLE_HALF_SIZE = 1.1; // square, not round — half-extent, so 2.2 units per side
 const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
-// The stairway's walkable footprint: a run of real steps descending from
-// the house floor (y=0) all the way to the tunnel floor (y=TUNNEL_Y),
-// oriented along the house's own tunnel connection (see ROOM_TUNNEL_DIR)
-// rather than a single square hole, so it reads and plays like an actual
-// staircase instead of a hole you fall through. RAMP_BAND lets the
-// height-follow logic pick the player up a little before the first step
-// and hold them a little after the last one, so there's no seam.
+// The shaft's footprint, oriented along the house's own tunnel connection
+// (see ROOM_TUNNEL_DIR) rather than a plain square — a run, not just a
+// point, so the opening reads as a real corridor down into the tunnel.
+// There's no walkable descent through it (removed on request — it's a
+// viewing hole you can look straight down through, not something you can
+// climb down); RAMP_BAND is still used only to pad the patrol-avoidance
+// band below so bot waypoints never land over the hole.
 const RAMP_HALF_WIDTH = HOLE_INNER_SIZE / 2;
 const RAMP_RUN_LENGTH = 4.5;
 const RAMP_BAND = 0.5;
@@ -3850,32 +3850,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         player.root.position.x = clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         player.root.position.z = clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         resolveObstacleCollisions(player.root.position);
-
-        // Each house's stairs down through its own center to the
-        // underground tunnel — real, walkable stairs, not a teleport.
-        // Y is a continuous function of where the player physically is
-        // relative to the stair run: "along" is signed distance from the
-        // house center in the direction the stairs descend (see
-        // ROOM_TUNNEL_DIR), "perp" is signed distance off to the side of
-        // that line. Standing anywhere within the stairway's width and
-        // run length pins the player's height to the matching point on
-        // the slope, so walking forward/back moves them up/down
-        // gradually and stopping mid-stride just holds them there —
-        // exactly like real stairs, including being able to pause partway
-        // and look around at whichever floor is above.
-        for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
-          const spot = ROOM_STAIRS_DOWN_POS[i];
-          const dir = ROOM_TUNNEL_DIR[i];
-          const dx = player.root.position.x - spot.x;
-          const dz = player.root.position.z - spot.z;
-          const along = dx * dir.x + dz * dir.z;
-          const perp = dz * dir.x - dx * dir.z;
-          if (Math.abs(perp) < RAMP_HALF_WIDTH && along > -RAMP_BAND && along < RAMP_RUN_LENGTH + RAMP_BAND) {
-            const progress = clamp(along / RAMP_RUN_LENGTH, 0, 1);
-            player.root.position.y = THREE.MathUtils.lerp(0, TUNNEL_Y, progress);
-            break;
-          }
-        }
 
         // Slide each gate open as the player nears its door, closed again
         // once they've moved away. Also opens for any bot, not just the
