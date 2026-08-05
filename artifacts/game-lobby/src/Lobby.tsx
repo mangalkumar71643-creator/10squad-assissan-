@@ -1560,6 +1560,10 @@ const RAMP_BAND = 0.5;
 // drop to the tunnel floor (the ~3.5-unit fall takes well under a second)
 // rather than a slow, floaty one.
 const FALL_GRAVITY = 14;
+// The ride back up is a constant-speed lift rather than reverse gravity
+// (nothing would be "pulling" the player up) — tuned to cover the same
+// ~3.5-unit trip in roughly the same time as the fall down.
+const ELEVATOR_RISE_SPEED = 6;
 const ROOM_STAIRS_DOWN_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS, ROOM6_POS];
 const TUNNEL_STOPS = ROOM_STAIRS_DOWN_POS.map((p) => ({ x: p.x, z: p.z }));
 // Which way each house's staircase actually descends, matching the real
@@ -3811,6 +3815,13 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // gravity check further down in the tick loop) — reset to 0 the
     // moment the player lands on solid ground again.
     let playerFallVel = 0;
+    // True while riding the elevator back up (the DOWN button doubles as
+    // an UP call when pressed from the tunnel floor — see descendRequested
+    // below). Which hole's gate is tied to the current ride, so it can be
+    // closed again behind the player the moment they arrive, regardless of
+    // which hole they're standing over by then.
+    let playerRising = false;
+    let activeHoleIndex = -1;
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
@@ -4006,30 +4017,68 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           }
         }
         // The DOWN button's tap: open whichever hatch the player is
-        // currently standing over. A tap anywhere else is just a no-op —
-        // consumed either way so it can't fire again once a hole is found.
+        // currently standing over — and since it's the same button both
+        // ways, which direction that ride goes depends on which floor the
+        // player is already on (near the tunnel floor rides up; anywhere
+        // else near the room floor rides down). Ignored entirely mid-ride
+        // (not grounded on either floor yet) so a stray extra tap can't
+        // reverse a fall/rise already in progress; otherwise a tap is a
+        // no-op if it doesn't land on a hole, consumed either way.
         if (descendRequested.current) {
           descendRequested.current = false;
-          if (hoveredHoleIndex !== -1) holeGateOpenTarget[hoveredHoleIndex] = 1;
+          const grounded = !playerRising && playerFallVel === 0;
+          if (grounded && hoveredHoleIndex !== -1) {
+            holeGateOpenTarget[hoveredHoleIndex] = 1;
+            activeHoleIndex = hoveredHoleIndex;
+            if (player.root.position.y <= TUNNEL_Y / 2) {
+              playerRising = true;
+            }
+          }
         }
         for (let i = 0; i < holeGateOpenAmount.length; i++) {
           holeGateOpenAmount[i] = approach(holeGateOpenAmount[i], holeGateOpenTarget[i], DOOR_SLIDE_RATE, dt);
           updateHoleDoor(holeDoors[i], holeGateOpenAmount[i]);
         }
         const playerOverHole = hoveredHoleIndex !== -1 && holeGateOpenAmount[hoveredHoleIndex] > 0.5;
-        // Once a fall has actually started, it keeps going until landing
-        // even if a frame of horizontal drift briefly carries the player
-        // just outside the hole's (fairly narrow) footprint — otherwise a
-        // tiny sideways nudge mid-air would cancel the fall and snap them
-        // straight back up, which reads as a glitch, not gravity.
-        const midFall = playerFallVel > 0 && player.root.position.y > TUNNEL_Y;
-        if (midFall || (playerOverHole && player.root.position.y > TUNNEL_Y)) {
-          playerFallVel += FALL_GRAVITY * dt;
-          player.root.position.y = Math.max(player.root.position.y - playerFallVel * dt, TUNNEL_Y);
+        // Once a fall (or a ride up) has actually started, it keeps going
+        // until arrival even if a frame of horizontal drift briefly
+        // carries the player just outside the hole's (fairly narrow)
+        // footprint — otherwise a tiny sideways nudge mid-transit would
+        // cancel it and snap them back, which reads as a glitch, not
+        // gravity/a lift ride.
+        if (playerRising) {
+          player.root.position.y = Math.min(player.root.position.y + ELEVATOR_RISE_SPEED * dt, 0);
+          if (player.root.position.y >= 0) {
+            playerRising = false;
+            // The doors snap shut behind the player the instant the ride
+            // is over — closing it gradually via holeGateOpenTarget alone
+            // left it above the 0.5-open fall/no-fall threshold for a few
+            // more frames, which was enough for the gravity check below to
+            // see "over an open hole" and drop them straight back down the
+            // moment they arrived.
+            if (activeHoleIndex !== -1) {
+              holeGateOpenTarget[activeHoleIndex] = 0;
+              holeGateOpenAmount[activeHoleIndex] = 0;
+            }
+            activeHoleIndex = -1;
+          }
         } else {
-          playerFallVel = 0;
-          if (!playerOverHole) {
-            player.root.position.y = player.root.position.y > TUNNEL_Y / 2 ? 0 : TUNNEL_Y;
+          const midFall = playerFallVel > 0 && player.root.position.y > TUNNEL_Y;
+          if (midFall || (playerOverHole && player.root.position.y > TUNNEL_Y)) {
+            playerFallVel += FALL_GRAVITY * dt;
+            player.root.position.y = Math.max(player.root.position.y - playerFallVel * dt, TUNNEL_Y);
+            if (player.root.position.y <= TUNNEL_Y) {
+              if (activeHoleIndex !== -1) {
+                holeGateOpenTarget[activeHoleIndex] = 0;
+                holeGateOpenAmount[activeHoleIndex] = 0;
+              }
+              activeHoleIndex = -1;
+            }
+          } else {
+            playerFallVel = 0;
+            if (!playerOverHole) {
+              player.root.position.y = player.root.position.y > TUNNEL_Y / 2 ? 0 : TUNNEL_Y;
+            }
           }
         }
 
