@@ -1003,6 +1003,46 @@ function createHazardStripeTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+// A metal floor-grate look for the stairwell hatch cover — a grid of raised
+// bars over dark gaps, so it reads as a "jaali" (lattice) you could see/fall
+// through rather than a plain solid lid, even though it's an opaque mesh.
+function createGrilleTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#15181c";
+  ctx.fillRect(0, 0, size, size);
+  const cell = size / 8;
+  const gap = cell * 0.22;
+  ctx.fillStyle = "#0a0c0e";
+  for (let gx = 0; gx < 8; gx++) {
+    for (let gy = 0; gy < 8; gy++) {
+      ctx.fillRect(gx * cell + gap, gy * cell + gap, cell - gap * 2, cell - gap * 2);
+    }
+  }
+  ctx.strokeStyle = "#565f68";
+  ctx.lineWidth = 2;
+  for (let gx = 0; gx <= 8; gx++) {
+    ctx.beginPath();
+    ctx.moveTo(gx * cell, 0);
+    ctx.lineTo(gx * cell, size);
+    ctx.stroke();
+  }
+  for (let gy = 0; gy <= 8; gy++) {
+    ctx.beginPath();
+    ctx.moveTo(0, gy * cell);
+    ctx.lineTo(size, gy * cell);
+    ctx.stroke();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
 // A simple vertical-gradient sky, painted onto a canvas and wrapped around
 // a big inward-facing sphere — without this the scene has no background
 // at all (the canvas is alpha-transparent, so it just shows the page's
@@ -2782,6 +2822,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   // Manual sprint toggle: tapping RUN forces full sprint on regardless of
   // how far the joystick is pushed, instead of requiring it held near max.
   const runToggled = useRef(false);
+  // One-shot: set true on tap, consumed (and cleared) by the tick loop the
+  // next frame it runs — opens the hatch under the player's feet if they're
+  // standing over one, otherwise it's just a no-op tap.
+  const descendRequested = useRef(false);
   const [runActive, setRunActive] = useState(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
@@ -3153,6 +3197,23 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addWall(RAMP_RUN_LENGTH / 2, RAMP_HALF_WIDTH, RAMP_RUN_LENGTH, 0.05);
       addWall(0, 0, 0.05, width);
     }
+    // A grated hatch cover sitting over each hole, closed by default — the
+    // hole itself is a real gap cut through the floor (see groundShape's
+    // holes above), so without this the pit is just open air to fall into
+    // the instant you stand on it. The DOWN button (see descendRequested in
+    // the tick loop) drops each hatch out of the way on request instead.
+    const holeGateMeshes: THREE.Group[] = [];
+    const holeGateOpenAmount: number[] = [];
+    const holeGateOpenTarget: number[] = [];
+    const grilleMat = new THREE.MeshStandardMaterial({
+      map: createGrilleTexture(),
+      roughness: 0.6,
+      metalness: 0.5,
+      side: THREE.DoubleSide,
+    });
+    const GATE_CLOSED_Y = 0.02;
+    const GATE_OPEN_Y = TUNNEL_Y + 0.3; // dropped down into the shaft, out of the way
+    const GATE_DROP_RATE = 6; // per-second approach rate for the open animation
     // One stairway hole down through each house's own center, its matching
     // rim up at that same spot underground (in the ceiling there), and the
     // pit walls between the two — no physical steps filling the run, so
@@ -3164,6 +3225,19 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addFloorHoleRim(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z, dir.x, dir.z);
       addFloorHoleRim(TUNNEL_STOPS[i].x, tunnelCeilingY, TUNNEL_STOPS[i].z, dir.x, dir.z);
       addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY, dir.x, dir.z);
+      {
+        const { sizeX, sizeZ } = stairBoxSize(dir.x, dir.z, RAMP_RUN_LENGTH, RAMP_HALF_WIDTH * 2);
+        const gateMesh = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeZ), grilleMat);
+        gateMesh.rotation.x = -Math.PI / 2;
+        const centerPos = stairWorldPos(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, dir.x, dir.z, RAMP_RUN_LENGTH / 2, 0);
+        const gateGroup = new THREE.Group();
+        gateGroup.add(gateMesh);
+        gateGroup.position.set(centerPos.x, GATE_CLOSED_Y, centerPos.z);
+        scene.add(gateGroup);
+        holeGateMeshes.push(gateGroup);
+        holeGateOpenAmount.push(0);
+        holeGateOpenTarget.push(0);
+      }
       // Nothing else reaches down into the shaft otherwise (it sits
       // below the room's own ambient light and above the tunnel's floor
       // strip), which is exactly why the stairs were reading as a flat
@@ -3861,14 +3935,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         resolveObstacleCollisions(player.root.position);
 
         // Real gravity through each house's stairwell hole (see
-        // ROOM_STAIRS_DOWN_POS/ROOM_TUNNEL_DIR for its footprint) — there's
-        // no floor there, so standing over the opening drops the player
-        // straight down to the tunnel floor below instead of leaving them
-        // floating over it. Off the hole, they're just snapped to whichever
-        // solid floor they're already closer to (a no-op unless they've
-        // just left the hole's footprint horizontally), so nothing here
-        // fights with normal ground-level movement above or below.
-        let playerOverHole = false;
+        // ROOM_STAIRS_DOWN_POS/ROOM_TUNNEL_DIR for its footprint) — but only
+        // once its hatch is open (see holeGateOpenAmount below): closed, the
+        // grate stands in for solid floor and the player just walks over it
+        // like anywhere else. Off the hole, they're just snapped to
+        // whichever solid floor they're already closer to (a no-op unless
+        // they've just left the hole's footprint horizontally), so nothing
+        // here fights with normal ground-level movement above or below.
+        let hoveredHoleIndex = -1;
         for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
           const spot = ROOM_STAIRS_DOWN_POS[i];
           const dir = ROOM_TUNNEL_DIR[i];
@@ -3877,10 +3951,22 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           const along = dx * dir.x + dz * dir.z;
           const perp = dz * dir.x - dx * dir.z;
           if (Math.abs(perp) < RAMP_HALF_WIDTH && along > 0 && along < RAMP_RUN_LENGTH) {
-            playerOverHole = true;
+            hoveredHoleIndex = i;
             break;
           }
         }
+        // The DOWN button's tap: open whichever hatch the player is
+        // currently standing over. A tap anywhere else is just a no-op —
+        // consumed either way so it can't fire again once a hole is found.
+        if (descendRequested.current) {
+          descendRequested.current = false;
+          if (hoveredHoleIndex !== -1) holeGateOpenTarget[hoveredHoleIndex] = 1;
+        }
+        for (let i = 0; i < holeGateOpenAmount.length; i++) {
+          holeGateOpenAmount[i] = approach(holeGateOpenAmount[i], holeGateOpenTarget[i], GATE_DROP_RATE, dt);
+          holeGateMeshes[i].position.y = THREE.MathUtils.lerp(GATE_CLOSED_Y, GATE_OPEN_Y, holeGateOpenAmount[i]);
+        }
+        const playerOverHole = hoveredHoleIndex !== -1 && holeGateOpenAmount[hoveredHoleIndex] > 0.5;
         // Once a fall has actually started, it keeps going until landing
         // even if a frame of horizontal drift briefly carries the player
         // just outside the hole's (fairly narrow) footprint — otherwise a
@@ -4541,6 +4627,45 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }}
       >
         RUN
+      </button>
+
+      {/* Descend button — opens the hatch under the player's feet (see
+          descendRequested in the tick loop); a tap anywhere else is just a
+          harmless no-op, so it's fine to leave this always on screen rather
+          than only showing it near a hole. */}
+      <button
+        onPointerDown={(e) => {
+          e.preventDefault();
+          descendRequested.current = true;
+        }}
+        aria-label="Descend"
+        style={{
+          position: "absolute",
+          right: "calc(7% + clamp(72px, 13vw, 100px) + 14px + clamp(56px, 10vw, 76px) + 14px)",
+          bottom: "9%",
+          width: "clamp(56px, 10vw, 76px)",
+          height: "clamp(56px, 10vw, 76px)",
+          borderRadius: "50%",
+          background: "radial-gradient(circle, #d9c4ff, #7b42d8)",
+          border: "2px solid rgba(230,210,255,0.85)",
+          boxShadow: "0 0 18px rgba(150,80,230,0.55)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            width: 0,
+            height: 0,
+            borderLeft: "9px solid transparent",
+            borderRight: "9px solid transparent",
+            borderTop: "14px solid #fff8f0",
+            filter: "drop-shadow(0 0 4px rgba(0,0,0,0.35))",
+          }}
+        />
       </button>
 
       {result !== "playing" && (
