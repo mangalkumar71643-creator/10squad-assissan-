@@ -3205,8 +3205,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // descendRequested in the tick loop. The hole itself is still the same
     // real gap cut through the floor (see groundShape's holes above), so
     // without the leaves closed, standing past them is open air.
-    const ELEVATOR_FRAME_WIDTH = 1.3;
+    // The reference photo is nearly square (950x985) — stretching it to fit
+    // a narrow 1.3-wide frame squashed the "G / GROUND" text and buttons
+    // badly out of shape, which is most of why it stopped reading as a real
+    // door. Sized here to the photo's own aspect ratio instead.
     const ELEVATOR_FRAME_HEIGHT = 2.3;
+    const ELEVATOR_FRAME_WIDTH = ELEVATOR_FRAME_HEIGHT * (950 / 985);
     // Set back from the hole's actual near edge (along=0) into the room a
     // bit, so the doorway isn't crowded right up against the crates flanking
     // the hole — a small vestibule to stand in and call it from, same as a
@@ -3217,18 +3221,35 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const ELEVATOR_LEAF_THICKNESS = 0.05;
     const ELEVATOR_LEAF_GAP = 0.02; // small reveal between the two closed leaves
     const DOOR_SLIDE_RATE = 4;
+    // The reference photo is a bright, evenly-lit studio shot; the rooms
+    // here are lit much darker, so relying on scene lights alone left the
+    // whole frame reading as a barely-legible dark smudge instead of a
+    // photo of a door. An emissive copy of the same texture keeps it
+    // self-lit — clearly readable — regardless of the room's own lighting.
+    const elevatorDoorTex = createElevatorDoorTexture(wallMaxAnisotropy);
     const elevatorFrameMat = new THREE.MeshStandardMaterial({
-      map: createElevatorDoorTexture(wallMaxAnisotropy),
+      map: elevatorDoorTex,
+      emissiveMap: elevatorDoorTex,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.7,
       roughness: 0.55,
       metalness: 0.35,
     });
+    const elevatorWallTexA = createElevatorWallTexture(wallMaxAnisotropy);
     const elevatorLeafMatA = new THREE.MeshStandardMaterial({
-      map: createElevatorWallTexture(wallMaxAnisotropy),
+      map: elevatorWallTexA,
+      emissiveMap: elevatorWallTexA,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.4,
       roughness: 0.6,
       metalness: 0.4,
     });
+    const elevatorWallTexB = createElevatorWallTexture(wallMaxAnisotropy);
     const elevatorLeafMatB = new THREE.MeshStandardMaterial({
-      map: createElevatorWallTexture(wallMaxAnisotropy),
+      map: elevatorWallTexB,
+      emissiveMap: elevatorWallTexB,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.4,
       roughness: 0.6,
       metalness: 0.4,
     });
