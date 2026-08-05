@@ -3207,6 +3207,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // without the leaves closed, standing past them is open air.
     const ELEVATOR_FRAME_WIDTH = 1.3;
     const ELEVATOR_FRAME_HEIGHT = 2.3;
+    // Set back from the hole's actual near edge (along=0) into the room a
+    // bit, so the doorway isn't crowded right up against the crates flanking
+    // the hole — a small vestibule to stand in and call it from, same as a
+    // real elevator lobby, before the floor actually opens up.
+    const DOOR_SETBACK = 0.5;
     const ELEVATOR_LEAF_WIDTH = ELEVATOR_FRAME_WIDTH * 0.36;
     const ELEVATOR_LEAF_HEIGHT = ELEVATOR_FRAME_HEIGHT * 0.76;
     const ELEVATOR_LEAF_THICKNESS = 0.05;
@@ -3257,13 +3262,17 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addFloorHoleRim(TUNNEL_STOPS[i].x, tunnelCeilingY, TUNNEL_STOPS[i].z, dir.x, dir.z);
       addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY, dir.x, dir.z);
       {
-        // The doorway sits right at along=0 (the house's own center — the
-        // hole's near edge), facing back the way -dir points so it reads
-        // from wherever the player approaches it from inside the room.
+        // The doorway sits a little short of along=0 (the house's own
+        // center — the hole's near edge), set back into the room by
+        // DOOR_SETBACK so it isn't crowded against the crates flanking the
+        // hole, facing back the way -dir points so it reads from wherever
+        // the player approaches it from inside the room.
         const doorYaw = Math.atan2(-dir.x, -dir.z);
+        const doorX = ROOM_STAIRS_DOWN_POS[i].x - dir.x * DOOR_SETBACK;
+        const doorZ = ROOM_STAIRS_DOWN_POS[i].z - dir.z * DOOR_SETBACK;
         const frame = new THREE.Mesh(new THREE.PlaneGeometry(ELEVATOR_FRAME_WIDTH, ELEVATOR_FRAME_HEIGHT), elevatorFrameMat);
         frame.rotation.y = doorYaw;
-        frame.position.set(ROOM_STAIRS_DOWN_POS[i].x, ELEVATOR_FRAME_HEIGHT / 2, ROOM_STAIRS_DOWN_POS[i].z);
+        frame.position.set(doorX, ELEVATOR_FRAME_HEIGHT / 2, doorZ);
         scene.add(frame);
 
         const leafA = new THREE.Mesh(
@@ -3282,8 +3291,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         const door: HoleDoor = {
           leafA,
           leafB,
-          centerX: ROOM_STAIRS_DOWN_POS[i].x,
-          centerZ: ROOM_STAIRS_DOWN_POS[i].z,
+          centerX: doorX,
+          centerZ: doorZ,
           slideX: -dir.z,
           slideZ: dir.x,
         };
@@ -4003,7 +4012,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         // whichever solid floor they're already closer to (a no-op unless
         // they've just left the hole's footprint horizontally), so nothing
         // here fights with normal ground-level movement above or below.
-        let hoveredHoleIndex = -1;
+        // Two separate zones per hole now that the door stands back from
+        // the actual floor opening (see DOOR_SETBACK): a wider one to call
+        // the elevator from (the vestibule in front of the doors, where
+        // there's still solid floor), and the original narrow one — the
+        // real gap cut through the floor — that's the only place gravity
+        // can actually take over.
+        let hoveredDoorIndex = -1;
+        let hoveredPitIndex = -1;
         for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
           const spot = ROOM_STAIRS_DOWN_POS[i];
           const dir = ROOM_TUNNEL_DIR[i];
@@ -4011,25 +4027,26 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           const dz = player.root.position.z - spot.z;
           const along = dx * dir.x + dz * dir.z;
           const perp = dz * dir.x - dx * dir.z;
-          if (Math.abs(perp) < RAMP_HALF_WIDTH && along > 0 && along < RAMP_RUN_LENGTH) {
-            hoveredHoleIndex = i;
-            break;
+          if (Math.abs(perp) < RAMP_HALF_WIDTH && along < RAMP_RUN_LENGTH) {
+            if (along > -DOOR_SETBACK) hoveredDoorIndex = i;
+            if (along > 0) hoveredPitIndex = i;
           }
+          if (hoveredDoorIndex !== -1 && hoveredPitIndex !== -1) break;
         }
         // The DOWN button's tap: open whichever hatch the player is
-        // currently standing over — and since it's the same button both
-        // ways, which direction that ride goes depends on which floor the
-        // player is already on (near the tunnel floor rides up; anywhere
-        // else near the room floor rides down). Ignored entirely mid-ride
-        // (not grounded on either floor yet) so a stray extra tap can't
-        // reverse a fall/rise already in progress; otherwise a tap is a
-        // no-op if it doesn't land on a hole, consumed either way.
+        // currently standing in front of — and since it's the same button
+        // both ways, which direction that ride goes depends on which floor
+        // the player is already on (near the tunnel floor rides up;
+        // anywhere else near the room floor rides down). Ignored entirely
+        // mid-ride (not grounded on either floor yet) so a stray extra tap
+        // can't reverse a fall/rise already in progress; otherwise a tap is
+        // a no-op if it doesn't land near a hole, consumed either way.
         if (descendRequested.current) {
           descendRequested.current = false;
           const grounded = !playerRising && playerFallVel === 0;
-          if (grounded && hoveredHoleIndex !== -1) {
-            holeGateOpenTarget[hoveredHoleIndex] = 1;
-            activeHoleIndex = hoveredHoleIndex;
+          if (grounded && hoveredDoorIndex !== -1) {
+            holeGateOpenTarget[hoveredDoorIndex] = 1;
+            activeHoleIndex = hoveredDoorIndex;
             if (player.root.position.y <= TUNNEL_Y / 2) {
               playerRising = true;
             }
@@ -4039,7 +4056,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           holeGateOpenAmount[i] = approach(holeGateOpenAmount[i], holeGateOpenTarget[i], DOOR_SLIDE_RATE, dt);
           updateHoleDoor(holeDoors[i], holeGateOpenAmount[i]);
         }
-        const playerOverHole = hoveredHoleIndex !== -1 && holeGateOpenAmount[hoveredHoleIndex] > 0.5;
+        const playerOverHole = hoveredPitIndex !== -1 && holeGateOpenAmount[hoveredPitIndex] > 0.5;
         // Once a fall (or a ride up) has actually started, it keeps going
         // until arrival even if a frame of horizontal drift briefly
         // carries the player just outside the hole's (fairly narrow)
