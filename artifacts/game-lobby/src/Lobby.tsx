@@ -1513,17 +1513,18 @@ const NEWROOM_WALLS: Obstacle[] = [
 // rather than tucked in a corner.
 const TUNNEL_Y = -3.5;
 const TUNNEL_WALL_HEIGHT = 2.2;
-const HOLE_HALF_SIZE = 1.1; // square, not round — half-extent, so 2.2 units per side
+const HOLE_HALF_SIZE = 0.65; // square, not round — half-extent (halved from the original 1.1 on request)
 const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
 // The shaft's footprint, oriented along the house's own tunnel connection
 // (see ROOM_TUNNEL_DIR) rather than a plain square — a run, not just a
 // point, so the opening reads as a real corridor down into the tunnel.
-// There's no walkable descent through it (removed on request — it's a
-// viewing hole you can look straight down through, not something you can
-// climb down); RAMP_BAND is still used only to pad the patrol-avoidance
-// band below so bot waypoints never land over the hole.
+// There's no walkable descent through it — standing over it drops the
+// player straight down via gravity (see the tick loop) rather than
+// letting them walk down like actual stairs; RAMP_BAND is still used
+// only to pad the patrol-avoidance band below so bot waypoints never
+// land over the hole.
 const RAMP_HALF_WIDTH = HOLE_INNER_SIZE / 2;
-const RAMP_RUN_LENGTH = 4.5;
+const RAMP_RUN_LENGTH = 2.25; // halved from the original 4.5 on request
 const RAMP_BAND = 0.5;
 // Fall acceleration through a stairwell hole — tuned for a quick, snappy
 // drop to the tunnel floor (the ~3.5-unit fall takes well under a second)
