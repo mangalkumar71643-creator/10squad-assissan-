@@ -893,6 +893,36 @@ function createDoorPanelTexture(side: 0 | 1, maxAnisotropy: number): THREE.Textu
   return texture;
 }
 
+// The stairwell hatch is a real walk-in elevator: a static frame plaque
+// (the full reference photo — frame, "G / GROUND" indicator, call buttons)
+// mounted at the doorway, plus two plain sliding leaves cut from the wall
+// panel photo that part in front of it. Both load once and clone per use,
+// same as the other real-photo textures above.
+let elevatorDoorTextureBase: THREE.Texture | null = null;
+function createElevatorDoorTexture(maxAnisotropy: number): THREE.Texture {
+  if (!elevatorDoorTextureBase) {
+    const base = new THREE.TextureLoader().load("/textures/elevator-door.jpg");
+    base.colorSpace = THREE.SRGBColorSpace;
+    elevatorDoorTextureBase = base;
+  }
+  const texture = elevatorDoorTextureBase.clone();
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
+let elevatorWallTextureBase: THREE.Texture | null = null;
+function createElevatorWallTexture(maxAnisotropy: number): THREE.Texture {
+  if (!elevatorWallTextureBase) {
+    const base = new THREE.TextureLoader().load("/textures/elevator-wall.jpg");
+    base.colorSpace = THREE.SRGBColorSpace;
+    base.wrapS = THREE.RepeatWrapping;
+    base.wrapT = THREE.RepeatWrapping;
+    elevatorWallTextureBase = base;
+  }
+  const texture = elevatorWallTextureBase.clone();
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
+
 // Procedural sci-fi metal floor texture for the arena — dark blue-grey
 // plating (layered value noise for subtle wear patches, fine speckle for
 // grain) with beveled panel seams and a glowing cyan tactical-grid accent
@@ -996,46 +1026,6 @@ function createHazardStripeTexture(): THREE.CanvasTexture {
     ctx.fillRect(x, -size, stripeWidth, size * 4);
   }
   ctx.restore();
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  return texture;
-}
-
-// A metal floor-grate look for the stairwell hatch cover — a grid of raised
-// bars over dark gaps, so it reads as a "jaali" (lattice) you could see/fall
-// through rather than a plain solid lid, even though it's an opaque mesh.
-function createGrilleTexture(): THREE.CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#15181c";
-  ctx.fillRect(0, 0, size, size);
-  const cell = size / 8;
-  const gap = cell * 0.22;
-  ctx.fillStyle = "#0a0c0e";
-  for (let gx = 0; gx < 8; gx++) {
-    for (let gy = 0; gy < 8; gy++) {
-      ctx.fillRect(gx * cell + gap, gy * cell + gap, cell - gap * 2, cell - gap * 2);
-    }
-  }
-  ctx.strokeStyle = "#565f68";
-  ctx.lineWidth = 2;
-  for (let gx = 0; gx <= 8; gx++) {
-    ctx.beginPath();
-    ctx.moveTo(gx * cell, 0);
-    ctx.lineTo(gx * cell, size);
-    ctx.stroke();
-  }
-  for (let gy = 0; gy <= 8; gy++) {
-    ctx.beginPath();
-    ctx.moveTo(0, gy * cell);
-    ctx.lineTo(size, gy * cell);
-    ctx.stroke();
-  }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
@@ -3141,7 +3131,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // just the hole itself, so it stays a clear window straight down into
     // the tunnel from the house floor above.
     const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide });
-    const holeShaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.9, side: THREE.DoubleSide });
+    const holeShaftMat = new THREE.MeshStandardMaterial({
+      map: createElevatorWallTexture(wallMaxAnisotropy),
+      roughness: 0.6,
+      metalness: 0.35,
+      side: THREE.DoubleSide,
+    });
     // Every stair element below is built in the stairway's own local
     // "along" (distance from the house center, in the direction it
     // descends — see ROOM_TUNNEL_DIR) / "perp" (distance off to the
@@ -3197,23 +3192,55 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addWall(RAMP_RUN_LENGTH / 2, RAMP_HALF_WIDTH, RAMP_RUN_LENGTH, 0.05);
       addWall(0, 0, 0.05, width);
     }
-    // A grated hatch cover sitting over each hole, closed by default — the
-    // hole itself is a real gap cut through the floor (see groundShape's
-    // holes above), so without this the pit is just open air to fall into
-    // the instant you stand on it. The DOWN button (see descendRequested in
-    // the tick loop) drops each hatch out of the way on request instead.
-    const holeGateMeshes: THREE.Group[] = [];
+    // A real walk-in elevator standing at the mouth of each hole (along=0,
+    // right at the house's own center — this IS the hole, not something
+    // built beside it) instead of a flat hatch: a static frame plaque (the
+    // full reference photo — frame, "G / GROUND" indicator, call buttons)
+    // facing back into the room, with two plain metal leaves (cut from the
+    // wall-panel photo) sliding apart in front of it on request — see
+    // descendRequested in the tick loop. The hole itself is still the same
+    // real gap cut through the floor (see groundShape's holes above), so
+    // without the leaves closed, standing past them is open air.
+    const ELEVATOR_FRAME_WIDTH = 1.3;
+    const ELEVATOR_FRAME_HEIGHT = 2.3;
+    const ELEVATOR_LEAF_WIDTH = ELEVATOR_FRAME_WIDTH * 0.36;
+    const ELEVATOR_LEAF_HEIGHT = ELEVATOR_FRAME_HEIGHT * 0.76;
+    const ELEVATOR_LEAF_THICKNESS = 0.05;
+    const ELEVATOR_LEAF_GAP = 0.02; // small reveal between the two closed leaves
+    const DOOR_SLIDE_RATE = 4;
+    const elevatorFrameMat = new THREE.MeshStandardMaterial({
+      map: createElevatorDoorTexture(wallMaxAnisotropy),
+      roughness: 0.55,
+      metalness: 0.35,
+    });
+    const elevatorLeafMatA = new THREE.MeshStandardMaterial({
+      map: createElevatorWallTexture(wallMaxAnisotropy),
+      roughness: 0.6,
+      metalness: 0.4,
+    });
+    const elevatorLeafMatB = new THREE.MeshStandardMaterial({
+      map: createElevatorWallTexture(wallMaxAnisotropy),
+      roughness: 0.6,
+      metalness: 0.4,
+    });
+    interface HoleDoor {
+      leafA: THREE.Mesh;
+      leafB: THREE.Mesh;
+      centerX: number;
+      centerZ: number;
+      slideX: number; // unit vector each leaf slides outward along
+      slideZ: number;
+    }
+    const holeDoors: HoleDoor[] = [];
     const holeGateOpenAmount: number[] = [];
     const holeGateOpenTarget: number[] = [];
-    const grilleMat = new THREE.MeshStandardMaterial({
-      map: createGrilleTexture(),
-      roughness: 0.6,
-      metalness: 0.5,
-      side: THREE.DoubleSide,
-    });
-    const GATE_CLOSED_Y = 0.02;
-    const GATE_OPEN_Y = TUNNEL_Y + 0.3; // dropped down into the shaft, out of the way
-    const GATE_DROP_RATE = 6; // per-second approach rate for the open animation
+    const updateHoleDoor = (d: HoleDoor, openAmount: number) => {
+      const slide = ELEVATOR_LEAF_WIDTH * openAmount;
+      const aOffset = -(ELEVATOR_LEAF_WIDTH / 2 + ELEVATOR_LEAF_GAP / 2 + slide);
+      const bOffset = ELEVATOR_LEAF_WIDTH / 2 + ELEVATOR_LEAF_GAP / 2 + slide;
+      d.leafA.position.set(d.centerX + d.slideX * aOffset, ELEVATOR_LEAF_HEIGHT / 2, d.centerZ + d.slideZ * aOffset);
+      d.leafB.position.set(d.centerX + d.slideX * bOffset, ELEVATOR_LEAF_HEIGHT / 2, d.centerZ + d.slideZ * bOffset);
+    };
     // One stairway hole down through each house's own center, its matching
     // rim up at that same spot underground (in the ceiling there), and the
     // pit walls between the two — no physical steps filling the run, so
@@ -3226,15 +3253,38 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addFloorHoleRim(TUNNEL_STOPS[i].x, tunnelCeilingY, TUNNEL_STOPS[i].z, dir.x, dir.z);
       addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY, dir.x, dir.z);
       {
-        const { sizeX, sizeZ } = stairBoxSize(dir.x, dir.z, RAMP_RUN_LENGTH, RAMP_HALF_WIDTH * 2);
-        const gateMesh = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeZ), grilleMat);
-        gateMesh.rotation.x = -Math.PI / 2;
-        const centerPos = stairWorldPos(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, dir.x, dir.z, RAMP_RUN_LENGTH / 2, 0);
-        const gateGroup = new THREE.Group();
-        gateGroup.add(gateMesh);
-        gateGroup.position.set(centerPos.x, GATE_CLOSED_Y, centerPos.z);
-        scene.add(gateGroup);
-        holeGateMeshes.push(gateGroup);
+        // The doorway sits right at along=0 (the house's own center — the
+        // hole's near edge), facing back the way -dir points so it reads
+        // from wherever the player approaches it from inside the room.
+        const doorYaw = Math.atan2(-dir.x, -dir.z);
+        const frame = new THREE.Mesh(new THREE.PlaneGeometry(ELEVATOR_FRAME_WIDTH, ELEVATOR_FRAME_HEIGHT), elevatorFrameMat);
+        frame.rotation.y = doorYaw;
+        frame.position.set(ROOM_STAIRS_DOWN_POS[i].x, ELEVATOR_FRAME_HEIGHT / 2, ROOM_STAIRS_DOWN_POS[i].z);
+        scene.add(frame);
+
+        const leafA = new THREE.Mesh(
+          new THREE.BoxGeometry(ELEVATOR_LEAF_WIDTH, ELEVATOR_LEAF_HEIGHT, ELEVATOR_LEAF_THICKNESS),
+          elevatorLeafMatA,
+        );
+        const leafB = new THREE.Mesh(
+          new THREE.BoxGeometry(ELEVATOR_LEAF_WIDTH, ELEVATOR_LEAF_HEIGHT, ELEVATOR_LEAF_THICKNESS),
+          elevatorLeafMatB,
+        );
+        leafA.rotation.y = doorYaw;
+        leafB.rotation.y = doorYaw;
+        leafA.receiveShadow = true;
+        leafB.receiveShadow = true;
+        scene.add(leafA, leafB);
+        const door: HoleDoor = {
+          leafA,
+          leafB,
+          centerX: ROOM_STAIRS_DOWN_POS[i].x,
+          centerZ: ROOM_STAIRS_DOWN_POS[i].z,
+          slideX: -dir.z,
+          slideZ: dir.x,
+        };
+        updateHoleDoor(door, 0); // start fully closed
+        holeDoors.push(door);
         holeGateOpenAmount.push(0);
         holeGateOpenTarget.push(0);
       }
@@ -3963,8 +4013,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           if (hoveredHoleIndex !== -1) holeGateOpenTarget[hoveredHoleIndex] = 1;
         }
         for (let i = 0; i < holeGateOpenAmount.length; i++) {
-          holeGateOpenAmount[i] = approach(holeGateOpenAmount[i], holeGateOpenTarget[i], GATE_DROP_RATE, dt);
-          holeGateMeshes[i].position.y = THREE.MathUtils.lerp(GATE_CLOSED_Y, GATE_OPEN_Y, holeGateOpenAmount[i]);
+          holeGateOpenAmount[i] = approach(holeGateOpenAmount[i], holeGateOpenTarget[i], DOOR_SLIDE_RATE, dt);
+          updateHoleDoor(holeDoors[i], holeGateOpenAmount[i]);
         }
         const playerOverHole = hoveredHoleIndex !== -1 && holeGateOpenAmount[hoveredHoleIndex] > 0.5;
         // Once a fall has actually started, it keeps going until landing
