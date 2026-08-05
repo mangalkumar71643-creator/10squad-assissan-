@@ -1524,7 +1524,7 @@ const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
 // only to pad the patrol-avoidance band below so bot waypoints never
 // land over the hole.
 const RAMP_HALF_WIDTH = HOLE_INNER_SIZE / 2;
-const RAMP_RUN_LENGTH = 2.25; // halved from the original 4.5 on request
+const RAMP_RUN_LENGTH = 1.25; // shortened further on request (was 4.5, then 2.25)
 const RAMP_BAND = 0.5;
 // Fall acceleration through a stairwell hole — tuned for a quick, snappy
 // drop to the tunnel floor (the ~3.5-unit fall takes well under a second)
