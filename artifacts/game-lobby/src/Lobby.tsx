@@ -3847,7 +3847,7 @@ function GiftBox() {
       <div
         style={{
           position: "absolute",
-          top: "44%",
+          top: "calc(44% - 20px)",
           left: "50%",
           transform: "translateX(-50%)",
           display: "flex",
