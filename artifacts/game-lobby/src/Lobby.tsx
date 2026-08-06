@@ -3885,7 +3885,7 @@ function GiftBox() {
             alt="Gift crate"
             draggable={false}
             style={{
-              width: "clamp(130px, 30vw, 220px)",
+              width: "clamp(105px, 24vw, 175px)",
               display: "block",
               animation: "gift-bob 2.4s ease-in-out infinite",
             }}
