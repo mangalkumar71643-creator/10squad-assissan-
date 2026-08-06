@@ -3851,10 +3851,8 @@ export default function Lobby({ visible }: { visible: boolean }) {
           top: "8%",
           left: "50%",
           transform: "translateX(-50%)",
-          // Matches the reference mockup's proportion: the title crop is
-          // 440px wide against a 1168px-wide reference canvas (~38%).
-          width: "38%",
-          maxWidth: 300,
+          width: "30%",
+          maxWidth: 220,
           pointerEvents: "none",
         }}
       />
