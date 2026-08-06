@@ -893,46 +893,6 @@ function createDoorPanelTexture(side: 0 | 1, maxAnisotropy: number): THREE.Textu
   return texture;
 }
 
-// A metal floor-grate look for the stairwell hatch cover — a grid of raised
-// bars over dark gaps, so it reads as a "jaali" (lattice) you could see/fall
-// through rather than a plain solid lid, even though it's an opaque mesh.
-function createGrilleTexture(): THREE.CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#15181c";
-  ctx.fillRect(0, 0, size, size);
-  const cell = size / 8;
-  const gap = cell * 0.22;
-  ctx.fillStyle = "#0a0c0e";
-  for (let gx = 0; gx < 8; gx++) {
-    for (let gy = 0; gy < 8; gy++) {
-      ctx.fillRect(gx * cell + gap, gy * cell + gap, cell - gap * 2, cell - gap * 2);
-    }
-  }
-  ctx.strokeStyle = "#565f68";
-  ctx.lineWidth = 2;
-  for (let gx = 0; gx <= 8; gx++) {
-    ctx.beginPath();
-    ctx.moveTo(gx * cell, 0);
-    ctx.lineTo(gx * cell, size);
-    ctx.stroke();
-  }
-  for (let gy = 0; gy <= 8; gy++) {
-    ctx.beginPath();
-    ctx.moveTo(0, gy * cell);
-    ctx.lineTo(size, gy * cell);
-    ctx.stroke();
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  return texture;
-}
-
 // Procedural sci-fi metal floor texture for the arena — dark blue-grey
 // plating (layered value noise for subtle wear patches, fine speckle for
 // grain) with beveled panel seams and a glowing cyan tactical-grid accent
@@ -1012,21 +972,6 @@ function createFloorTexture(repeatCount: number, maxAnisotropy: number): THREE.C
   // close chase camera sees goes visibly blurry/muddy at any distance,
   // regardless of source resolution — anisotropic filtering is what
   // actually fixes that.
-  texture.anisotropy = maxAnisotropy;
-  return texture;
-}
-
-// A framed metal wall panel photo, mounted standing in the tunnel facing
-// back at each stairwell's landing spot — loaded once and cloned per use,
-// same as the other real-photo textures above.
-let tunnelWallTextureBase: THREE.Texture | null = null;
-function createTunnelWallTexture(maxAnisotropy: number): THREE.Texture {
-  if (!tunnelWallTextureBase) {
-    const base = new THREE.TextureLoader().load("/textures/tunnel-wall.jpg");
-    base.colorSpace = THREE.SRGBColorSpace;
-    tunnelWallTextureBase = base;
-  }
-  const texture = tunnelWallTextureBase.clone();
   texture.anisotropy = maxAnisotropy;
   return texture;
 }
@@ -1568,27 +1513,15 @@ const NEWROOM_WALLS: Obstacle[] = [
 // rather than tucked in a corner.
 const TUNNEL_Y = -3.5;
 const TUNNEL_WALL_HEIGHT = 2.2;
-const HOLE_HALF_SIZE = 0.65; // square, not round — half-extent (halved from the original 1.1 on request)
+const HOLE_HALF_SIZE = 1.65; // square, not round — half-extent (enlarged by 1 unit on request)
 const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
 // The shaft's footprint, oriented along the house's own tunnel connection
 // (see ROOM_TUNNEL_DIR) rather than a plain square — a run, not just a
-// point, so the opening reads as a real corridor down into the tunnel.
-// There's no walkable descent through it — standing over it drops the
-// player straight down via gravity (see the tick loop) rather than
-// letting them walk down like actual stairs; RAMP_BAND is still used
-// only to pad the patrol-avoidance band below so bot waypoints never
-// land over the hole.
+// point, so the opening reads as a real corridor down into the tunnel,
+// with real walkable stairs (see addStairsInHole) filling it.
 const RAMP_HALF_WIDTH = HOLE_INNER_SIZE / 2;
-const RAMP_RUN_LENGTH = 1.25; // shortened further on request (was 4.5, then 2.25)
+const RAMP_RUN_LENGTH = 1.25;
 const RAMP_BAND = 0.5;
-// Fall acceleration through a stairwell hole — tuned for a quick, snappy
-// drop to the tunnel floor (the ~3.5-unit fall takes well under a second)
-// rather than a slow, floaty one.
-const FALL_GRAVITY = 14;
-// The ride back up is a constant-speed lift rather than reverse gravity
-// (nothing would be "pulling" the player up) — tuned to cover the same
-// ~3.5-unit trip in roughly the same time as the fall down.
-const GATE_RISE_SPEED = 6;
 const ROOM_STAIRS_DOWN_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS, ROOM6_POS];
 const TUNNEL_STOPS = ROOM_STAIRS_DOWN_POS.map((p) => ({ x: p.x, z: p.z }));
 // Which way each house's staircase actually descends, matching the real
@@ -1728,42 +1661,6 @@ function segmentHitsObstacle(x1: number, z1: number, x2: number, z2: number, ob:
     if (tmin > tmax) return false;
   }
   return true;
-}
-
-// Same slab test as segmentHitsObstacle, but returns how far along the
-// segment (0-1) it first enters the box instead of just yes/no — used to
-// pull the chase camera in front of a wall it would otherwise clip
-// through, rather than just not spawning walls close enough to matter.
-function segmentObstacleEntryT(x1: number, z1: number, x2: number, z2: number, ob: Obstacle): number | null {
-  const minX = ob.x - ob.halfX;
-  const maxX = ob.x + ob.halfX;
-  const minZ = ob.z - ob.halfZ;
-  const maxZ = ob.z + ob.halfZ;
-  const dx = x2 - x1;
-  const dz = z2 - z1;
-  let tmin = 0;
-  let tmax = 1;
-  if (Math.abs(dx) < 1e-9) {
-    if (x1 < minX || x1 > maxX) return null;
-  } else {
-    let t1 = (minX - x1) / dx;
-    let t2 = (maxX - x1) / dx;
-    if (t1 > t2) [t1, t2] = [t2, t1];
-    tmin = Math.max(tmin, t1);
-    tmax = Math.min(tmax, t2);
-    if (tmin > tmax) return null;
-  }
-  if (Math.abs(dz) < 1e-9) {
-    if (z1 < minZ || z1 > maxZ) return null;
-  } else {
-    let t1 = (minZ - z1) / dz;
-    let t2 = (maxZ - z1) / dz;
-    if (t1 > t2) [t1, t2] = [t2, t1];
-    tmin = Math.max(tmin, t1);
-    tmax = Math.min(tmax, t2);
-    if (tmin > tmax) return null;
-  }
-  return tmin;
 }
 
 // Each door opening's sliding gate occupies a *gap* in OBSTACLES (see
@@ -2877,10 +2774,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   // Manual sprint toggle: tapping RUN forces full sprint on regardless of
   // how far the joystick is pushed, instead of requiring it held near max.
   const runToggled = useRef(false);
-  // One-shot: set true on tap, consumed (and cleared) by the tick loop the
-  // next frame it runs — opens the hatch under the player's feet if they're
-  // standing over one, otherwise it's just a no-op tap.
-  const descendRequested = useRef(false);
   const [runActive, setRunActive] = useState(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
@@ -2939,9 +2832,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // (no vertical drag yet) reproduces the exact same default view as
     // before, with up/down drag then orbiting away from that angle.
     const CAM_ORBIT_RADIUS = Math.hypot(CAM_DISTANCE, CAM_HEIGHT - CAM_LOOK_HEIGHT);
-    // How far in front of a wall (see cameraBlockers) the camera stops,
-    // instead of sitting exactly on its surface once pulled in.
-    const CAM_COLLIDE_MARGIN = 0.2;
     const CAM_BASE_PITCH = Math.atan2(CAM_HEIGHT - CAM_LOOK_HEIGHT, CAM_DISTANCE);
     const CAM_PITCH_MIN = -0.15; // near-level, looking slightly down at most
     const CAM_PITCH_MAX = 1.3; // steep overhead angle, short of straight down
@@ -3255,53 +3145,28 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addWall(RAMP_RUN_LENGTH / 2, RAMP_HALF_WIDTH, RAMP_RUN_LENGTH, 0.05);
       addWall(0, 0, 0.05, width);
     }
-    // A grated hatch cover sitting over each hole, closed by default — the
-    // hole itself is a real gap cut through the floor (see groundShape's
-    // holes above), so without this the pit is just open air to fall into
-    // the instant you stand on it. The DOWN button (see descendRequested in
-    // the tick loop) drops each hatch out of the way on request instead.
-    const holeGateMeshes: THREE.Group[] = [];
-    const holeGateOpenAmount: number[] = [];
-    const holeGateOpenTarget: number[] = [];
-    // Walls the chase camera itself should never clip through (see
-    // addTunnelWallPanel below and the camera-collision check in the tick
-    // loop) — close-quarters set pieces like the tunnel wall panels sit
-    // well within the camera's own orbit distance, which used to mean
-    // standing near one and facing it put the camera behind/inside it.
-    const cameraBlockers: Obstacle[] = [];
-    const grilleMat = new THREE.MeshStandardMaterial({
-      map: createGrilleTexture(),
-      roughness: 0.6,
-      metalness: 0.5,
-      side: THREE.DoubleSide,
-    });
-    const GATE_CLOSED_Y = 0.02;
-    const GATE_OPEN_Y = TUNNEL_Y + 0.3; // dropped down into the shaft, out of the way
-    const GATE_DROP_RATE = 6; // per-second approach rate for the open animation
-    // A framed wall panel standing in the tunnel facing back toward each
-    // stairwell's landing spot — so falling (or riding) down through a
-    // hole lands you facing a real wall instead of open corridor space.
-    // Sized to reach floor-to-ceiling (TUNNEL_WALL_HEIGHT) so it actually
-    // reads as a wall against the tunnel's own scale — sizing it to the
-    // hole's own (much smaller) width instead just made it look shrunk.
-    const TUNNEL_WALL_PANEL_HEIGHT = TUNNEL_WALL_HEIGHT;
-    const TUNNEL_WALL_PANEL_WIDTH = TUNNEL_WALL_PANEL_HEIGHT * (850 / 1120);
-    const TUNNEL_WALL_PANEL_SETOFF = 1.5; // how far past the landing spot, into the tunnel — same on all four sides
-    const TUNNEL_WALL_PANEL_THICKNESS = 0.15; // just for the camera-collision box below; the mesh itself is a flat plane
-    // Matte, not the usual metal-panel roughness/metalness — the player-
-    // following key light (see SHADOW_FOLLOW_DIR/key.position further down)
-    // hits this panel's flat face dead-on wherever the player stands near
-    // it, and any real specular response there blew out to solid white.
-    // DoubleSide — a single PlaneGeometry is invisible from its back face
-    // by default, which is exactly why this read as a hole straight
-    // through to the sky when viewed from the far side.
-    const tunnelWallPanelMat = new THREE.MeshStandardMaterial({
-      map: createTunnelWallTexture(wallMaxAnisotropy),
-      color: 0xa0a0a0,
-      roughness: 0.95,
-      metalness: 0.05,
-      side: THREE.DoubleSide,
-    });
+    const stairMat = new THREE.MeshStandardMaterial({ color: 0x8a929c, emissive: 0x2a3138, emissiveIntensity: 0.6, roughness: 0.5, metalness: 0.3 });
+    const stairEdgeMat = new THREE.LineBasicMaterial({ color: 0xff9a4a });
+    // Real walkable steps filling the stairwell run, rather than an open
+    // shaft — 14 steps from the house floor (topY) down to the tunnel
+    // floor (bottomY), each edge-highlighted so the drop reads clearly
+    // even in the tunnel's dim lighting.
+    function addStairsInHole(x: number, z: number, topY: number, bottomY: number, dirX: number, dirZ: number) {
+      const steps = 14;
+      const stepHeight = (topY - bottomY) / steps;
+      const stepDepth = RAMP_RUN_LENGTH / steps;
+      const width = RAMP_HALF_WIDTH * 2;
+      for (let i = 0; i < steps; i++) {
+        const stepCenterY = topY - stepHeight * (i + 0.5);
+        const along = stepDepth * (i + 0.5);
+        const pos = stairWorldPos(x, z, dirX, dirZ, along, 0);
+        const { sizeX, sizeZ } = stairBoxSize(dirX, dirZ, stepDepth, width);
+        const step = new THREE.Mesh(new THREE.BoxGeometry(sizeX, stepHeight, sizeZ), stairMat);
+        step.position.set(pos.x, stepCenterY, pos.z);
+        step.add(new THREE.LineSegments(new THREE.EdgesGeometry(step.geometry), stairEdgeMat));
+        scene.add(step);
+      }
+    }
     // One stairway hole down through each house's own center, its matching
     // rim up at that same spot underground (in the ceiling there), and the
     // pit walls between the two — no physical steps filling the run, so
@@ -3313,19 +3178,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       addFloorHoleRim(ROOM_STAIRS_DOWN_POS[i].x, 0, ROOM_STAIRS_DOWN_POS[i].z, dir.x, dir.z);
       addFloorHoleRim(TUNNEL_STOPS[i].x, tunnelCeilingY, TUNNEL_STOPS[i].z, dir.x, dir.z);
       addHoleShaft(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, tunnelCeilingY, dir.x, dir.z);
-      {
-        const { sizeX, sizeZ } = stairBoxSize(dir.x, dir.z, RAMP_RUN_LENGTH, RAMP_HALF_WIDTH * 2);
-        const gateMesh = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeZ), grilleMat);
-        gateMesh.rotation.x = -Math.PI / 2;
-        const centerPos = stairWorldPos(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, dir.x, dir.z, RAMP_RUN_LENGTH / 2, 0);
-        const gateGroup = new THREE.Group();
-        gateGroup.add(gateMesh);
-        gateGroup.position.set(centerPos.x, GATE_CLOSED_Y, centerPos.z);
-        scene.add(gateGroup);
-        holeGateMeshes.push(gateGroup);
-        holeGateOpenAmount.push(0);
-        holeGateOpenTarget.push(0);
-      }
+      addStairsInHole(ROOM_STAIRS_DOWN_POS[i].x, ROOM_STAIRS_DOWN_POS[i].z, 0, TUNNEL_Y, dir.x, dir.z);
       // Nothing else reaches down into the shaft otherwise (it sits
       // below the room's own ambient light and above the tunnel's floor
       // strip), which is exactly why the stairs were reading as a flat
@@ -3346,36 +3199,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         ROOM_STAIRS_DOWN_POS[i].z + dir.z * (RAMP_RUN_LENGTH * 0.8),
       );
       scene.add(bottomLight);
-
-      {
-        // One panel on each of the four sides of the landing spot — the
-        // two along dir (facing the way the hole descends and back the
-        // other way) plus two more along the perpendicular axis, which
-        // used to be left wide open — each facing inward, fully closing
-        // the little chamber around where the player actually lands.
-        const addTunnelWallPanel = (offsetX: number, offsetZ: number, normalX: number, normalZ: number) => {
-          const panel = new THREE.Mesh(
-            new THREE.PlaneGeometry(TUNNEL_WALL_PANEL_WIDTH, TUNNEL_WALL_PANEL_HEIGHT),
-            tunnelWallPanelMat,
-          );
-          panel.rotation.y = Math.atan2(normalX, normalZ);
-          const x = TUNNEL_STOPS[i].x + offsetX;
-          const z = TUNNEL_STOPS[i].z + offsetZ;
-          panel.position.set(x, TUNNEL_Y + TUNNEL_WALL_PANEL_HEIGHT / 2, z);
-          scene.add(panel);
-          // Thin along its own normal, full width along the wall's own
-          // face — reuses the same along/width -> world X/Z convention as
-          // stairBoxSize above (normal here plays the role "dir" does there).
-          const { sizeX, sizeZ } = stairBoxSize(normalX, normalZ, TUNNEL_WALL_PANEL_THICKNESS, TUNNEL_WALL_PANEL_WIDTH);
-          cameraBlockers.push({ x, z, halfX: sizeX / 2, halfZ: sizeZ / 2, pad: 0 });
-        };
-        const perpX = -dir.z;
-        const perpZ = dir.x;
-        addTunnelWallPanel(dir.x * TUNNEL_WALL_PANEL_SETOFF, dir.z * TUNNEL_WALL_PANEL_SETOFF, -dir.x, -dir.z);
-        addTunnelWallPanel(-dir.x * TUNNEL_WALL_PANEL_SETOFF, -dir.z * TUNNEL_WALL_PANEL_SETOFF, dir.x, dir.z);
-        addTunnelWallPanel(perpX * TUNNEL_WALL_PANEL_SETOFF, perpZ * TUNNEL_WALL_PANEL_SETOFF, -perpX, -perpZ);
-        addTunnelWallPanel(-perpX * TUNNEL_WALL_PANEL_SETOFF, -perpZ * TUNNEL_WALL_PANEL_SETOFF, perpX, perpZ);
-      }
     }
 
     // The tunnel itself — every wall in the level, mirrored at TUNNEL_Y
@@ -3875,17 +3698,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // gives the accel/decel and the turning its weight.
     let playerVelX = 0;
     let playerVelZ = 0;
-    // Downward speed while falling through a stairwell hole (see the
-    // gravity check further down in the tick loop) — reset to 0 the
-    // moment the player lands on solid ground again.
-    let playerFallVel = 0;
-    // True while riding the elevator back up (the DOWN button doubles as
-    // an UP call when pressed from the tunnel floor — see descendRequested
-    // below). Which hole's gate is tied to the current ride, so it can be
-    // closed again behind the player the moment they arrive, regardless of
-    // which hole they're standing over by then.
-    let playerRising = false;
-    let activeHoleIndex = -1;
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
@@ -4059,15 +3871,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         player.root.position.z = clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         resolveObstacleCollisions(player.root.position);
 
-        // Real gravity through each house's stairwell hole (see
-        // ROOM_STAIRS_DOWN_POS/ROOM_TUNNEL_DIR for its footprint) — but only
-        // once its hatch is open (see holeGateOpenAmount below): closed, the
-        // grate stands in for solid floor and the player just walks over it
-        // like anywhere else. Off the hole, they're just snapped to
-        // whichever solid floor they're already closer to (a no-op unless
-        // they've just left the hole's footprint horizontally), so nothing
-        // here fights with normal ground-level movement above or below.
-        let hoveredHoleIndex = -1;
+        // Walking down each house's stairwell (see ROOM_STAIRS_DOWN_POS/
+        // ROOM_TUNNEL_DIR for its footprint) continuously follows the
+        // stairs' own slope — height is just a function of how far along
+        // the run the player currently is, not a separate fall/rise state.
         for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
           const spot = ROOM_STAIRS_DOWN_POS[i];
           const dir = ROOM_TUNNEL_DIR[i];
@@ -4075,74 +3882,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           const dz = player.root.position.z - spot.z;
           const along = dx * dir.x + dz * dir.z;
           const perp = dz * dir.x - dx * dir.z;
-          if (Math.abs(perp) < RAMP_HALF_WIDTH && along > 0 && along < RAMP_RUN_LENGTH) {
-            hoveredHoleIndex = i;
+          if (Math.abs(perp) < RAMP_HALF_WIDTH && along > -RAMP_BAND && along < RAMP_RUN_LENGTH + RAMP_BAND) {
+            const progress = clamp(along / RAMP_RUN_LENGTH, 0, 1);
+            player.root.position.y = THREE.MathUtils.lerp(0, TUNNEL_Y, progress);
             break;
-          }
-        }
-        // The DOWN button's tap: open whichever hatch the player is
-        // currently standing over — and since it's the same button both
-        // ways, which direction that ride goes depends on which floor the
-        // player is already on (near the tunnel floor rides up; anywhere
-        // else near the room floor rides down). Ignored entirely mid-ride
-        // (not grounded on either floor yet) so a stray extra tap can't
-        // reverse a fall/rise already in progress; otherwise a tap is a
-        // no-op if it doesn't land on a hole, consumed either way.
-        if (descendRequested.current) {
-          descendRequested.current = false;
-          const grounded = !playerRising && playerFallVel === 0;
-          if (grounded && hoveredHoleIndex !== -1) {
-            holeGateOpenTarget[hoveredHoleIndex] = 1;
-            activeHoleIndex = hoveredHoleIndex;
-            if (player.root.position.y <= TUNNEL_Y / 2) {
-              playerRising = true;
-            }
-          }
-        }
-        for (let i = 0; i < holeGateOpenAmount.length; i++) {
-          holeGateOpenAmount[i] = approach(holeGateOpenAmount[i], holeGateOpenTarget[i], GATE_DROP_RATE, dt);
-          holeGateMeshes[i].position.y = THREE.MathUtils.lerp(GATE_CLOSED_Y, GATE_OPEN_Y, holeGateOpenAmount[i]);
-        }
-        const playerOverHole = hoveredHoleIndex !== -1 && holeGateOpenAmount[hoveredHoleIndex] > 0.5;
-        // Once a fall (or a ride up) has actually started, it keeps going
-        // until arrival even if a frame of horizontal drift briefly
-        // carries the player just outside the hole's (fairly narrow)
-        // footprint — otherwise a tiny sideways nudge mid-transit would
-        // cancel it and snap them back, which reads as a glitch, not
-        // gravity/a lift ride.
-        if (playerRising) {
-          player.root.position.y = Math.min(player.root.position.y + GATE_RISE_SPEED * dt, 0);
-          if (player.root.position.y >= 0) {
-            playerRising = false;
-            // The doors snap shut behind the player the instant the ride
-            // is over — closing it gradually via holeGateOpenTarget alone
-            // left it above the 0.5-open fall/no-fall threshold for a few
-            // more frames, which was enough for the gravity check below to
-            // see "over an open hole" and drop them straight back down the
-            // moment they arrived.
-            if (activeHoleIndex !== -1) {
-              holeGateOpenTarget[activeHoleIndex] = 0;
-              holeGateOpenAmount[activeHoleIndex] = 0;
-            }
-            activeHoleIndex = -1;
-          }
-        } else {
-          const midFall = playerFallVel > 0 && player.root.position.y > TUNNEL_Y;
-          if (midFall || (playerOverHole && player.root.position.y > TUNNEL_Y)) {
-            playerFallVel += FALL_GRAVITY * dt;
-            player.root.position.y = Math.max(player.root.position.y - playerFallVel * dt, TUNNEL_Y);
-            if (player.root.position.y <= TUNNEL_Y) {
-              if (activeHoleIndex !== -1) {
-                holeGateOpenTarget[activeHoleIndex] = 0;
-                holeGateOpenAmount[activeHoleIndex] = 0;
-              }
-              activeHoleIndex = -1;
-            }
-          } else {
-            playerFallVel = 0;
-            if (!playerOverHole) {
-              player.root.position.y = player.root.position.y > TUNNEL_Y / 2 ? 0 : TUNNEL_Y;
-            }
           }
         }
 
@@ -4434,30 +4177,10 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         const pitch = clamp(CAM_BASE_PITCH + cameraPitch.current, CAM_PITCH_MIN, CAM_PITCH_MAX);
         const orbitHoriz = CAM_ORBIT_RADIUS * Math.cos(pitch);
         const orbitVert = CAM_ORBIT_RADIUS * Math.sin(pitch);
-        const orbitOffsetX = -Math.sin(facing) * orbitHoriz;
-        const orbitOffsetZ = -Math.cos(facing) * orbitHoriz;
-        // Pull the camera in along this same ray, short of any wall it
-        // would otherwise end up behind or inside — a close-quarters set
-        // piece (like the tunnel wall panels) can easily sit well within
-        // the camera's own orbit distance from the player.
-        let camT = 1;
-        for (const ob of cameraBlockers) {
-          const t = segmentObstacleEntryT(
-            player.root.position.x,
-            player.root.position.z,
-            player.root.position.x + orbitOffsetX,
-            player.root.position.z + orbitOffsetZ,
-            ob,
-          );
-          if (t !== null && t < camT) camT = t;
-        }
-        if (camT < 1) {
-          camT = Math.max(0, camT - CAM_COLLIDE_MARGIN / Math.max(orbitHoriz, 0.001));
-        }
         camTargetPos.set(
-          player.root.position.x + orbitOffsetX * camT,
-          CAM_LOOK_HEIGHT + player.root.position.y + orbitVert * camT,
-          player.root.position.z + orbitOffsetZ * camT,
+          player.root.position.x - Math.sin(facing) * orbitHoriz,
+          CAM_LOOK_HEIGHT + player.root.position.y + orbitVert,
+          player.root.position.z - Math.cos(facing) * orbitHoriz,
         );
         // The follow used to add a head bob synced to the running phase
         // and a slight roll while turning, for a more cinematic feel —
@@ -4810,45 +4533,6 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         }}
       >
         RUN
-      </button>
-
-      {/* Descend button — opens the hatch under the player's feet (see
-          descendRequested in the tick loop); a tap anywhere else is just a
-          harmless no-op, so it's fine to leave this always on screen rather
-          than only showing it near a hole. */}
-      <button
-        onPointerDown={(e) => {
-          e.preventDefault();
-          descendRequested.current = true;
-        }}
-        aria-label="Descend"
-        style={{
-          position: "absolute",
-          right: "calc(7% + clamp(72px, 13vw, 100px) + 14px + clamp(56px, 10vw, 76px) + 14px)",
-          bottom: "9%",
-          width: "clamp(56px, 10vw, 76px)",
-          height: "clamp(56px, 10vw, 76px)",
-          borderRadius: "50%",
-          background: "radial-gradient(circle, #d9c4ff, #7b42d8)",
-          border: "2px solid rgba(230,210,255,0.85)",
-          boxShadow: "0 0 18px rgba(150,80,230,0.55)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-        }}
-      >
-        <span
-          aria-hidden="true"
-          style={{
-            width: 0,
-            height: 0,
-            borderLeft: "9px solid transparent",
-            borderRight: "9px solid transparent",
-            borderTop: "14px solid #fff8f0",
-            filter: "drop-shadow(0 0 4px rgba(0,0,0,0.35))",
-          }}
-        />
       </button>
 
       {result !== "playing" && (
