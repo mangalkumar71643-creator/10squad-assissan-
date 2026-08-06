@@ -3774,8 +3774,7 @@ function GiftBox() {
           cursor: available ? "pointer" : "default",
           WebkitTapHighlightColor: "transparent",
           transform: pressed && available ? "scale(0.94)" : "scale(1)",
-          transition: "transform 120ms ease, filter 300ms ease",
-          filter: available ? "none" : "grayscale(0.85) brightness(0.55)",
+          transition: "transform 120ms ease",
         }}
       >
         <img
@@ -3785,14 +3784,14 @@ function GiftBox() {
           style={{
             width: "clamp(150px, 36vw, 260px)",
             display: "block",
-            animation: available ? "gift-bob 2.4s ease-in-out infinite" : "none",
+            animation: "gift-bob 2.4s ease-in-out infinite",
           }}
         />
       </button>
       <div
         style={{
           marginTop: 2,
-          color: available ? "#fff" : "rgba(255,255,255,0.45)",
+          color: "#fff",
           fontFamily: "'Rajdhani', sans-serif",
           fontWeight: 700,
           fontSize: "clamp(13px, 3vw, 17px)",
