@@ -4751,8 +4751,8 @@ export default function Lobby({ visible }: { visible: boolean }) {
       }}
     >
       <img
-        src="/lobby-full-mockup.jpg"
-        alt="10 Squad Assassin lobby"
+        src="/lobby-bg-new.jpg"
+        alt="10 Squad Assassin lobby background"
         style={{
           position: "absolute",
           inset: 0,
