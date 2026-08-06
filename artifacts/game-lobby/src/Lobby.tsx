@@ -3315,6 +3315,21 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           TUNNEL_STOPS[i].z + dir.z * TUNNEL_WALL_PANEL_SETOFF,
         );
         scene.add(panel);
+
+        // A matching wall directly opposite it, the same distance back on
+        // the near side of the landing spot, facing the other way (+dir) so
+        // the two walls face each other with the landing spot between them.
+        const backPanel = new THREE.Mesh(
+          new THREE.PlaneGeometry(TUNNEL_WALL_PANEL_WIDTH, TUNNEL_WALL_PANEL_HEIGHT),
+          tunnelWallPanelMat,
+        );
+        backPanel.rotation.y = Math.atan2(dir.x, dir.z);
+        backPanel.position.set(
+          TUNNEL_STOPS[i].x - dir.x * TUNNEL_WALL_PANEL_SETOFF,
+          TUNNEL_Y + TUNNEL_WALL_PANEL_HEIGHT / 2,
+          TUNNEL_STOPS[i].z - dir.z * TUNNEL_WALL_PANEL_SETOFF,
+        );
+        scene.add(backPanel);
       }
     }
 
