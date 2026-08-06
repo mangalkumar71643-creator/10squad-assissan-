@@ -3088,7 +3088,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // smoothly through it) — no physical stair-step meshes, on purpose:
     // just the hole itself, so it stays a clear window straight down into
     // the tunnel from the house floor above.
-    const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide });
+    const holeRimMat = new THREE.MeshStandardMaterial({ color: 0x6be2ff, emissive: 0x6be2ff, emissiveIntensity: 1.2, roughness: 0.3, side: THREE.DoubleSide });
     const holeShaftMat = new THREE.MeshStandardMaterial({ color: 0x0a0e12, roughness: 0.9, side: THREE.DoubleSide });
     // Every stair element below is built in the stairway's own local
     // "along" (distance from the house center, in the direction it
@@ -3185,14 +3185,14 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       // black pit — these light the run from inside the stairwell
       // itself, one near the top and one near the tunnel floor since the
       // full run is too long now for a single point light to reach.
-      const topLight = new THREE.PointLight(0xffffff, 1.3, RAMP_RUN_LENGTH, 2);
+      const topLight = new THREE.PointLight(0x9fd8ff, 1.3, RAMP_RUN_LENGTH, 2);
       topLight.position.set(
         ROOM_STAIRS_DOWN_POS[i].x + dir.x * (RAMP_RUN_LENGTH * 0.2),
         -0.6,
         ROOM_STAIRS_DOWN_POS[i].z + dir.z * (RAMP_RUN_LENGTH * 0.2),
       );
       scene.add(topLight);
-      const bottomLight = new THREE.PointLight(0xffffff, 1.3, RAMP_RUN_LENGTH, 2);
+      const bottomLight = new THREE.PointLight(0x9fd8ff, 1.3, RAMP_RUN_LENGTH, 2);
       bottomLight.position.set(
         ROOM_STAIRS_DOWN_POS[i].x + dir.x * (RAMP_RUN_LENGTH * 0.8),
         TUNNEL_Y + 0.8,
