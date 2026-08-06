@@ -3847,7 +3847,7 @@ function GiftBox() {
       <div
         style={{
           position: "absolute",
-          top: "calc(44% - 20px)",
+          top: "calc(44% - 30px)",
           left: "50%",
           transform: "translateX(-50%)",
           display: "flex",
@@ -3959,7 +3959,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
         alt="10 Squad Assassin"
         style={{
           position: "absolute",
-          top: "4%",
+          top: "calc(4% - 10px)",
           left: "50%",
           transform: "translateX(-50%)",
           width: "25%",
