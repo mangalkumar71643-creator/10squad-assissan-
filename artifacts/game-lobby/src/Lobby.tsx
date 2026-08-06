@@ -1016,6 +1016,21 @@ function createFloorTexture(repeatCount: number, maxAnisotropy: number): THREE.C
   return texture;
 }
 
+// A framed metal wall panel photo, mounted standing in the tunnel facing
+// back at each stairwell's landing spot — loaded once and cloned per use,
+// same as the other real-photo textures above.
+let tunnelWallTextureBase: THREE.Texture | null = null;
+function createTunnelWallTexture(maxAnisotropy: number): THREE.Texture {
+  if (!tunnelWallTextureBase) {
+    const base = new THREE.TextureLoader().load("/textures/tunnel-wall.jpg");
+    base.colorSpace = THREE.SRGBColorSpace;
+    tunnelWallTextureBase = base;
+  }
+  const texture = tunnelWallTextureBase.clone();
+  texture.anisotropy = maxAnisotropy;
+  return texture;
+}
+
 // Diagonal yellow/black hazard stripes for the floor decal at a doorway
 // threshold.
 function createHazardStripeTexture(): THREE.CanvasTexture {
@@ -3218,6 +3233,22 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const GATE_CLOSED_Y = 0.02;
     const GATE_OPEN_Y = TUNNEL_Y + 0.3; // dropped down into the shaft, out of the way
     const GATE_DROP_RATE = 6; // per-second approach rate for the open animation
+    // A framed wall panel standing in the tunnel facing back toward each
+    // stairwell's landing spot — so falling (or riding) down through a
+    // hole lands you facing a real wall instead of open corridor space.
+    const TUNNEL_WALL_PANEL_HEIGHT = 2.2;
+    const TUNNEL_WALL_PANEL_WIDTH = TUNNEL_WALL_PANEL_HEIGHT * (850 / 1120);
+    const TUNNEL_WALL_PANEL_SETOFF = 3; // how far past the landing spot, into the tunnel — clear of the bottomLight right under the shaft
+    // Matte, not the usual metal-panel roughness/metalness — the player-
+    // following key light (see SHADOW_FOLLOW_DIR/key.position further down)
+    // hits this panel's flat face dead-on wherever the player stands near
+    // it, and any real specular response there blew out to solid white.
+    const tunnelWallPanelMat = new THREE.MeshStandardMaterial({
+      map: createTunnelWallTexture(wallMaxAnisotropy),
+      color: 0xa0a0a0,
+      roughness: 0.95,
+      metalness: 0.05,
+    });
     // One stairway hole down through each house's own center, its matching
     // rim up at that same spot underground (in the ceiling there), and the
     // pit walls between the two — no physical steps filling the run, so
@@ -3262,6 +3293,25 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         ROOM_STAIRS_DOWN_POS[i].z + dir.z * (RAMP_RUN_LENGTH * 0.8),
       );
       scene.add(bottomLight);
+
+      {
+        // Standing a bit past the landing spot in the direction the hole
+        // itself descends (dir), facing back the way -dir points — so
+        // whoever comes down through the hole and looks forward sees this
+        // wall facing them.
+        const panelYaw = Math.atan2(-dir.x, -dir.z);
+        const panel = new THREE.Mesh(
+          new THREE.PlaneGeometry(TUNNEL_WALL_PANEL_WIDTH, TUNNEL_WALL_PANEL_HEIGHT),
+          tunnelWallPanelMat,
+        );
+        panel.rotation.y = panelYaw;
+        panel.position.set(
+          TUNNEL_STOPS[i].x + dir.x * TUNNEL_WALL_PANEL_SETOFF,
+          TUNNEL_Y + TUNNEL_WALL_PANEL_HEIGHT / 2,
+          TUNNEL_STOPS[i].z + dir.z * TUNNEL_WALL_PANEL_SETOFF,
+        );
+        scene.add(panel);
+      }
     }
 
     // The tunnel itself — every wall in the level, mirrored at TUNNEL_Y
