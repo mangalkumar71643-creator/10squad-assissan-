@@ -4680,7 +4680,7 @@ function GiftBox() {
           alt="Gift crate"
           draggable={false}
           style={{
-            width: "clamp(120px, 30vw, 220px)",
+            width: "clamp(150px, 36vw, 260px)",
             display: "block",
             animation: available ? "gift-bob 2.4s ease-in-out infinite" : "none",
           }}
@@ -4897,8 +4897,10 @@ export default function Lobby({ visible }: { visible: boolean }) {
           top: "8%",
           left: "50%",
           transform: "translateX(-50%)",
-          width: "72%",
-          maxWidth: 460,
+          // Matches the reference mockup's proportion: the title crop is
+          // 440px wide against a 1168px-wide reference canvas (~38%).
+          width: "38%",
+          maxWidth: 300,
           pointerEvents: "none",
         }}
       />
