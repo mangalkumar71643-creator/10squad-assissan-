@@ -3236,9 +3236,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // A framed wall panel standing in the tunnel facing back toward each
     // stairwell's landing spot — so falling (or riding) down through a
     // hole lands you facing a real wall instead of open corridor space.
-    const TUNNEL_WALL_PANEL_HEIGHT = 2.2;
-    const TUNNEL_WALL_PANEL_WIDTH = TUNNEL_WALL_PANEL_HEIGHT * (850 / 1120);
-    const TUNNEL_WALL_PANEL_SETOFF = 3; // how far past the landing spot, into the tunnel — clear of the bottomLight right under the shaft
+    // Sized to the hole's own width (RAMP_HALF_WIDTH*2), not the photo's
+    // natural size, and pulled in close to the landing spot.
+    const TUNNEL_WALL_PANEL_WIDTH = RAMP_HALF_WIDTH * 2;
+    const TUNNEL_WALL_PANEL_HEIGHT = TUNNEL_WALL_PANEL_WIDTH * (1120 / 850);
+    const TUNNEL_WALL_PANEL_SETOFF = 1.5; // how far past the landing spot, into the tunnel
     // Matte, not the usual metal-panel roughness/metalness — the player-
     // following key light (see SHADOW_FOLLOW_DIR/key.position further down)
     // hits this panel's flat face dead-on wherever the player stands near
