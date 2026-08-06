@@ -3695,112 +3695,224 @@ function CombatArena({ onExit }: { onExit: () => void }) {
 // flip it back to "1" going forward, not this default.
 const GIFT_AVAILABLE_STORAGE_KEY = "10sa-gift-available";
 
+function GiftClaimPanel({
+  available,
+  onClaim,
+  onClose,
+}: {
+  available: boolean;
+  onClaim: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-label="Gift"
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgba(4, 6, 16, 0.75)",
+        backdropFilter: "blur(6px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 10,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(360px, 82vw)",
+          background: "linear-gradient(180deg, rgba(20,14,42,0.97), rgba(8,6,20,0.97))",
+          border: "1px solid rgba(168,120,255,0.45)",
+          borderRadius: 14,
+          boxShadow: "0 0 60px rgba(120,60,255,0.35), inset 0 0 40px rgba(80,40,180,0.15)",
+          padding: "22px 26px 28px",
+          fontFamily: "'Barlow', sans-serif",
+          color: "#e8e2ff",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2
+            style={{
+              margin: 0,
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 22,
+              letterSpacing: 2,
+              color: "#c9a8ff",
+              textShadow: "0 0 18px rgba(170,110,255,0.7)",
+            }}
+          >
+            GIFT
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              border: "1px solid rgba(168,120,255,0.5)",
+              background: "rgba(255,255,255,0.05)",
+              color: "#e8e2ff",
+              fontSize: 18,
+              lineHeight: 1,
+              cursor: "pointer",
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            height: 1,
+            background: "linear-gradient(90deg, rgba(168,120,255,0.6), rgba(168,120,255,0))",
+          }}
+        />
+
+        <div style={{ marginTop: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "10px 8px" }}>
+          {available ? (
+            <>
+              <img src="/lobby-gift-crate.png" alt="Gift crate" style={{ width: 130 }} />
+              <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 600, fontSize: 16, letterSpacing: 1, color: "#c9a8ff" }}>
+                You have a gift waiting!
+              </div>
+              <button
+                onClick={onClaim}
+                style={{
+                  marginTop: 6,
+                  padding: "10px 28px",
+                  border: "none",
+                  borderRadius: 8,
+                  background: "linear-gradient(135deg, #ff6a2b 0%, #ff3d1a 55%, #d81f0f 100%)",
+                  boxShadow: "0 0 20px rgba(255,110,40,0.6)",
+                  color: "#fff",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 16,
+                  letterSpacing: "0.08em",
+                  cursor: "pointer",
+                }}
+              >
+                CLAIM
+              </button>
+            </>
+          ) : (
+            <>
+              <div
+                style={{
+                  width: 90,
+                  height: 90,
+                  borderRadius: "50%",
+                  border: "1px dashed rgba(168,120,255,0.4)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 30,
+                  opacity: 0.5,
+                }}
+              >
+                🎁
+              </div>
+              <div style={{ fontSize: 14, color: "#8a80a8", textAlign: "center", maxWidth: 260 }}>
+                No gift available right now. Check back later!
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GiftBox() {
   const [available, setAvailable] = useState(() => {
     const stored = localStorage.getItem(GIFT_AVAILABLE_STORAGE_KEY);
     return stored === null ? true : stored === "1";
   });
   const [pressed, setPressed] = useState(false);
-  const [claimedFlash, setClaimedFlash] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const handleClaim = () => {
-    if (!available) return;
     setAvailable(false);
     localStorage.setItem(GIFT_AVAILABLE_STORAGE_KEY, "0");
-    setClaimedFlash(true);
-    setTimeout(() => setClaimedFlash(false), 1400);
   };
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: "44%",
-        left: "50%",
-        transform: "translateX(-50%)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-      }}
-    >
-      <style>{`
-        @keyframes gift-bob {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-6px); }
-        }
-        @keyframes gift-claim-toast {
-          0% { opacity: 0; transform: translateY(-90%); }
-          15% { opacity: 1; transform: translateY(-100%); }
-          80% { opacity: 1; transform: translateY(-100%); }
-          100% { opacity: 0; transform: translateY(-110%); }
-        }
-      `}</style>
-      {claimedFlash && (
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            transform: "translateY(-100%)",
-            background: "rgba(10,14,20,0.9)",
-            border: "1px solid rgba(255,190,90,0.6)",
-            borderRadius: 8,
-            padding: "8px 16px",
-            color: "#ffd23f",
-            fontFamily: "'Rajdhani', sans-serif",
-            fontWeight: 700,
-            fontSize: 14,
-            letterSpacing: "0.06em",
-            whiteSpace: "nowrap",
-            animation: "gift-claim-toast 1.4s ease forwards",
-            pointerEvents: "none",
-          }}
-        >
-          🎁 Gift Claimed!
-        </div>
-      )}
-      <button
-        aria-label="Gift"
-        onClick={handleClaim}
-        onMouseDown={() => setPressed(true)}
-        onMouseUp={() => setPressed(false)}
-        onMouseLeave={() => setPressed(false)}
-        onTouchStart={() => setPressed(true)}
-        onTouchEnd={() => setPressed(false)}
-        onTouchCancel={() => setPressed(false)}
-        style={{
-          background: "none",
-          border: "none",
-          padding: 0,
-          cursor: available ? "pointer" : "default",
-          WebkitTapHighlightColor: "transparent",
-          transform: pressed && available ? "scale(0.94)" : "scale(1)",
-          transition: "transform 120ms ease",
-        }}
-      >
-        <img
-          src="/lobby-gift-crate.png"
-          alt="Gift crate"
-          draggable={false}
-          style={{
-            width: "clamp(150px, 36vw, 260px)",
-            display: "block",
-            animation: "gift-bob 2.4s ease-in-out infinite",
-          }}
-        />
-      </button>
+    <>
       <div
         style={{
-          marginTop: 2,
-          color: "#fff",
-          fontFamily: "'Rajdhani', sans-serif",
-          fontWeight: 700,
-          fontSize: "clamp(13px, 3vw, 17px)",
-          letterSpacing: "0.12em",
+          position: "absolute",
+          top: "44%",
+          left: "50%",
+          transform: "translateX(-50%)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
         }}
       >
-        {available ? "OPEN" : "CLAIMED"}
+        <style>{`
+          @keyframes gift-bob {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+          }
+        `}</style>
+        <button
+          aria-label="Gift"
+          onClick={() => setPanelOpen(true)}
+          onMouseDown={() => setPressed(true)}
+          onMouseUp={() => setPressed(false)}
+          onMouseLeave={() => setPressed(false)}
+          onTouchStart={() => setPressed(true)}
+          onTouchEnd={() => setPressed(false)}
+          onTouchCancel={() => setPressed(false)}
+          style={{
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            WebkitTapHighlightColor: "transparent",
+            transform: pressed ? "scale(0.94)" : "scale(1)",
+            transition: "transform 120ms ease",
+          }}
+        >
+          <img
+            src="/lobby-gift-crate.png"
+            alt="Gift crate"
+            draggable={false}
+            style={{
+              width: "clamp(150px, 36vw, 260px)",
+              display: "block",
+              animation: "gift-bob 2.4s ease-in-out infinite",
+            }}
+          />
+        </button>
+        <div
+          style={{
+            marginTop: 2,
+            color: "#fff",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: "clamp(13px, 3vw, 17px)",
+            letterSpacing: "0.12em",
+          }}
+        >
+          {available ? "OPEN" : "CLAIMED"}
+        </div>
       </div>
-    </div>
+      {panelOpen && (
+        // Rendered as a sibling of the (small, translated) crate wrapper
+        // above, not nested inside it — that wrapper's own translateX
+        // transform would otherwise become this panel's containing block
+        // for `inset: 0`, shrinking the backdrop down to the crate's own
+        // little box instead of covering the full screen.
+        <GiftClaimPanel available={available} onClaim={handleClaim} onClose={() => setPanelOpen(false)} />
+      )}
+    </>
   );
 }
 
