@@ -1730,6 +1730,42 @@ function segmentHitsObstacle(x1: number, z1: number, x2: number, z2: number, ob:
   return true;
 }
 
+// Same slab test as segmentHitsObstacle, but returns how far along the
+// segment (0-1) it first enters the box instead of just yes/no — used to
+// pull the chase camera in front of a wall it would otherwise clip
+// through, rather than just not spawning walls close enough to matter.
+function segmentObstacleEntryT(x1: number, z1: number, x2: number, z2: number, ob: Obstacle): number | null {
+  const minX = ob.x - ob.halfX;
+  const maxX = ob.x + ob.halfX;
+  const minZ = ob.z - ob.halfZ;
+  const maxZ = ob.z + ob.halfZ;
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  let tmin = 0;
+  let tmax = 1;
+  if (Math.abs(dx) < 1e-9) {
+    if (x1 < minX || x1 > maxX) return null;
+  } else {
+    let t1 = (minX - x1) / dx;
+    let t2 = (maxX - x1) / dx;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  }
+  if (Math.abs(dz) < 1e-9) {
+    if (z1 < minZ || z1 > maxZ) return null;
+  } else {
+    let t1 = (minZ - z1) / dz;
+    let t2 = (maxZ - z1) / dz;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return null;
+  }
+  return tmin;
+}
+
 // Each door opening's sliding gate occupies a *gap* in OBSTACLES (see
 // roomWallObstacles) — the wall geometry itself never blocks a shot
 // through a doorway, open or closed. The gate panels are what actually
@@ -2903,6 +2939,9 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // (no vertical drag yet) reproduces the exact same default view as
     // before, with up/down drag then orbiting away from that angle.
     const CAM_ORBIT_RADIUS = Math.hypot(CAM_DISTANCE, CAM_HEIGHT - CAM_LOOK_HEIGHT);
+    // How far in front of a wall (see cameraBlockers) the camera stops,
+    // instead of sitting exactly on its surface once pulled in.
+    const CAM_COLLIDE_MARGIN = 0.2;
     const CAM_BASE_PITCH = Math.atan2(CAM_HEIGHT - CAM_LOOK_HEIGHT, CAM_DISTANCE);
     const CAM_PITCH_MIN = -0.15; // near-level, looking slightly down at most
     const CAM_PITCH_MAX = 1.3; // steep overhead angle, short of straight down
@@ -3224,6 +3263,12 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const holeGateMeshes: THREE.Group[] = [];
     const holeGateOpenAmount: number[] = [];
     const holeGateOpenTarget: number[] = [];
+    // Walls the chase camera itself should never clip through (see
+    // addTunnelWallPanel below and the camera-collision check in the tick
+    // loop) — close-quarters set pieces like the tunnel wall panels sit
+    // well within the camera's own orbit distance, which used to mean
+    // standing near one and facing it put the camera behind/inside it.
+    const cameraBlockers: Obstacle[] = [];
     const grilleMat = new THREE.MeshStandardMaterial({
       map: createGrilleTexture(),
       roughness: 0.6,
@@ -3241,12 +3286,8 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // hole's own (much smaller) width instead just made it look shrunk.
     const TUNNEL_WALL_PANEL_HEIGHT = TUNNEL_WALL_HEIGHT;
     const TUNNEL_WALL_PANEL_WIDTH = TUNNEL_WALL_PANEL_HEIGHT * (850 / 1120);
-    const TUNNEL_WALL_PANEL_SETOFF = 1.5; // how far past the landing spot, into the tunnel
-    // The side walls need a bit more clearance than the front/back ones —
-    // at the same 1.5 distance the third-person camera's own orbit radius
-    // put it right on top of (or past) them whenever the player faced that
-    // way, reading as a solid black close-up instead of a wall.
-    const TUNNEL_WALL_PANEL_SIDE_SETOFF = 2.6;
+    const TUNNEL_WALL_PANEL_SETOFF = 1.5; // how far past the landing spot, into the tunnel — same on all four sides
+    const TUNNEL_WALL_PANEL_THICKNESS = 0.15; // just for the camera-collision box below; the mesh itself is a flat plane
     // Matte, not the usual metal-panel roughness/metalness — the player-
     // following key light (see SHADOW_FOLLOW_DIR/key.position further down)
     // hits this panel's flat face dead-on wherever the player stands near
@@ -3318,19 +3359,22 @@ function CombatArena({ onExit }: { onExit: () => void }) {
             tunnelWallPanelMat,
           );
           panel.rotation.y = Math.atan2(normalX, normalZ);
-          panel.position.set(
-            TUNNEL_STOPS[i].x + offsetX,
-            TUNNEL_Y + TUNNEL_WALL_PANEL_HEIGHT / 2,
-            TUNNEL_STOPS[i].z + offsetZ,
-          );
+          const x = TUNNEL_STOPS[i].x + offsetX;
+          const z = TUNNEL_STOPS[i].z + offsetZ;
+          panel.position.set(x, TUNNEL_Y + TUNNEL_WALL_PANEL_HEIGHT / 2, z);
           scene.add(panel);
+          // Thin along its own normal, full width along the wall's own
+          // face — reuses the same along/width -> world X/Z convention as
+          // stairBoxSize above (normal here plays the role "dir" does there).
+          const { sizeX, sizeZ } = stairBoxSize(normalX, normalZ, TUNNEL_WALL_PANEL_THICKNESS, TUNNEL_WALL_PANEL_WIDTH);
+          cameraBlockers.push({ x, z, halfX: sizeX / 2, halfZ: sizeZ / 2, pad: 0 });
         };
         const perpX = -dir.z;
         const perpZ = dir.x;
         addTunnelWallPanel(dir.x * TUNNEL_WALL_PANEL_SETOFF, dir.z * TUNNEL_WALL_PANEL_SETOFF, -dir.x, -dir.z);
         addTunnelWallPanel(-dir.x * TUNNEL_WALL_PANEL_SETOFF, -dir.z * TUNNEL_WALL_PANEL_SETOFF, dir.x, dir.z);
-        addTunnelWallPanel(perpX * TUNNEL_WALL_PANEL_SIDE_SETOFF, perpZ * TUNNEL_WALL_PANEL_SIDE_SETOFF, -perpX, -perpZ);
-        addTunnelWallPanel(-perpX * TUNNEL_WALL_PANEL_SIDE_SETOFF, -perpZ * TUNNEL_WALL_PANEL_SIDE_SETOFF, perpX, perpZ);
+        addTunnelWallPanel(perpX * TUNNEL_WALL_PANEL_SETOFF, perpZ * TUNNEL_WALL_PANEL_SETOFF, -perpX, -perpZ);
+        addTunnelWallPanel(-perpX * TUNNEL_WALL_PANEL_SETOFF, -perpZ * TUNNEL_WALL_PANEL_SETOFF, perpX, perpZ);
       }
     }
 
@@ -4390,10 +4434,30 @@ function CombatArena({ onExit }: { onExit: () => void }) {
         const pitch = clamp(CAM_BASE_PITCH + cameraPitch.current, CAM_PITCH_MIN, CAM_PITCH_MAX);
         const orbitHoriz = CAM_ORBIT_RADIUS * Math.cos(pitch);
         const orbitVert = CAM_ORBIT_RADIUS * Math.sin(pitch);
+        const orbitOffsetX = -Math.sin(facing) * orbitHoriz;
+        const orbitOffsetZ = -Math.cos(facing) * orbitHoriz;
+        // Pull the camera in along this same ray, short of any wall it
+        // would otherwise end up behind or inside — a close-quarters set
+        // piece (like the tunnel wall panels) can easily sit well within
+        // the camera's own orbit distance from the player.
+        let camT = 1;
+        for (const ob of cameraBlockers) {
+          const t = segmentObstacleEntryT(
+            player.root.position.x,
+            player.root.position.z,
+            player.root.position.x + orbitOffsetX,
+            player.root.position.z + orbitOffsetZ,
+            ob,
+          );
+          if (t !== null && t < camT) camT = t;
+        }
+        if (camT < 1) {
+          camT = Math.max(0, camT - CAM_COLLIDE_MARGIN / Math.max(orbitHoriz, 0.001));
+        }
         camTargetPos.set(
-          player.root.position.x - Math.sin(facing) * orbitHoriz,
-          CAM_LOOK_HEIGHT + player.root.position.y + orbitVert,
-          player.root.position.z - Math.cos(facing) * orbitHoriz,
+          player.root.position.x + orbitOffsetX * camT,
+          CAM_LOOK_HEIGHT + player.root.position.y + orbitVert * camT,
+          player.root.position.z + orbitOffsetZ * camT,
         );
         // The follow used to add a head bob synced to the running phase
         // and a slight roll while turning, for a more cinematic feel —
