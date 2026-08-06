@@ -3242,6 +3242,11 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     const TUNNEL_WALL_PANEL_HEIGHT = TUNNEL_WALL_HEIGHT;
     const TUNNEL_WALL_PANEL_WIDTH = TUNNEL_WALL_PANEL_HEIGHT * (850 / 1120);
     const TUNNEL_WALL_PANEL_SETOFF = 1.5; // how far past the landing spot, into the tunnel
+    // The side walls need a bit more clearance than the front/back ones —
+    // at the same 1.5 distance the third-person camera's own orbit radius
+    // put it right on top of (or past) them whenever the player faced that
+    // way, reading as a solid black close-up instead of a wall.
+    const TUNNEL_WALL_PANEL_SIDE_SETOFF = 2.6;
     // Matte, not the usual metal-panel roughness/metalness — the player-
     // following key light (see SHADOW_FOLLOW_DIR/key.position further down)
     // hits this panel's flat face dead-on wherever the player stands near
@@ -3302,37 +3307,30 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       scene.add(bottomLight);
 
       {
-        // Standing a bit past the landing spot in the direction the hole
-        // itself descends (dir), facing back the way -dir points — so
-        // whoever comes down through the hole and looks forward sees this
-        // wall facing them.
-        const panelYaw = Math.atan2(-dir.x, -dir.z);
-        const panel = new THREE.Mesh(
-          new THREE.PlaneGeometry(TUNNEL_WALL_PANEL_WIDTH, TUNNEL_WALL_PANEL_HEIGHT),
-          tunnelWallPanelMat,
-        );
-        panel.rotation.y = panelYaw;
-        panel.position.set(
-          TUNNEL_STOPS[i].x + dir.x * TUNNEL_WALL_PANEL_SETOFF,
-          TUNNEL_Y + TUNNEL_WALL_PANEL_HEIGHT / 2,
-          TUNNEL_STOPS[i].z + dir.z * TUNNEL_WALL_PANEL_SETOFF,
-        );
-        scene.add(panel);
-
-        // A matching wall directly opposite it, the same distance back on
-        // the near side of the landing spot, facing the other way (+dir) so
-        // the two walls face each other with the landing spot between them.
-        const backPanel = new THREE.Mesh(
-          new THREE.PlaneGeometry(TUNNEL_WALL_PANEL_WIDTH, TUNNEL_WALL_PANEL_HEIGHT),
-          tunnelWallPanelMat,
-        );
-        backPanel.rotation.y = Math.atan2(dir.x, dir.z);
-        backPanel.position.set(
-          TUNNEL_STOPS[i].x - dir.x * TUNNEL_WALL_PANEL_SETOFF,
-          TUNNEL_Y + TUNNEL_WALL_PANEL_HEIGHT / 2,
-          TUNNEL_STOPS[i].z - dir.z * TUNNEL_WALL_PANEL_SETOFF,
-        );
-        scene.add(backPanel);
+        // One panel on each of the four sides of the landing spot — the
+        // two along dir (facing the way the hole descends and back the
+        // other way) plus two more along the perpendicular axis, which
+        // used to be left wide open — each facing inward, fully closing
+        // the little chamber around where the player actually lands.
+        const addTunnelWallPanel = (offsetX: number, offsetZ: number, normalX: number, normalZ: number) => {
+          const panel = new THREE.Mesh(
+            new THREE.PlaneGeometry(TUNNEL_WALL_PANEL_WIDTH, TUNNEL_WALL_PANEL_HEIGHT),
+            tunnelWallPanelMat,
+          );
+          panel.rotation.y = Math.atan2(normalX, normalZ);
+          panel.position.set(
+            TUNNEL_STOPS[i].x + offsetX,
+            TUNNEL_Y + TUNNEL_WALL_PANEL_HEIGHT / 2,
+            TUNNEL_STOPS[i].z + offsetZ,
+          );
+          scene.add(panel);
+        };
+        const perpX = -dir.z;
+        const perpZ = dir.x;
+        addTunnelWallPanel(dir.x * TUNNEL_WALL_PANEL_SETOFF, dir.z * TUNNEL_WALL_PANEL_SETOFF, -dir.x, -dir.z);
+        addTunnelWallPanel(-dir.x * TUNNEL_WALL_PANEL_SETOFF, -dir.z * TUNNEL_WALL_PANEL_SETOFF, dir.x, dir.z);
+        addTunnelWallPanel(perpX * TUNNEL_WALL_PANEL_SIDE_SETOFF, perpZ * TUNNEL_WALL_PANEL_SIDE_SETOFF, -perpX, -perpZ);
+        addTunnelWallPanel(-perpX * TUNNEL_WALL_PANEL_SIDE_SETOFF, -perpZ * TUNNEL_WALL_PANEL_SIDE_SETOFF, perpX, perpZ);
       }
     }
 
