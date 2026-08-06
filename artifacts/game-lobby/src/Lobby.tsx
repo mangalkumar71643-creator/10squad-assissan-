@@ -4583,6 +4583,125 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   );
 }
 
+// A gift is a one-shot claim, not something the player can re-tap for more —
+// once claimed it stays claimed until something else (a daily reset, a match
+// win, etc. — not wired up yet) marks a new one available. Persisted in
+// localStorage so it survives a reload instead of quietly resetting itself.
+// No trigger exists yet, so this defaults to available once so the claim
+// flow itself is testable; whatever trigger comes later is what's meant to
+// flip it back to "1" going forward, not this default.
+const GIFT_AVAILABLE_STORAGE_KEY = "10sa-gift-available";
+
+function GiftBox() {
+  const [available, setAvailable] = useState(() => {
+    const stored = localStorage.getItem(GIFT_AVAILABLE_STORAGE_KEY);
+    return stored === null ? true : stored === "1";
+  });
+  const [pressed, setPressed] = useState(false);
+  const [claimedFlash, setClaimedFlash] = useState(false);
+
+  const handleClaim = () => {
+    if (!available) return;
+    setAvailable(false);
+    localStorage.setItem(GIFT_AVAILABLE_STORAGE_KEY, "0");
+    setClaimedFlash(true);
+    setTimeout(() => setClaimedFlash(false), 1400);
+  };
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: "44%",
+        left: "50%",
+        transform: "translateX(-50%)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+      }}
+    >
+      <style>{`
+        @keyframes gift-bob {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-6px); }
+        }
+        @keyframes gift-claim-toast {
+          0% { opacity: 0; transform: translateY(-90%); }
+          15% { opacity: 1; transform: translateY(-100%); }
+          80% { opacity: 1; transform: translateY(-100%); }
+          100% { opacity: 0; transform: translateY(-110%); }
+        }
+      `}</style>
+      {claimedFlash && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            transform: "translateY(-100%)",
+            background: "rgba(10,14,20,0.9)",
+            border: "1px solid rgba(255,190,90,0.6)",
+            borderRadius: 8,
+            padding: "8px 16px",
+            color: "#ffd23f",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: 14,
+            letterSpacing: "0.06em",
+            whiteSpace: "nowrap",
+            animation: "gift-claim-toast 1.4s ease forwards",
+            pointerEvents: "none",
+          }}
+        >
+          🎁 Gift Claimed!
+        </div>
+      )}
+      <button
+        aria-label="Gift"
+        onClick={handleClaim}
+        onMouseDown={() => setPressed(true)}
+        onMouseUp={() => setPressed(false)}
+        onMouseLeave={() => setPressed(false)}
+        onTouchStart={() => setPressed(true)}
+        onTouchEnd={() => setPressed(false)}
+        onTouchCancel={() => setPressed(false)}
+        style={{
+          background: "none",
+          border: "none",
+          padding: 0,
+          cursor: available ? "pointer" : "default",
+          WebkitTapHighlightColor: "transparent",
+          transform: pressed && available ? "scale(0.94)" : "scale(1)",
+          transition: "transform 120ms ease, filter 300ms ease",
+          filter: available ? "none" : "grayscale(0.85) brightness(0.55)",
+        }}
+      >
+        <img
+          src="/lobby-gift-crate.png"
+          alt="Gift crate"
+          draggable={false}
+          style={{
+            width: "clamp(120px, 30vw, 220px)",
+            display: "block",
+            animation: available ? "gift-bob 2.4s ease-in-out infinite" : "none",
+          }}
+        />
+      </button>
+      <div
+        style={{
+          marginTop: 2,
+          color: available ? "#fff" : "rgba(255,255,255,0.45)",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: "clamp(13px, 3vw, 17px)",
+          letterSpacing: "0.12em",
+        }}
+      >
+        {available ? "OPEN" : "CLAIMED"}
+      </div>
+    </div>
+  );
+}
+
 function ComingSoonPanel({
   title,
   icon,
@@ -4783,6 +4902,8 @@ export default function Lobby({ visible }: { visible: boolean }) {
           pointerEvents: "none",
         }}
       />
+
+      <GiftBox />
 
       <CardHotspot
         label="Character"
