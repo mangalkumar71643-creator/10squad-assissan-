@@ -3847,7 +3847,7 @@ function GiftBox() {
       <div
         style={{
           position: "absolute",
-          top: "calc(44% - 30px)",
+          top: "calc(44% - 40px)",
           left: "50%",
           transform: "translateX(-50%)",
           display: "flex",
@@ -3855,12 +3855,6 @@ function GiftBox() {
           alignItems: "center",
         }}
       >
-        <style>{`
-          @keyframes gift-bob {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-6px); }
-          }
-        `}</style>
         <button
           aria-label="Gift"
           onClick={() => setPanelOpen(true)}
@@ -3887,7 +3881,6 @@ function GiftBox() {
             style={{
               width: "clamp(105px, 24vw, 175px)",
               display: "block",
-              animation: "gift-bob 2.4s ease-in-out infinite",
             }}
           />
         </button>
@@ -3959,7 +3952,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
         alt="10 Squad Assassin"
         style={{
           position: "absolute",
-          top: "calc(4% - 10px)",
+          top: "calc(4% - 15px)",
           left: "50%",
           transform: "translateX(-50%)",
           width: "25%",
