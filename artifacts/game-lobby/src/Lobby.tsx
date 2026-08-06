@@ -7,9 +7,9 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
-const DEPLOY_CLIP = "polygon(14% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 45%)";
+const DEPLOY_CLIP = "polygon(6% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 32%)";
 
-function DeployButton({
+function StartMissionButton({
   pressed,
   onPress,
   onRelease,
@@ -22,7 +22,7 @@ function DeployButton({
 }) {
   return (
     <button
-      aria-label="Deploy"
+      aria-label="Start Mission"
       onClick={onClick}
       onMouseDown={onPress}
       onMouseUp={onRelease}
@@ -32,16 +32,17 @@ function DeployButton({
       onTouchCancel={onRelease}
       style={{
         position: "absolute",
-        right: "4%",
-        bottom: "5%",
+        left: "50%",
+        top: "58%",
+        transform: "translateX(-50%)",
         zIndex: 5,
-        padding: "clamp(10px, 1.6vh, 16px) clamp(22px, 3.4vw, 40px)",
-        minWidth: "clamp(120px, 16vw, 220px)",
+        padding: "clamp(12px, 1.8vh, 18px) clamp(20px, 4vw, 40px)",
+        width: "clamp(220px, 62vw, 380px)",
         clipPath: DEPLOY_CLIP,
         border: "none",
         cursor: "pointer",
         WebkitTapHighlightColor: "transparent",
-        background: "linear-gradient(135deg, #ff6a2b 0%, #ff3d1a 55%, #d81f0f 100%)",
+        background: "linear-gradient(90deg, #ff5b1f 0%, #ff8a2e 50%, #ff3d1a 100%)",
         boxShadow: "0 0 26px rgba(255,110,40,0.75), 0 0 50px rgba(255,60,20,0.35), inset 0 1px 0 rgba(255,255,255,0.35)",
         animation: pressed ? "none" : "deploy-pulse 2.4s ease-in-out infinite",
       }}
@@ -72,13 +73,13 @@ function DeployButton({
           position: "relative",
           fontFamily: "'Rajdhani', sans-serif",
           fontWeight: 700,
-          fontSize: "clamp(16px, 2.4vw, 26px)",
-          letterSpacing: "0.12em",
+          fontSize: "clamp(18px, 4.4vw, 28px)",
+          letterSpacing: "0.08em",
           color: "#fff8f0",
           textShadow: "0 0 10px rgba(255,140,60,0.9), 0 1px 2px rgba(0,0,0,0.5)",
         }}
       >
-        DEPLOY
+        START MISSION ▶
       </span>
     </button>
   );
@@ -3963,7 +3964,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
 
       <GiftBox />
 
-      <DeployButton
+      <StartMissionButton
         pressed={deployPressed}
         onPress={() => setDeployPressed(true)}
         onRelease={() => setDeployPressed(false)}
