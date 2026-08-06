@@ -3243,11 +3243,15 @@ function CombatArena({ onExit }: { onExit: () => void }) {
     // following key light (see SHADOW_FOLLOW_DIR/key.position further down)
     // hits this panel's flat face dead-on wherever the player stands near
     // it, and any real specular response there blew out to solid white.
+    // DoubleSide — a single PlaneGeometry is invisible from its back face
+    // by default, which is exactly why this read as a hole straight
+    // through to the sky when viewed from the far side.
     const tunnelWallPanelMat = new THREE.MeshStandardMaterial({
       map: createTunnelWallTexture(wallMaxAnisotropy),
       color: 0xa0a0a0,
       roughness: 0.95,
       metalness: 0.05,
+      side: THREE.DoubleSide,
     });
     // One stairway hole down through each house's own center, its matching
     // rim up at that same spot underground (in the ceiling there), and the
