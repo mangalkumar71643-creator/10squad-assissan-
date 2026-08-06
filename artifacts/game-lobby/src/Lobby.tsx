@@ -4770,6 +4770,20 @@ export default function Lobby({ visible }: { visible: boolean }) {
         }}
       />
 
+      <img
+        src="/lobby-title.png"
+        alt="10 Squad Assassin"
+        style={{
+          position: "absolute",
+          top: "8%",
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: "72%",
+          maxWidth: 460,
+          pointerEvents: "none",
+        }}
+      />
+
       <CardHotspot
         label="Character"
         rect={charRect}
