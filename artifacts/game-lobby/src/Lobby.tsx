@@ -1520,7 +1520,7 @@ const HOLE_INNER_SIZE = HOLE_HALF_SIZE * 2 - 0.4;
 // point, so the opening reads as a real corridor down into the tunnel,
 // with real walkable stairs (see addStairsInHole) filling it.
 const RAMP_HALF_WIDTH = HOLE_INNER_SIZE / 2;
-const RAMP_RUN_LENGTH = 1.25;
+const RAMP_RUN_LENGTH = 4.5;
 const RAMP_BAND = 0.5;
 const ROOM_STAIRS_DOWN_POS = [ROOM_POS, ROOM2_POS, ROOM3_POS, ROOM4_POS, ROOM5_POS, ROOM6_POS];
 const TUNNEL_STOPS = ROOM_STAIRS_DOWN_POS.map((p) => ({ x: p.x, z: p.z }));
