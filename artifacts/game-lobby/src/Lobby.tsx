@@ -31,13 +31,8 @@ function StartMissionButton({
       onTouchEnd={onRelease}
       onTouchCancel={onRelease}
       style={{
-        position: "absolute",
-        left: "50%",
-        top: "58%",
-        transform: "translateX(-50%)",
-        zIndex: 5,
-        padding: "clamp(12px, 1.8vh, 18px) clamp(20px, 4vw, 40px)",
-        width: "clamp(220px, 62vw, 380px)",
+        padding: "clamp(8px, 1.4vh, 13px) clamp(14px, 2.6vw, 26px)",
+        width: "clamp(150px, 40vw, 250px)",
         clipPath: DEPLOY_CLIP,
         border: "none",
         cursor: "pointer",
@@ -73,8 +68,8 @@ function StartMissionButton({
           position: "relative",
           fontFamily: "'Rajdhani', sans-serif",
           fontWeight: 700,
-          fontSize: "clamp(18px, 4.4vw, 28px)",
-          letterSpacing: "0.08em",
+          fontSize: "clamp(12px, 2.8vw, 18px)",
+          letterSpacing: "0.06em",
           color: "#fff8f0",
           textShadow: "0 0 10px rgba(255,140,60,0.9), 0 1px 2px rgba(0,0,0,0.5)",
         }}
@@ -3830,7 +3825,17 @@ function GiftClaimPanel({
   );
 }
 
-function GiftBox() {
+function GiftBox({
+  missionPressed,
+  onMissionPress,
+  onMissionRelease,
+  onMissionClick,
+}: {
+  missionPressed: boolean;
+  onMissionPress: () => void;
+  onMissionRelease: () => void;
+  onMissionClick: () => void;
+}) {
   const [available, setAvailable] = useState(() => {
     const stored = localStorage.getItem(GIFT_AVAILABLE_STORAGE_KEY);
     return stored === null ? true : stored === "1";
@@ -3897,6 +3902,20 @@ function GiftBox() {
         >
           {available ? "OPEN" : "CLAIMED"}
         </div>
+        {/* In normal flow as the next item in this same column, with a
+            fixed 10px gap, instead of independently absolute-positioned —
+            that way it's guaranteed to land exactly 10px below the crate
+            cluster's actual rendered bottom (crate + label), on any
+            screen, rather than at a fixed top:% that could drift into or
+            past the crate depending on its size. */}
+        <div style={{ marginTop: 10 }}>
+          <StartMissionButton
+            pressed={missionPressed}
+            onPress={onMissionPress}
+            onRelease={onMissionRelease}
+            onClick={onMissionClick}
+          />
+        </div>
       </div>
       {panelOpen && (
         // Rendered as a sibling of the (small, translated) crate wrapper
@@ -3962,13 +3981,11 @@ export default function Lobby({ visible }: { visible: boolean }) {
         }}
       />
 
-      <GiftBox />
-
-      <StartMissionButton
-        pressed={deployPressed}
-        onPress={() => setDeployPressed(true)}
-        onRelease={() => setDeployPressed(false)}
-        onClick={() => setDeployOpen(true)}
+      <GiftBox
+        missionPressed={deployPressed}
+        onMissionPress={() => setDeployPressed(true)}
+        onMissionRelease={() => setDeployPressed(false)}
+        onMissionClick={() => setDeployOpen(true)}
       />
 
       {deployOpen && <CombatArena onExit={() => setDeployOpen(false)} />}
