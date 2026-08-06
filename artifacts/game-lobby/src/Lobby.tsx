@@ -3848,7 +3848,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
         alt="10 Squad Assassin"
         style={{
           position: "absolute",
-          top: "8%",
+          top: "4%",
           left: "50%",
           transform: "translateX(-50%)",
           width: "30%",
