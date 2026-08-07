@@ -3899,15 +3899,70 @@ function GiftBox({
             transition: "transform 120ms ease",
           }}
         >
-          <img
-            src="/lobby-gift-crate.png"
-            alt="Gift crate"
-            draggable={false}
+          <style>{`
+            @keyframes gift-shine-sweep {
+              0%   { background-position: 200% 0%; opacity: 0; }
+              8%   { opacity: 1; }
+              45%  { background-position: -100% 0%; opacity: 1; }
+              55%  { opacity: 0; }
+              100% { background-position: -100% 0%; opacity: 0; }
+            }
+            @keyframes gift-shake-burst {
+              0%   { transform: rotate(0deg); }
+              2%   { transform: rotate(-9deg); }
+              4%   { transform: rotate(8deg); }
+              6%   { transform: rotate(-7deg); }
+              8%   { transform: rotate(6deg); }
+              10%  { transform: rotate(-4deg); }
+              12%  { transform: rotate(3deg); }
+              14%  { transform: rotate(0deg); }
+              100% { transform: rotate(0deg); }
+            }
+          `}</style>
+          {/* Shake bursts (vigorous, then a pause, then repeats) only run
+              while a gift is actually waiting — a still crate signals
+              nothing to claim, same convention as other games. The shine
+              sweep runs all the time regardless of claim state. */}
+          <div
             style={{
-              width: "clamp(86px, 19.4vw, 142px)",
-              display: "block",
+              animation: available ? "gift-shake-burst 2.6s ease-in-out infinite" : "none",
+              transformOrigin: "50% 90%",
             }}
-          />
+          >
+            <div style={{ position: "relative" }}>
+              <img
+                src="/lobby-gift-crate.png"
+                alt="Gift crate"
+                draggable={false}
+                style={{
+                  width: "clamp(86px, 19.4vw, 142px)",
+                  display: "block",
+                }}
+              />
+              {/* Masked with the crate's own PNG alpha so the shine stays
+                  clipped to the crate's actual silhouette (an irregular
+                  chamfered shape, not a plain rectangle) instead of
+                  spilling into the image's transparent corners. */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background:
+                    "linear-gradient(100deg, transparent 0%, transparent 40%, rgba(255,255,255,0.85) 50%, transparent 60%, transparent 100%)",
+                  backgroundSize: "300% 300%",
+                  WebkitMaskImage: "url(/lobby-gift-crate.png)",
+                  WebkitMaskSize: "100% 100%",
+                  WebkitMaskRepeat: "no-repeat",
+                  maskImage: "url(/lobby-gift-crate.png)",
+                  maskSize: "100% 100%",
+                  maskRepeat: "no-repeat",
+                  animation: "gift-shine-sweep 3.2s ease-in-out infinite",
+                  pointerEvents: "none",
+                }}
+              />
+            </div>
+          </div>
         </button>
         <div
           style={{
