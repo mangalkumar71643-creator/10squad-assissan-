@@ -4161,7 +4161,17 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
       <img
         src="/character-select-full.jpg"
         alt="Character Selection"
-        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          width: 500,
+          height: 500,
+          maxWidth: "94vw",
+          maxHeight: "94vw",
+          objectFit: "contain",
+        }}
       />
       <button
         onClick={onClose}
