@@ -4151,10 +4151,11 @@ function ComingSoonPanel({
   );
 }
 
-// Panel is the reference image directly, full-screen, with just a close
-// button — no hand-designed layout on top. Character model / name / stats
-// etc. get added on request, incrementally, on top of this base.
-function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
+// Not wired into the Character button — reverted back to the CHARACTER
+// ComingSoonPanel per request, pending a fix for the reference image's
+// landscape-vs-portrait crop problem. Exported so it survives the strict
+// noUnusedLocals typecheck while staying unreachable from real navigation.
+export function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
   return (
     <div
       role="dialog"
@@ -4943,7 +4944,14 @@ export default function Lobby({ visible }: { visible: boolean }) {
           onClose={() => setRankOpen(false)}
         />
       )}
-      {characterOpen && <CharacterSelectionPanel onClose={() => setCharacterOpen(false)} />}
+      {characterOpen && (
+        <ComingSoonPanel
+          title="CHARACTER"
+          icon="🪖"
+          message="Character selection and customization will be available here soon."
+          onClose={() => setCharacterOpen(false)}
+        />
+      )}
       {mailOpen && (
         <ComingSoonPanel
           title="MAIL"
