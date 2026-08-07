@@ -4151,6 +4151,304 @@ function ComingSoonPanel({
   );
 }
 
+const LOCK_ICON = (
+  <svg viewBox="0 0 24 24" width="34%" height="34%" fill="none">
+    <rect x="5" y="10.5" width="14" height="10" rx="2" stroke="#a8a0c2" strokeWidth="1.8" />
+    <path d="M8 10.5V7.8a4 4 0 118 0v2.7" stroke="#a8a0c2" strokeWidth="1.8" strokeLinecap="round" />
+    <circle cx="12" cy="15" r="1.6" fill="#a8a0c2" />
+  </svg>
+);
+
+const CHECK_ICON = (
+  <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none">
+    <path d="M4 12.5l5 5L20 6" stroke="#0c1a10" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+// Only one character asset exists right now (char-1.glb / char-1.jpg,
+// reused for the player and bots) — the rest of the roster is shown as
+// locked slots previewing future unlocks, gated by player level.
+const CHARACTER_ROSTER: { name: string; unlockLevel: number | null }[] = [
+  { name: "SHADOWREAPER", unlockLevel: null },
+  { name: "NIGHT VIPER", unlockLevel: 5 },
+  { name: "IRON WOLF", unlockLevel: 10 },
+  { name: "GHOST FANG", unlockLevel: 15 },
+  { name: "CRIMSON HAWK", unlockLevel: 20 },
+  { name: "VOID STALKER", unlockLevel: 25 },
+];
+
+// Not wired into the Character button yet — pending design approval.
+// The live app still shows the CHARACTER ComingSoonPanel; this component
+// is exported so it survives the strict noUnusedLocals typecheck while
+// staying unreachable from any real navigation path.
+export function CharacterSelectionPanel({ progress, onClose }: { progress: PlayerProgress; onClose: () => void }) {
+  const [selected, setSelected] = useState(0);
+  const selectedChar = CHARACTER_ROSTER[selected];
+  const selectedUnlocked = selectedChar.unlockLevel === null || progress.level >= selectedChar.unlockLevel;
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Character Selection"
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgba(4, 6, 16, 0.75)",
+        backdropFilter: "blur(6px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 10,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(380px, 86vw)",
+          background: "linear-gradient(180deg, rgba(20,14,42,0.97), rgba(8,6,20,0.97))",
+          border: "1px solid rgba(168,120,255,0.45)",
+          borderRadius: 14,
+          boxShadow: "0 0 60px rgba(120,60,255,0.35), inset 0 0 40px rgba(80,40,180,0.15)",
+          padding: "22px 26px 26px",
+          fontFamily: "'Barlow', sans-serif",
+          color: "#e8e2ff",
+          maxHeight: "86vh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2
+            style={{
+              margin: 0,
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 22,
+              letterSpacing: 2,
+              color: "#c9a8ff",
+              textShadow: "0 0 18px rgba(170,110,255,0.7)",
+            }}
+          >
+            CHARACTER
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              border: "1px solid rgba(168,120,255,0.5)",
+              background: "rgba(255,255,255,0.05)",
+              color: "#e8e2ff",
+              fontSize: 18,
+              lineHeight: 1,
+              cursor: "pointer",
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            height: 1,
+            background: "linear-gradient(90deg, rgba(168,120,255,0.6), rgba(168,120,255,0))",
+          }}
+        />
+
+        {/* Preview portrait */}
+        <div
+          style={{
+            marginTop: 20,
+            position: "relative",
+            borderRadius: 12,
+            overflow: "hidden",
+            border: "1px solid rgba(168,120,255,0.3)",
+            aspectRatio: "4 / 3",
+            background: "linear-gradient(180deg, rgba(60,40,110,0.3), rgba(10,8,20,0.6))",
+          }}
+        >
+          <img
+            src="/characters/char-1.jpg"
+            alt={selectedChar.name}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              objectPosition: "50% 15%",
+              filter: selectedUnlocked ? "none" : "grayscale(1) brightness(0.4)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "linear-gradient(180deg, rgba(10,6,20,0) 55%, rgba(10,6,20,0.92) 100%)",
+            }}
+          />
+          {!selectedUnlocked && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              <div style={{ width: 40, height: 40 }}>{LOCK_ICON}</div>
+              <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.08em", color: "#dcd4f2" }}>
+                UNLOCKS AT LEVEL {selectedChar.unlockLevel}
+              </div>
+            </div>
+          )}
+          <div style={{ position: "absolute", left: 14, bottom: 12, right: 14 }}>
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 19, letterSpacing: 1, color: "#fff" }}>
+              {selectedChar.name}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  padding: "3px 8px",
+                  borderRadius: 5,
+                  background: selectedUnlocked ? "rgba(90,220,140,0.18)" : "rgba(168,120,255,0.15)",
+                  border: `1px solid ${selectedUnlocked ? "rgba(90,220,140,0.5)" : "rgba(168,120,255,0.4)"}`,
+                  color: selectedUnlocked ? "#5adc8c" : "#c9a8ff",
+                }}
+              >
+                {selectedUnlocked ? "EQUIPPED" : "LOCKED"}
+              </span>
+              <span style={{ fontSize: 11, color: "#a99fc4" }}>SMG LOADOUT</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Roster label */}
+        <div
+          style={{
+            marginTop: 20,
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: 13,
+            letterSpacing: "0.08em",
+            color: "#9d8ac2",
+          }}
+        >
+          ROSTER
+        </div>
+
+        {/* Roster grid */}
+        <div
+          style={{
+            marginTop: 10,
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 10,
+          }}
+        >
+          {CHARACTER_ROSTER.map((char, i) => {
+            const unlocked = char.unlockLevel === null || progress.level >= char.unlockLevel;
+            const isSelected = i === selected;
+            return (
+              <button
+                key={char.name}
+                onClick={() => setSelected(i)}
+                style={{
+                  position: "relative",
+                  aspectRatio: "1 / 1",
+                  borderRadius: 10,
+                  overflow: "hidden",
+                  border: isSelected ? "2px solid #c9a8ff" : "1px solid rgba(168,120,255,0.25)",
+                  boxShadow: isSelected ? "0 0 14px rgba(168,120,255,0.6)" : "none",
+                  background: "rgba(255,255,255,0.04)",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                {unlocked ? (
+                  <img
+                    src="/characters/char-1.jpg"
+                    alt={char.name}
+                    style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 15%" }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 4,
+                      background: "rgba(255,255,255,0.03)",
+                    }}
+                  >
+                    {LOCK_ICON}
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "#8a80a8", letterSpacing: "0.05em" }}>
+                      LV {char.unlockLevel}
+                    </span>
+                  </div>
+                )}
+                {unlocked && char.unlockLevel === null && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 4,
+                      right: 4,
+                      width: 16,
+                      height: 16,
+                      borderRadius: "50%",
+                      background: "#5adc8c",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      boxShadow: "0 0 6px rgba(90,220,140,0.8)",
+                    }}
+                  >
+                    {CHECK_ICON}
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Equip button */}
+        <button
+          disabled={!selectedUnlocked}
+          style={{
+            marginTop: 20,
+            width: "100%",
+            padding: "13px 0",
+            borderRadius: 10,
+            border: "none",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: 15,
+            letterSpacing: "0.08em",
+            cursor: selectedUnlocked ? "pointer" : "not-allowed",
+            background: selectedUnlocked
+              ? "linear-gradient(90deg, #5adc8c, #34b46a)"
+              : "rgba(255,255,255,0.06)",
+            color: selectedUnlocked ? "#0c1a10" : "#6b5f92",
+            boxShadow: selectedUnlocked ? "0 0 20px rgba(90,220,140,0.4)" : "none",
+          }}
+        >
+          {selectedUnlocked ? (selected === 0 ? "EQUIPPED" : "EQUIP") : `UNLOCKS AT LEVEL ${selectedChar.unlockLevel}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const HOME_ICON = (
   <svg viewBox="0 0 24 24" width="46%" height="46%" fill="none">
     <path d="M3 11L12 4l9 7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
