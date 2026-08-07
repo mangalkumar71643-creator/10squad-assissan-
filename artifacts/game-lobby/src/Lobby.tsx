@@ -4193,6 +4193,24 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
       >
         ‹
       </button>
+      <div
+        style={{
+          position: "absolute",
+          left: 14,
+          right: 14,
+          bottom: 90,
+          height: 140,
+          overflowX: "auto",
+          overflowY: "hidden",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <img
+          src="/character-select-cards.jpg"
+          alt="Character roster"
+          style={{ height: "100%", width: "auto", display: "inline-block" }}
+        />
+      </div>
     </div>
   );
 }
