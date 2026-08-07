@@ -4151,462 +4151,47 @@ function ComingSoonPanel({
   );
 }
 
-const LOCK_ICON = (
-  <svg viewBox="0 0 24 24" width="34%" height="34%" fill="none">
-    <rect x="5" y="10.5" width="14" height="10" rx="2" stroke="#a8a0c2" strokeWidth="1.8" />
-    <path d="M8 10.5V7.8a4 4 0 118 0v2.7" stroke="#a8a0c2" strokeWidth="1.8" strokeLinecap="round" />
-    <circle cx="12" cy="15" r="1.6" fill="#a8a0c2" />
-  </svg>
-);
-
-// Only one character asset exists right now (char-1.glb, reused for the
-// player and bots) — the rest of the roster is shown locked, gated by
-// player level, previewing future unlocks.
-const CHARACTER_ROSTER: { name: string; unlockLevel: number | null }[] = [
-  { name: "SHADOWREAPER", unlockLevel: null },
-  { name: "NIGHT VIPER", unlockLevel: 5 },
-  { name: "IRON WOLF", unlockLevel: 10 },
-  { name: "GHOST FANG", unlockLevel: 15 },
-  { name: "CRIMSON HAWK", unlockLevel: 20 },
-  { name: "VOID STALKER", unlockLevel: 25 },
-];
-
-// Only the first roster slot has a real 3D asset so far.
-const CHARACTER_MODELS: Record<number, string> = { 0: "/characters/char-1.glb" };
-
-// Renders a glTF character model with its baked idle animation looping,
-// standing on the preview stage. Plain three.js (no react-three-fiber) —
-// this is the only place in the app besides CombatArena that needs a 3D
-// scene, so pulling in a whole renderer abstraction wasn't worth it.
-function CharacterViewer3D({ src }: { src: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    let disposed = false;
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
-    camera.position.set(0, 1.35, 3.4);
-    camera.lookAt(0, 0.95, 0);
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    container.appendChild(renderer.domElement);
-
-    scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x0a0e18, 1.2));
-    const key = new THREE.DirectionalLight(0xbfe0ff, 1.6);
-    key.position.set(2, 4, 3);
-    scene.add(key);
-    const rim = new THREE.DirectionalLight(0x8a6bff, 1.1);
-    rim.position.set(-2.5, 2.5, -2.5);
-    scene.add(rim);
-
-    let mixer: THREE.AnimationMixer | null = null;
-    const clock = new THREE.Clock();
-
-    new GLTFLoader().load(
-      src,
-      (gltf) => {
-        if (disposed) return;
-        const model = gltf.scene;
-
-        // Center horizontally, sit exactly on the platform, and scale to a
-        // consistent on-screen height regardless of the source model's units.
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const scale = 1.7 / (size.y || 1);
-        model.scale.setScalar(scale);
-        model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
-        scene.add(model);
-
-        if (gltf.animations.length > 0) {
-          mixer = new THREE.AnimationMixer(model);
-          mixer.clipAction(gltf.animations[0]).play();
-        }
-      },
-      undefined,
-      (err) => console.error("Failed to load character model", src, err),
-    );
-
-    const resize = () => {
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      if (w === 0 || h === 0) return;
-      renderer.setSize(w, h);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-    };
-    resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(container);
-
-    let raf = 0;
-    const tick = () => {
-      raf = requestAnimationFrame(tick);
-      mixer?.update(clock.getDelta());
-      renderer.render(scene, camera);
-    };
-    tick();
-
-    return () => {
-      disposed = true;
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-      renderer.dispose();
-      container.removeChild(renderer.domElement);
-    };
-  }, [src]);
-
-  return <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />;
-}
-
-// Four cosmetic loadout stats (no real per-character differentiation yet
-// since only one character asset exists) — a 7-segment bar per stat,
-// styled after the reference's icon + segmented-bar rows.
-const STAT_ROWS: { key: string; color: string; fill: number; icon: ReactNode }[] = [
-  {
-    key: "AGILITY",
-    color: "#5adc8c",
-    fill: 5,
-    icon: (
-      <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none">
-        <circle cx="12" cy="12" r="8.5" stroke="#5adc8c" strokeWidth="2" />
-        <path d="M8 15l8-6" stroke="#5adc8c" strokeWidth="2" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    key: "RESILIENCE",
-    color: "#ff5a5a",
-    fill: 4,
-    icon: (
-      <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none">
-        <circle cx="12" cy="12" r="8.5" stroke="#ff5a5a" strokeWidth="2" />
-        <path d="M6.5 17.5l11-11" stroke="#ff5a5a" strokeWidth="2" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    key: "DEFENSE",
-    color: "#5aa8ff",
-    fill: 6,
-    icon: (
-      <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none">
-        <path d="M12 3l7 3v5.5c0 4.4-3 8.2-7 9.5-4-1.3-7-5.1-7-9.5V6l7-3z" stroke="#5aa8ff" strokeWidth="2" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-  {
-    key: "POWER",
-    color: "#ffcf4d",
-    fill: 5,
-    icon: (
-      <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none">
-        <path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" fill="#ffcf4d" />
-      </svg>
-    ),
-  },
-];
-
-function CharacterSelectionPanel({ progress, onClose }: { progress: PlayerProgress; onClose: () => void }) {
-  const [selected, setSelected] = useState(0);
-  const selectedChar = CHARACTER_ROSTER[selected];
-  const selectedUnlocked = selectedChar.unlockLevel === null || progress.level >= selectedChar.unlockLevel;
-  const rosterScrollRef = useRef<HTMLDivElement>(null);
-
-  const step = (dir: 1 | -1) => {
-    setSelected((s) => Math.max(0, Math.min(CHARACTER_ROSTER.length - 1, s + dir)));
-  };
-
+// Panel is the reference image directly, full-screen, with just a close
+// button — no hand-designed layout on top. Character model / name / stats
+// etc. get added on request, incrementally, on top of this base.
+function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
   return (
     <div
       role="dialog"
       aria-label="Character Selection"
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 10,
-        display: "flex",
-        flexDirection: "column",
-        background: "linear-gradient(160deg, rgba(6,8,18,0.98) 0%, rgba(2,3,9,0.99) 100%)",
-        fontFamily: "'Barlow', sans-serif",
-        color: "#dce8f5",
-      }}
+      style={{ position: "absolute", inset: 0, zIndex: 10, background: "#000" }}
     >
-      <style>{`
-        .char-stage-nav { transition: opacity 120ms ease-out, transform 120ms ease-out; }
-        .char-stage-nav:active { transform: scale(0.9); }
-        .char-card { transition: outline-color 120ms ease-out, box-shadow 120ms ease-out; outline: 2px solid transparent; outline-offset: 1px; }
-        .char-card.selected { outline-color: #ffcf4d; box-shadow: 0 0 16px rgba(255,207,77,0.55); }
-      `}</style>
-
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "clamp(10px, 2.2vh, 16px) 14px 6px" }}>
-        <button
-          onClick={onClose}
-          aria-label="Back"
-          style={{
-            width: 38,
-            height: 38,
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: 8,
-            border: "1.5px solid rgba(255,207,77,0.6)",
-            background: "rgba(255,207,77,0.08)",
-            color: "#ffcf4d",
-            fontSize: 20,
-            cursor: "pointer",
-          }}
-        >
-          ‹
-        </button>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 800, fontSize: 20, letterSpacing: "0.06em", color: "#fff", lineHeight: 1.1 }}>
-            CHARACTER
-          </div>
-          <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", color: "#ffcf4d", lineHeight: 1.1 }}>
-            SELECTION
-          </div>
-        </div>
-        <div
-          aria-hidden="true"
-          style={{
-            width: 34,
-            height: 34,
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: 8,
-            border: "1px solid rgba(140,160,200,0.4)",
-            color: "#c8d4e6",
-          }}
-        >
-          <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none">
-            <circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.8" />
-            <path
-              d="M12 3v2.3M12 18.7V21M21 12h-2.3M5.3 12H3M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2L5.6 5.6"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-            />
-          </svg>
-        </div>
-      </div>
-
-      {/* Preview stage — real background art (cropped from the reference
-          template) instead of a hand-drawn CSS approximation. */}
-      <div
+      <img
+        src="/character-select-full.jpg"
+        alt="Character Selection"
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+      />
+      <button
+        onClick={onClose}
+        aria-label="Back"
         style={{
-          margin: "6px 14px 0",
-          flex: "1 1 0%",
-          minHeight: 200,
-          position: "relative",
-          borderRadius: 10,
-          overflow: "hidden",
-          border: "1px solid rgba(130,110,255,0.25)",
-          backgroundImage: "url(/character-select-stage.jpg)",
-          backgroundSize: "cover",
-          backgroundPosition: "50% 50%",
-        }}
-      >
-        {selectedUnlocked && CHARACTER_MODELS[selected] && <CharacterViewer3D key={selected} src={CHARACTER_MODELS[selected]} />}
-        {!selectedUnlocked && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
-            <div style={{ width: 40, height: 40 }}>{LOCK_ICON}</div>
-            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.08em", color: "#dcd4f2" }}>
-              UNLOCKS AT LEVEL {selectedChar.unlockLevel}
-            </div>
-          </div>
-        )}
-
-        {/* Cycle arrows */}
-        <button
-          className="char-stage-nav"
-          onClick={() => step(-1)}
-          disabled={selected === 0}
-          aria-label="Previous character"
-          style={{
-            position: "absolute",
-            left: 8,
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: 32,
-            height: 32,
-            borderRadius: "50%",
-            border: "1px solid rgba(200,210,230,0.35)",
-            background: "rgba(10,10,20,0.4)",
-            color: selected === 0 ? "rgba(200,210,230,0.25)" : "#dce4f2",
-            fontSize: 16,
-            cursor: selected === 0 ? "default" : "pointer",
-          }}
-        >
-          ‹
-        </button>
-        <button
-          className="char-stage-nav"
-          onClick={() => step(1)}
-          disabled={selected === CHARACTER_ROSTER.length - 1}
-          aria-label="Next character"
-          style={{
-            position: "absolute",
-            right: 8,
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: 32,
-            height: 32,
-            borderRadius: "50%",
-            border: "1px solid rgba(200,210,230,0.35)",
-            background: "rgba(10,10,20,0.4)",
-            color: selected === CHARACTER_ROSTER.length - 1 ? "rgba(200,210,230,0.25)" : "#dce4f2",
-            fontSize: 16,
-            cursor: selected === CHARACTER_ROSTER.length - 1 ? "default" : "pointer",
-          }}
-        >
-          ›
-        </button>
-
-        {/* Name / status tag */}
-        <div style={{ position: "absolute", left: 14, bottom: 12, right: 14, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 16, letterSpacing: 1, color: "#fff" }}>{selectedChar.name}</span>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: "0.08em",
-              padding: "3px 8px",
-              borderRadius: 5,
-              background: selectedUnlocked ? "rgba(90,220,140,0.18)" : "rgba(168,120,255,0.15)",
-              border: `1px solid ${selectedUnlocked ? "rgba(90,220,140,0.5)" : "rgba(168,120,255,0.4)"}`,
-              color: selectedUnlocked ? "#5adc8c" : "#c9a8ff",
-            }}
-          >
-            {selectedUnlocked ? "EQUIPPED" : "LOCKED"}
-          </span>
-        </div>
-      </div>
-
-      {/* Stats panel — real background art (border frame + diamond-marker
-          line already baked in) instead of hand-drawn CSS. */}
-      <div
-        style={{
-          margin: "12px 14px 0",
-          padding: "34px 14px 14px",
-          borderRadius: 10,
-          backgroundImage: "url(/character-select-stats.jpg)",
-          backgroundSize: "100% 100%",
-        }}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {STAT_ROWS.map((stat) => (
-            <div key={stat.key} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div
-                style={{
-                  width: 22,
-                  height: 22,
-                  flexShrink: 0,
-                  borderRadius: "50%",
-                  border: `1.5px solid ${stat.color}`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {stat.icon}
-              </div>
-              <div style={{ flex: 1, display: "flex", gap: 3 }}>
-                {Array.from({ length: 7 }).map((_, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      flex: 1,
-                      height: 8,
-                      borderRadius: 2,
-                      background: selectedUnlocked && i < stat.fill ? stat.color : "rgba(255,255,255,0.08)",
-                      boxShadow: selectedUnlocked && i < stat.fill ? `0 0 6px ${stat.color}` : "none",
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Roster row */}
-      <div
-        ref={rosterScrollRef}
-        style={{
-          margin: "12px 0 0",
-          padding: "4px 14px 14px",
+          position: "absolute",
+          top: 14,
+          left: 14,
+          width: 38,
+          height: 38,
           display: "flex",
-          gap: 10,
-          overflowX: "auto",
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: 8,
+          border: "1.5px solid rgba(255,207,77,0.6)",
+          background: "rgba(10,10,20,0.55)",
+          color: "#ffcf4d",
+          fontSize: 20,
+          cursor: "pointer",
         }}
       >
-        {CHARACTER_ROSTER.map((char, i) => {
-          const unlocked = char.unlockLevel === null || progress.level >= char.unlockLevel;
-          const isSelected = i === selected;
-          return (
-            <button
-              key={char.name}
-              className={`char-card${isSelected ? " selected" : ""}`}
-              onClick={() => setSelected(i)}
-              aria-label={char.name}
-              style={{
-                position: "relative",
-                flex: "0 0 auto",
-                width: 78,
-                height: 96,
-                borderRadius: 8,
-                overflow: "hidden",
-                backgroundImage: "url(/character-select-card.jpg)",
-                backgroundSize: "100% 100%",
-                cursor: "pointer",
-                padding: 6,
-              }}
-            >
-              {unlocked ? (
-                <img
-                  src="/characters/player-portrait.jpg"
-                  alt={char.name}
-                  style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 22%", borderRadius: 3 }}
-                />
-              ) : (
-                <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>{LOCK_ICON}</div>
-              )}
-              {!unlocked && (
-                <div
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    padding: "2px 0",
-                    textAlign: "center",
-                    fontSize: 9,
-                    fontWeight: 700,
-                    letterSpacing: "0.05em",
-                    color: "#dce4f2",
-                    background: "rgba(4,4,12,0.75)",
-                  }}
-                >
-                  LV {char.unlockLevel}
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
+        ‹
+      </button>
     </div>
   );
 }
+
 
 const HOME_ICON = (
   <svg viewBox="0 0 24 24" width="46%" height="46%" fill="none">
@@ -5358,7 +4943,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
           onClose={() => setRankOpen(false)}
         />
       )}
-      {characterOpen && <CharacterSelectionPanel progress={progress} onClose={() => setCharacterOpen(false)} />}
+      {characterOpen && <CharacterSelectionPanel onClose={() => setCharacterOpen(false)} />}
       {mailOpen && (
         <ComingSoonPanel
           title="MAIL"
