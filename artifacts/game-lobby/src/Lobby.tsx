@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinnedObject } from "three/examples/jsm/utils/SkeletonUtils.js";
@@ -4151,7 +4151,30 @@ function ComingSoonPanel({
   );
 }
 
+const CHAR_CARD_SIZE = 75;
+const CHAR_CARD_GAP = 8;
+
 function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
+  const rosterRef = useRef<HTMLDivElement>(null);
+  // Enough cards to always overflow the row's actual width (plus 2 extra
+  // past that) so it both reaches the right edge and stays scrollable on
+  // any viewport — a fixed card count either left a gap or had nothing to
+  // scroll depending on how wide the screen was.
+  const [cardCount, setCardCount] = useState(10);
+
+  useLayoutEffect(() => {
+    const el = rosterRef.current;
+    if (!el) return;
+    const update = () => {
+      const fitting = Math.ceil(el.clientWidth / (CHAR_CARD_SIZE + CHAR_CARD_GAP));
+      setCardCount(fitting + 2);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <div
       role="dialog"
@@ -4178,21 +4201,22 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <div
+        ref={rosterRef}
         style={{
           flexShrink: 0,
           padding: "0 14px 14px",
           display: "flex",
-          gap: 8,
+          gap: CHAR_CARD_GAP,
           overflowX: "auto",
           overflowY: "hidden",
         }}
       >
-        {Array.from({ length: 8 }).map((_, i) => (
+        {Array.from({ length: cardCount }).map((_, i) => (
           <img
             key={i}
             src="/character-select-card-single.jpg"
             alt={`Character slot ${i + 1}`}
-            style={{ width: 75, height: 75, flexShrink: 0, objectFit: "cover" }}
+            style={{ width: CHAR_CARD_SIZE, height: CHAR_CARD_SIZE, flexShrink: 0, objectFit: "cover" }}
           />
         ))}
       </div>
