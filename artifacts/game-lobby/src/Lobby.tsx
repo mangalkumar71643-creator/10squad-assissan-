@@ -7,8 +7,6 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
-const DEPLOY_CLIP = "polygon(6% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 32%)";
-
 function StartMissionButton({
   pressed,
   onPress,
@@ -31,51 +29,72 @@ function StartMissionButton({
       onTouchEnd={onRelease}
       onTouchCancel={onRelease}
       style={{
-        padding: "clamp(8px, 1.4vh, 13px) clamp(14px, 2.6vw, 26px)",
-        width: "clamp(150px, 40vw, 250px)",
-        clipPath: DEPLOY_CLIP,
+        background: "none",
         border: "none",
+        padding: 0,
         cursor: "pointer",
         WebkitTapHighlightColor: "transparent",
-        background: "linear-gradient(90deg, #ff5b1f 0%, #ff8a2e 50%, #ff3d1a 100%)",
-        boxShadow: "0 0 26px rgba(255,110,40,0.75), 0 0 50px rgba(255,60,20,0.35), inset 0 1px 0 rgba(255,255,255,0.35)",
-        animation: pressed ? "none" : "deploy-pulse 2.4s ease-in-out infinite",
+        transform: pressed ? "scale(0.94)" : "scale(1)",
+        transition: "transform 120ms ease",
       }}
     >
       <style>{`
-        @keyframes deploy-pulse {
-          0%, 100% { filter: brightness(1); }
-          50% { filter: brightness(1.18); }
+        @keyframes mission-pulse {
+          0%, 100% { transform: scale(1); filter: brightness(1); }
+          50% { transform: scale(1.035); filter: brightness(1.12); }
+        }
+        @keyframes mission-sweep {
+          0%   { left: -60%; opacity: 0; }
+          8%   { opacity: 1; }
+          35%  { left: 130%; opacity: 1; }
+          45%  { opacity: 0; }
+          100% { left: 130%; opacity: 0; }
         }
       `}</style>
-      {/* Same press-highlight pattern as the card hotspots: the button
-          itself never moves or resizes, only this overlay appears while
-          held. */}
-      <span
-        aria-hidden="true"
+      {/* Pulse (breathing scale/brightness) wraps the shine layer so the
+          two animations compose independently instead of fighting over
+          one element's transform. Press feedback (scale on the outer
+          button) pauses the pulse while held, same as the old button. */}
+      <div
         style={{
-          position: "absolute",
-          inset: 0,
-          clipPath: DEPLOY_CLIP,
-          background: "rgba(255,255,255,0.22)",
-          boxShadow: "inset 0 0 18px rgba(255,255,255,0.4)",
-          opacity: pressed ? 1 : 0,
-          transition: "opacity 100ms ease-out",
-        }}
-      />
-      <span
-        style={{
-          position: "relative",
-          fontFamily: "'Rajdhani', sans-serif",
-          fontWeight: 700,
-          fontSize: "clamp(12px, 2.8vw, 18px)",
-          letterSpacing: "0.06em",
-          color: "#fff8f0",
-          textShadow: "0 0 10px rgba(255,140,60,0.9), 0 1px 2px rgba(0,0,0,0.5)",
+          animation: pressed ? "none" : "mission-pulse 2.2s ease-in-out infinite",
+          transformOrigin: "center",
         }}
       >
-        START MISSION ▶
-      </span>
+        <div
+          style={{
+            position: "relative",
+            overflow: "hidden",
+            borderRadius: 999,
+            width: "clamp(190px, 46vw, 300px)",
+          }}
+        >
+          <img
+            src="/lobby-start-mission.png"
+            alt=""
+            draggable={false}
+            style={{ display: "block", width: "100%" }}
+          />
+          {/* Diagonal shine sweep, clipped to the button's own pill
+              silhouette by the overflow:hidden wrapper above. */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              top: "-20%",
+              left: "-60%",
+              width: "35%",
+              height: "140%",
+              background:
+                "linear-gradient(100deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.75) 50%, rgba(255,255,255,0) 100%)",
+              transform: "skewX(-20deg)",
+              animation: "mission-sweep 3.4s ease-in-out infinite",
+              animationDelay: "1s",
+              pointerEvents: "none",
+            }}
+          />
+        </div>
+      </div>
     </button>
   );
 }
