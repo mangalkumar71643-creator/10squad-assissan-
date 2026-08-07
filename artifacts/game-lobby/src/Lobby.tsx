@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinnedObject } from "three/examples/jsm/utils/SkeletonUtils.js";
@@ -4014,9 +4014,195 @@ function GiftBox({
   );
 }
 
+function ComingSoonPanel({
+  title,
+  icon,
+  message,
+  onClose,
+}: {
+  title: string;
+  icon: string;
+  message: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-label={title}
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgba(4, 6, 16, 0.75)",
+        backdropFilter: "blur(6px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 10,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(360px, 82vw)",
+          background: "linear-gradient(180deg, rgba(20,14,42,0.97), rgba(8,6,20,0.97))",
+          border: "1px solid rgba(168,120,255,0.45)",
+          borderRadius: 14,
+          boxShadow: "0 0 60px rgba(120,60,255,0.35), inset 0 0 40px rgba(80,40,180,0.15)",
+          padding: "22px 26px 28px",
+          fontFamily: "'Barlow', sans-serif",
+          color: "#e8e2ff",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2
+            style={{
+              margin: 0,
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 22,
+              letterSpacing: 2,
+              color: "#c9a8ff",
+              textShadow: "0 0 18px rgba(170,110,255,0.7)",
+            }}
+          >
+            {title}
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              border: "1px solid rgba(168,120,255,0.5)",
+              background: "rgba(255,255,255,0.05)",
+              color: "#e8e2ff",
+              fontSize: 18,
+              lineHeight: 1,
+              cursor: "pointer",
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            height: 1,
+            background: "linear-gradient(90deg, rgba(168,120,255,0.6), rgba(168,120,255,0))",
+          }}
+        />
+
+        <div style={{ marginTop: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "10px 8px" }}>
+          <div
+            style={{
+              width: 90,
+              height: 90,
+              borderRadius: "50%",
+              border: "1px dashed rgba(168,120,255,0.4)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 34,
+              opacity: 0.7,
+            }}
+          >
+            {icon}
+          </div>
+          <div style={{ fontSize: 14, color: "#8a80a8", textAlign: "center", maxWidth: 260 }}>{message}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const HOME_ICON = (
+  <svg viewBox="0 0 24 24" width="46%" height="46%" fill="none">
+    <path d="M3 11L12 4l9 7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M5 10v9a1 1 0 001 1h12a1 1 0 001-1v-9" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <circle cx="12" cy="15" r="1.6" fill="#fff" />
+    <path d="M12 16.6v2" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+);
+
+const PEOPLE_ICON = (
+  <svg viewBox="0 0 24 24" width="48%" height="48%" fill="none">
+    <circle cx="9" cy="8" r="3.2" fill="#fff" />
+    <path d="M2.5 20c0-3.6 2.9-6.2 6.5-6.2s6.5 2.6 6.5 6.2" fill="#fff" />
+    <circle cx="16.5" cy="9" r="2.6" fill="#fff" opacity="0.85" />
+    <path d="M14.8 13.9c2.9.4 4.7 2.6 4.7 5.6" fill="#fff" opacity="0.85" />
+  </svg>
+);
+
+const MAIL_ICON = (
+  <svg viewBox="0 0 24 24" width="50%" height="50%" fill="none">
+    <rect x="2.5" y="5" width="19" height="14" rx="1.6" stroke="#fff" strokeWidth="2" />
+    <path d="M3.5 6.5L12 13l8.5-6.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+function LobbyIconButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: ReactNode;
+  label?: string;
+  onClick: () => void;
+}) {
+  const [pressed, setPressed] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      onMouseLeave={() => setPressed(false)}
+      onTouchStart={() => setPressed(true)}
+      onTouchEnd={() => setPressed(false)}
+      onTouchCancel={() => setPressed(false)}
+      style={{
+        width: "clamp(48px, 12vw, 62px)",
+        height: "clamp(48px, 12vw, 62px)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 2,
+        border: "1.5px solid rgba(255,150,70,0.65)",
+        borderRadius: 8,
+        background: "rgba(10,14,26,0.72)",
+        cursor: "pointer",
+        WebkitTapHighlightColor: "transparent",
+        transform: pressed ? "scale(0.92)" : "scale(1)",
+        transition: "transform 120ms ease",
+      }}
+    >
+      {icon}
+      {label && (
+        <span
+          style={{
+            color: "#fff",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: "clamp(8px, 2.2vw, 11px)",
+            letterSpacing: "0.06em",
+          }}
+        >
+          {label}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export default function Lobby({ visible }: { visible: boolean }) {
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployPressed, setDeployPressed] = useState(false);
+  const [rankOpen, setRankOpen] = useState(false);
+  const [characterOpen, setCharacterOpen] = useState(false);
+  const [mailOpen, setMailOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   return (
@@ -4073,7 +4259,48 @@ export default function Lobby({ visible }: { visible: boolean }) {
         onMissionClick={() => setDeployOpen(true)}
       />
 
+      {/* RANK / Character / Mail row: bottom-left corner, matching the
+          reference mockup's position (measured at ~1.25% left inset,
+          ~2.3% bottom inset, buttons ~8.75% of the mockup's width each). */}
+      <div
+        style={{
+          position: "absolute",
+          left: "3%",
+          bottom: "3%",
+          display: "flex",
+          gap: "clamp(6px, 2vw, 10px)",
+        }}
+      >
+        <LobbyIconButton icon={HOME_ICON} label="RANK" onClick={() => setRankOpen(true)} />
+        <LobbyIconButton icon={PEOPLE_ICON} onClick={() => setCharacterOpen(true)} />
+        <LobbyIconButton icon={MAIL_ICON} onClick={() => setMailOpen(true)} />
+      </div>
+
       {deployOpen && <CombatArena onExit={() => setDeployOpen(false)} />}
+      {rankOpen && (
+        <ComingSoonPanel
+          title="RANK"
+          icon="🏆"
+          message="Your rank and leaderboard standing will show up here once ranked play goes live."
+          onClose={() => setRankOpen(false)}
+        />
+      )}
+      {characterOpen && (
+        <ComingSoonPanel
+          title="CHARACTER"
+          icon="🪖"
+          message="Character selection and customization will be available here soon."
+          onClose={() => setCharacterOpen(false)}
+        />
+      )}
+      {mailOpen && (
+        <ComingSoonPanel
+          title="MAIL"
+          icon="✉️"
+          message="Squad messages and notifications will show up here once mail goes live."
+          onClose={() => setMailOpen(false)}
+        />
+      )}
     </div>
   );
 }
