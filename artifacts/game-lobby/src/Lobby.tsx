@@ -4156,21 +4156,47 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
     <div
       role="dialog"
       aria-label="Character Selection"
-      style={{ position: "absolute", inset: 0, zIndex: 10, background: "#000" }}
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 10,
+        background: "#000",
+        display: "flex",
+        flexDirection: "column",
+      }}
     >
-      <img
-        src="/character-select-full.jpg"
-        alt="Character Selection"
+      {/* Stage — takes all remaining vertical space above the card row, so
+          the card row below can never overlap it regardless of viewport
+          size (the previous fixed-pixel positioning let that happen on
+          wide screens, where the contained stage image renders taller). */}
+      <div style={{ flex: "1 1 0%", minHeight: 0, position: "relative", paddingRight: 100 }}>
+        <img
+          src="/character-select-full.jpg"
+          alt="Character Selection"
+          style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "left top" }}
+        />
+      </div>
+
+      <div
         style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "calc(100vw - 100px)",
-          height: "calc(100vh - 80px)",
-          objectFit: "contain",
-          objectPosition: "left top",
+          flexShrink: 0,
+          padding: "0 14px 14px",
+          display: "flex",
+          gap: 8,
+          overflowX: "auto",
+          overflowY: "hidden",
         }}
-      />
+      >
+        {Array.from({ length: 8 }).map((_, i) => (
+          <img
+            key={i}
+            src="/character-select-card-single.jpg"
+            alt={`Character slot ${i + 1}`}
+            style={{ width: 75, height: 75, flexShrink: 0, objectFit: "cover" }}
+          />
+        ))}
+      </div>
+
       <button
         onClick={onClose}
         aria-label="Back"
@@ -4193,28 +4219,6 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
       >
         ‹
       </button>
-      <div
-        style={{
-          position: "absolute",
-          left: 14,
-          right: 14,
-          bottom: 90,
-          height: 75,
-          display: "flex",
-          gap: 8,
-          overflowX: "auto",
-          overflowY: "hidden",
-        }}
-      >
-        {Array.from({ length: 8 }).map((_, i) => (
-          <img
-            key={i}
-            src="/character-select-card-single.jpg"
-            alt={`Character slot ${i + 1}`}
-            style={{ width: 75, height: 75, flexShrink: 0, objectFit: "cover" }}
-          />
-        ))}
-      </div>
     </div>
   );
 }
