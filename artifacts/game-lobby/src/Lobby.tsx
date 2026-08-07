@@ -3903,8 +3903,8 @@ function GiftBox({
             @keyframes gift-shine-sweep {
               0%   { background-position: 200% 0%; opacity: 0; }
               8%   { opacity: 1; }
-              45%  { background-position: -100% 0%; opacity: 1; }
-              55%  { opacity: 0; }
+              35%  { background-position: -100% 0%; opacity: 1; }
+              45%  { opacity: 0; }
               100% { background-position: -100% 0%; opacity: 0; }
             }
             @keyframes gift-shake-burst {
@@ -3957,7 +3957,8 @@ function GiftBox({
                   maskImage: "url(/lobby-gift-crate.png)",
                   maskSize: "100% 100%",
                   maskRepeat: "no-repeat",
-                  animation: "gift-shine-sweep 3.2s ease-in-out infinite",
+                  animation: "gift-shine-sweep 3.4s ease-in-out infinite",
+                  animationDelay: "1s",
                   pointerEvents: "none",
                 }}
               />
