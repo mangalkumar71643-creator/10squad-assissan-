@@ -4193,6 +4193,28 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
       >
         ‹
       </button>
+      <div
+        style={{
+          position: "absolute",
+          left: 14,
+          right: 14,
+          bottom: 90,
+          height: 75,
+          display: "flex",
+          gap: 8,
+          overflowX: "auto",
+          overflowY: "hidden",
+        }}
+      >
+        {Array.from({ length: 8 }).map((_, i) => (
+          <img
+            key={i}
+            src="/character-select-card-single.jpg"
+            alt={`Character slot ${i + 1}`}
+            style={{ width: 75, height: 75, flexShrink: 0, objectFit: "cover" }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
