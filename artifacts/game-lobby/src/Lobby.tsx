@@ -4163,14 +4163,14 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
         alt="Character Selection"
         style={{
           position: "absolute",
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
+          top: 0,
+          left: 0,
           width: 500,
           height: 500,
           maxWidth: "94vw",
           maxHeight: "94vw",
           objectFit: "contain",
+          objectPosition: "left top",
         }}
       />
       <button
