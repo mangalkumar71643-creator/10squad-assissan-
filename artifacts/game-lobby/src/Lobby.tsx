@@ -1884,7 +1884,7 @@ function tintBossFighter(rig: FighterRig) {
 // "bot" is just a simple chase-and-swing AI running in the same tick loop
 // as the player, both driven by the same idle-animation character model
 // (there's only one character asset right now) tinted to tell them apart.
-function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (result: "win" | "lose", kills: number) => void }) {
+function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (result: "win" | "lose", kills: number, survivalSec: number) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const joystickKnobRef = useRef<HTMLDivElement>(null);
   const joystickVec = useRef({ x: 0, y: 0 });
@@ -1916,10 +1916,12 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
   // award — read once when `result` leaves "playing" (see the effect
   // below), not reset mid-match since a match only ends once.
   const killCountRef = useRef(0);
+  const matchStartRef = useRef(Date.now());
 
   useEffect(() => {
     if (result === "playing") return;
-    onMatchEnd(result, killCountRef.current);
+    const survivalSec = Math.round((Date.now() - matchStartRef.current) / 1000);
+    onMatchEnd(result, killCountRef.current, survivalSec);
     // onMatchEnd is a fresh closure each render (it wraps setProgress),
     // but the match-end transition itself only happens once per mount —
     // intentionally not in the deps array to avoid re-firing if the
@@ -4232,6 +4234,16 @@ const PLAYER_PROGRESS_STORAGE_KEY = "10sa-player-progress";
 const KILL_XP = 40;
 const WIN_XP_BONUS = 150;
 
+type MatchHistoryEntry = {
+  result: "win" | "lose";
+  kills: number;
+  xp: number;
+  durationSec: number;
+  timestamp: number;
+};
+
+const MATCH_HISTORY_LIMIT = 10;
+
 type PlayerProgress = {
   level: number;
   xp: number;
@@ -4239,6 +4251,7 @@ type PlayerProgress = {
   kills: number;
   wins: number;
   matches: number;
+  history: MatchHistoryEntry[];
 };
 
 function xpNextForLevel(level: number): number {
@@ -4254,7 +4267,7 @@ function rankForLevel(level: number): string {
 }
 
 function defaultPlayerProgress(): PlayerProgress {
-  return { level: 1, xp: 0, xpNext: xpNextForLevel(1), kills: 0, wins: 0, matches: 0 };
+  return { level: 1, xp: 0, xpNext: xpNextForLevel(1), kills: 0, wins: 0, matches: 0, history: [] };
 }
 
 function loadPlayerProgress(): PlayerProgress {
@@ -4269,6 +4282,9 @@ function loadPlayerProgress(): PlayerProgress {
       kills: parsed.kills ?? 0,
       wins: parsed.wins ?? 0,
       matches: parsed.matches ?? 0,
+      // Older saves (from before match history existed) simply won't have
+      // this field — default to empty rather than crashing on .map/.slice.
+      history: Array.isArray(parsed.history) ? parsed.history : [],
     };
   } catch {
     return defaultPlayerProgress();
@@ -4404,6 +4420,8 @@ function ProfilePanel({ progress, onClose }: { progress: PlayerProgress; onClose
           padding: "22px 26px 26px",
           fontFamily: "'Barlow', sans-serif",
           color: "#e8e2ff",
+          maxHeight: "82vh",
+          overflowY: "auto",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -4543,6 +4561,96 @@ function ProfilePanel({ progress, onClose }: { progress: PlayerProgress; onClose
             </div>
           ))}
         </div>
+
+        {/* Match history */}
+        <div style={{ marginTop: 22 }}>
+          <div
+            style={{
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 13,
+              letterSpacing: "0.08em",
+              color: "#9d8ac2",
+            }}
+          >
+            MATCH HISTORY
+          </div>
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+            {progress.history.length === 0 ? (
+              <div
+                style={{
+                  padding: "16px 12px",
+                  textAlign: "center",
+                  fontSize: 12,
+                  color: "#6b5f92",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px dashed rgba(168,120,255,0.25)",
+                  borderRadius: 10,
+                }}
+              >
+                No matches played yet
+              </div>
+            ) : (
+              progress.history.map((entry, i) => {
+                const mm = Math.floor(entry.durationSec / 60);
+                const ss = entry.durationSec % 60;
+                const duration = `${mm}:${ss.toString().padStart(2, "0")}`;
+                const won = entry.result === "win";
+                return (
+                  <div
+                    key={`${entry.timestamp}-${i}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: "rgba(255,255,255,0.04)",
+                      border: `1px solid ${won ? "rgba(90,220,140,0.3)" : "rgba(255,90,90,0.25)"}`,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        flexShrink: 0,
+                        background: won ? "#5adc8c" : "#ff5a5a",
+                        boxShadow: won ? "0 0 8px rgba(90,220,140,0.8)" : "0 0 8px rgba(255,90,90,0.8)",
+                      }}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontFamily: "'Rajdhani', sans-serif",
+                          fontWeight: 700,
+                          fontSize: 13,
+                          color: won ? "#5adc8c" : "#ff8a8a",
+                        }}
+                      >
+                        {won ? "VICTORY" : "DEFEAT"}
+                      </div>
+                      <div style={{ marginTop: 2, fontSize: 11, color: "#9d8ac2" }}>
+                        {entry.kills} kills · {duration} survived
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: "'Rajdhani', sans-serif",
+                        fontWeight: 700,
+                        fontSize: 14,
+                        color: "#ffb347",
+                        flexShrink: 0,
+                      }}
+                    >
+                      +{entry.xp} XP
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -4558,14 +4666,16 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [progress, setProgress] = useState<PlayerProgress>(loadPlayerProgress);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleMatchEnd = (result: "win" | "lose", kills: number) => {
+  const handleMatchEnd = (result: "win" | "lose", kills: number, survivalSec: number) => {
     setProgress((prev) => {
       const xpGained = kills * KILL_XP + (result === "win" ? WIN_XP_BONUS : 0);
+      const entry: MatchHistoryEntry = { result, kills, xp: xpGained, durationSec: survivalSec, timestamp: Date.now() };
       const next: PlayerProgress = {
         ...applyXP(prev, xpGained),
         kills: prev.kills + kills,
         wins: prev.wins + (result === "win" ? 1 : 0),
         matches: prev.matches + 1,
+        history: [entry, ...prev.history].slice(0, MATCH_HISTORY_LIMIT),
       };
       localStorage.setItem(PLAYER_PROGRESS_STORAGE_KEY, JSON.stringify(next));
       return next;
