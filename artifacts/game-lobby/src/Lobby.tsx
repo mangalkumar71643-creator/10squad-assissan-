@@ -3900,13 +3900,6 @@ function GiftBox({
           }}
         >
           <style>{`
-            @keyframes gift-shine-sweep {
-              0%   { background-position: 200% 0%; opacity: 0; }
-              8%   { opacity: 1; }
-              35%  { background-position: -100% 0%; opacity: 1; }
-              45%  { opacity: 0; }
-              100% { background-position: -100% 0%; opacity: 0; }
-            }
             @keyframes gift-shake-burst {
               0%   { transform: rotate(0deg); }
               2%   { transform: rotate(-9deg); }
@@ -3929,7 +3922,25 @@ function GiftBox({
               transformOrigin: "50% 90%",
             }}
           >
-            <div style={{ position: "relative" }}>
+            {/* mask-image lives on this wrapper (sized exactly to the
+                crate image, 1:1) so it clips both the img and the sliding
+                shine block below to the crate's real silhouette — an
+                irregular chamfered shape, not a plain rectangle. Putting
+                the mask on the (smaller, offset) sliding block itself
+                would size/position the mask against that block's own
+                box instead of the crate's, distorting it. */}
+            <div
+              style={{
+                position: "relative",
+                overflow: "hidden",
+                WebkitMaskImage: "url(/lobby-gift-crate.png)",
+                WebkitMaskSize: "100% 100%",
+                WebkitMaskRepeat: "no-repeat",
+                maskImage: "url(/lobby-gift-crate.png)",
+                maskSize: "100% 100%",
+                maskRepeat: "no-repeat",
+              }}
+            >
               <img
                 src="/lobby-gift-crate.png"
                 alt="Gift crate"
@@ -3939,25 +3950,24 @@ function GiftBox({
                   display: "block",
                 }}
               />
-              {/* Masked with the crate's own PNG alpha so the shine stays
-                  clipped to the crate's actual silhouette (an irregular
-                  chamfered shape, not a plain rectangle) instead of
-                  spilling into the image's transparent corners. */}
+              {/* Same sliding-block mechanic as the START MISSION
+                  button's shine (left/width, not background-position) so
+                  the two move at truly identical speed — matching just
+                  the keyframe percentages while using a different CSS
+                  property for the motion (as before) doesn't actually
+                  produce the same felt speed. */}
               <div
                 aria-hidden="true"
                 style={{
                   position: "absolute",
-                  inset: 0,
+                  top: "-20%",
+                  left: "-60%",
+                  width: "35%",
+                  height: "140%",
                   background:
-                    "linear-gradient(100deg, transparent 0%, transparent 40%, rgba(255,255,255,0.85) 50%, transparent 60%, transparent 100%)",
-                  backgroundSize: "300% 300%",
-                  WebkitMaskImage: "url(/lobby-gift-crate.png)",
-                  WebkitMaskSize: "100% 100%",
-                  WebkitMaskRepeat: "no-repeat",
-                  maskImage: "url(/lobby-gift-crate.png)",
-                  maskSize: "100% 100%",
-                  maskRepeat: "no-repeat",
-                  animation: "gift-shine-sweep 3.4s ease-in-out infinite",
+                    "linear-gradient(100deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0) 100%)",
+                  transform: "skewX(-20deg)",
+                  animation: "mission-sweep 3.4s ease-in-out infinite",
                   animationDelay: "1s",
                   pointerEvents: "none",
                 }}
