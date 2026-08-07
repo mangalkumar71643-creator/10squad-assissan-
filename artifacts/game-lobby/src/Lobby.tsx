@@ -4332,7 +4332,10 @@ const STAT_ROWS: { key: string; color: string; fill: number; icon: ReactNode }[]
   },
 ];
 
-function CharacterSelectionPanel({ progress, onClose }: { progress: PlayerProgress; onClose: () => void }) {
+// Not wired into the Character button — reverted back to the CHARACTER
+// ComingSoonPanel per request. Exported so it survives the strict
+// noUnusedLocals typecheck while staying unreachable from real navigation.
+export function CharacterSelectionPanel({ progress, onClose }: { progress: PlayerProgress; onClose: () => void }) {
   const [selected, setSelected] = useState(0);
   const selectedChar = CHARACTER_ROSTER[selected];
   const selectedUnlocked = selectedChar.unlockLevel === null || progress.level >= selectedChar.unlockLevel;
@@ -5473,7 +5476,14 @@ export default function Lobby({ visible }: { visible: boolean }) {
           onClose={() => setRankOpen(false)}
         />
       )}
-      {characterOpen && <CharacterSelectionPanel progress={progress} onClose={() => setCharacterOpen(false)} />}
+      {characterOpen && (
+        <ComingSoonPanel
+          title="CHARACTER"
+          icon="🪖"
+          message="Character selection and customization will be available here soon."
+          onClose={() => setCharacterOpen(false)}
+        />
+      )}
       {mailOpen && (
         <ComingSoonPanel
           title="MAIL"
