@@ -4174,26 +4174,6 @@ const CHARACTER_ROSTER: { name: string; unlockLevel: number | null }[] = [
 // Only the first roster slot has a real 3D asset so far.
 const CHARACTER_MODELS: Record<number, string> = { 0: "/characters/char-1.glb" };
 
-// Fixed (not randomized) positions/timings for the preview stage's falling
-// light particles — randomizing on every render would make them jump
-// around each time the panel re-renders (e.g. on selection change).
-const STAGE_PARTICLES = [
-  { left: 22, delay: 0, duration: 3.2 },
-  { left: 34, delay: 0.6, duration: 2.8 },
-  { left: 46, delay: 1.1, duration: 3.6 },
-  { left: 58, delay: 0.3, duration: 3.0 },
-  { left: 70, delay: 1.6, duration: 2.6 },
-  { left: 82, delay: 0.8, duration: 3.4 },
-];
-
-// Tick marks around the platform's outer ring — computed once (not
-// per-render) so the flat disc reads as a single ground plane viewed in
-// perspective, rather than several rings stacked on top of each other.
-const STAGE_TICKS = Array.from({ length: 16 }, (_, i) => {
-  const angle = (i / 16) * Math.PI * 2;
-  return { x: 50 + 47 * Math.cos(angle), y: 50 + 47 * Math.sin(angle) };
-});
-
 // Renders a glTF character model with its baked idle animation looping,
 // standing on the preview stage. Plain three.js (no react-three-fiber) —
 // this is the only place in the app besides CombatArena that needs a 3D
@@ -4332,10 +4312,7 @@ const STAT_ROWS: { key: string; color: string; fill: number; icon: ReactNode }[]
   },
 ];
 
-// Not wired into the Character button — reverted back to the CHARACTER
-// ComingSoonPanel per request. Exported so it survives the strict
-// noUnusedLocals typecheck while staying unreachable from real navigation.
-export function CharacterSelectionPanel({ progress, onClose }: { progress: PlayerProgress; onClose: () => void }) {
+function CharacterSelectionPanel({ progress, onClose }: { progress: PlayerProgress; onClose: () => void }) {
   const [selected, setSelected] = useState(0);
   const selectedChar = CHARACTER_ROSTER[selected];
   const selectedUnlocked = selectedChar.unlockLevel === null || progress.level >= selectedChar.unlockLevel;
@@ -4361,24 +4338,10 @@ export function CharacterSelectionPanel({ progress, onClose }: { progress: Playe
       }}
     >
       <style>{`
-        @keyframes stage-core-pulse {
-          0%, 100% { opacity: 0.85; transform: translateX(-50%) scale(1); }
-          50% { opacity: 1; transform: translateX(-50%) scale(1.08); }
-        }
-        @keyframes stage-particle-fall {
-          0% { transform: translateY(-10px); opacity: 0; }
-          12% { opacity: 1; }
-          80% { opacity: 0.8; }
-          100% { transform: translateY(160px); opacity: 0; }
-        }
-        @keyframes stage-ticks-spin {
-          from { transform: translateX(-50%) rotate(0deg); }
-          to { transform: translateX(-50%) rotate(360deg); }
-        }
         .char-stage-nav { transition: opacity 120ms ease-out, transform 120ms ease-out; }
         .char-stage-nav:active { transform: scale(0.9); }
-        .char-card { transition: border-color 120ms ease-out, box-shadow 120ms ease-out; }
-        .char-card.selected { border-color: #ffcf4d !important; box-shadow: 0 0 16px rgba(255,207,77,0.55), inset 0 0 12px rgba(255,207,77,0.2); }
+        .char-card { transition: outline-color 120ms ease-out, box-shadow 120ms ease-out; outline: 2px solid transparent; outline-offset: 1px; }
+        .char-card.selected { outline-color: #ffcf4d; box-shadow: 0 0 16px rgba(255,207,77,0.55); }
       `}</style>
 
       {/* Header */}
@@ -4437,7 +4400,8 @@ export function CharacterSelectionPanel({ progress, onClose }: { progress: Playe
         </div>
       </div>
 
-      {/* Preview stage */}
+      {/* Preview stage — real background art (cropped from the reference
+          template) instead of a hand-drawn CSS approximation. */}
       <div
         style={{
           margin: "6px 14px 0",
@@ -4447,85 +4411,11 @@ export function CharacterSelectionPanel({ progress, onClose }: { progress: Playe
           borderRadius: 10,
           overflow: "hidden",
           border: "1px solid rgba(130,110,255,0.25)",
-          background:
-            "radial-gradient(ellipse at 50% 92%, rgba(110,90,240,0.5) 0%, rgba(50,40,120,0.5) 32%, rgba(10,8,20,0.96) 60%, rgba(2,2,8,0.98) 86%)",
+          backgroundImage: "url(/character-select-stage.jpg)",
+          backgroundSize: "cover",
+          backgroundPosition: "50% 50%",
         }}
       >
-        {STAGE_PARTICLES.map((p, i) => (
-          <div
-            key={i}
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              top: "6%",
-              left: `${p.left}%`,
-              width: 2,
-              height: 14,
-              borderRadius: 2,
-              background: "linear-gradient(180deg, rgba(210,200,255,0) 0%, rgba(210,200,255,0.9) 60%, rgba(210,200,255,0) 100%)",
-              animation: `stage-particle-fall ${p.duration}s linear ${p.delay}s infinite`,
-            }}
-          />
-        ))}
-
-        {/* Platform: a flat ground-plane disc built from concentric rings
-            sharing a base, plus a slowly spinning tick-mark ring to sell
-            the "3D turntable" read without any vertical stacking. */}
-        <div style={{ position: "absolute", left: "50%", bottom: "10%", transform: "translateX(-50%)", width: "78%", aspectRatio: "3 / 1" }}>
-          {[100, 76, 52, 30].map((size) => (
-            <div
-              key={size}
-              style={{
-                position: "absolute",
-                left: "50%",
-                bottom: 0,
-                transform: "translateX(-50%)",
-                width: `${size}%`,
-                aspectRatio: "3 / 1",
-                borderRadius: "50%",
-                border: "2px solid rgba(150,130,255,0.65)",
-                boxShadow: "0 0 22px rgba(130,100,255,0.5)",
-              }}
-            />
-          ))}
-          <div
-            aria-hidden="true"
-            style={{ position: "absolute", left: "50%", bottom: 0, width: "100%", aspectRatio: "3 / 1", animation: "stage-ticks-spin 14s linear infinite" }}
-          >
-            {STAGE_TICKS.map((t, i) => (
-              <span
-                key={i}
-                style={{
-                  position: "absolute",
-                  left: `${t.x}%`,
-                  top: `${t.y}%`,
-                  width: 3,
-                  height: 3,
-                  marginLeft: -1.5,
-                  marginTop: -1.5,
-                  borderRadius: "50%",
-                  background: "rgba(210,195,255,0.85)",
-                  boxShadow: "0 0 4px rgba(170,140,255,0.9)",
-                }}
-              />
-            ))}
-          </div>
-          <div
-            style={{
-              position: "absolute",
-              left: "50%",
-              bottom: "6%",
-              width: "18%",
-              aspectRatio: "1 / 1",
-              borderRadius: "50%",
-              background: "radial-gradient(circle, rgba(225,215,255,0.95), rgba(130,100,255,0) 72%)",
-              filter: "blur(2px)",
-              transform: "translateX(-50%)",
-              animation: "stage-core-pulse 2.6s ease-in-out infinite",
-            }}
-          />
-        </div>
-
         {selectedUnlocked && CHARACTER_MODELS[selected] && <CharacterViewer3D key={selected} src={CHARACTER_MODELS[selected]} />}
         {!selectedUnlocked && (
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -4602,26 +4492,18 @@ export function CharacterSelectionPanel({ progress, onClose }: { progress: Playe
         </div>
       </div>
 
-      {/* Stats panel */}
-      <div style={{ margin: "12px 14px 0", padding: "12px 14px", borderRadius: 10, border: "1px solid rgba(130,110,255,0.25)", background: "rgba(20,16,40,0.5)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ flex: 1, height: 2, background: "linear-gradient(90deg, rgba(255,120,200,0.15), rgba(255,120,200,0.7), rgba(255,120,200,0.15))", position: "relative" }}>
-            <span
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                left: "50%",
-                top: "50%",
-                width: 8,
-                height: 8,
-                background: "#ff9ee0",
-                boxShadow: "0 0 8px rgba(255,150,220,0.9)",
-                transform: "translate(-50%, -50%) rotate(45deg)",
-              }}
-            />
-          </div>
-        </div>
-        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+      {/* Stats panel — real background art (border frame + diamond-marker
+          line already baked in) instead of hand-drawn CSS. */}
+      <div
+        style={{
+          margin: "12px 14px 0",
+          padding: "34px 14px 14px",
+          borderRadius: 10,
+          backgroundImage: "url(/character-select-stats.jpg)",
+          backgroundSize: "100% 100%",
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {STAT_ROWS.map((stat) => (
             <div key={stat.key} style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div
@@ -4684,17 +4566,17 @@ export function CharacterSelectionPanel({ progress, onClose }: { progress: Playe
                 height: 96,
                 borderRadius: 8,
                 overflow: "hidden",
-                border: "1px solid rgba(130,110,255,0.35)",
-                background: "rgba(20,16,40,0.55)",
+                backgroundImage: "url(/character-select-card.jpg)",
+                backgroundSize: "100% 100%",
                 cursor: "pointer",
-                padding: 0,
+                padding: 6,
               }}
             >
               {unlocked ? (
                 <img
                   src="/characters/player-portrait.jpg"
                   alt={char.name}
-                  style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 22%" }}
+                  style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 22%", borderRadius: 3 }}
                 />
               ) : (
                 <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>{LOCK_ICON}</div>
@@ -5476,14 +5358,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
           onClose={() => setRankOpen(false)}
         />
       )}
-      {characterOpen && (
-        <ComingSoonPanel
-          title="CHARACTER"
-          icon="🪖"
-          message="Character selection and customization will be available here soon."
-          onClose={() => setCharacterOpen(false)}
-        />
-      )}
+      {characterOpen && <CharacterSelectionPanel progress={progress} onClose={() => setCharacterOpen(false)} />}
       {mailOpen && (
         <ComingSoonPanel
           title="MAIL"
