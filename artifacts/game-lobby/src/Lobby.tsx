@@ -66,7 +66,7 @@ function StartMissionButton({
             position: "relative",
             overflow: "hidden",
             borderRadius: 999,
-            width: "clamp(152px, 36.8vw, 240px)",
+            width: "clamp(137px, 33.1vw, 216px)",
           }}
         >
           <img
@@ -3872,7 +3872,7 @@ function GiftBox({
       <div
         style={{
           position: "absolute",
-          top: "calc(44% - 40px)",
+          top: "calc(44% - 45px)",
           left: "50%",
           transform: "translateX(-50%)",
           display: "flex",
@@ -3904,7 +3904,7 @@ function GiftBox({
             alt="Gift crate"
             draggable={false}
             style={{
-              width: "clamp(95px, 21.6vw, 158px)",
+              width: "clamp(86px, 19.4vw, 142px)",
               display: "block",
             }}
           />
@@ -3927,7 +3927,7 @@ function GiftBox({
             cluster's actual rendered bottom (crate + label), on any
             screen, rather than at a fixed top:% that could drift into or
             past the crate depending on its size. */}
-        <div style={{ marginTop: 10 }}>
+        <div style={{ marginTop: 0 }}>
           <StartMissionButton
             pressed={missionPressed}
             onPress={onMissionPress}
