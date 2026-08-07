@@ -1884,7 +1884,7 @@ function tintBossFighter(rig: FighterRig) {
 // "bot" is just a simple chase-and-swing AI running in the same tick loop
 // as the player, both driven by the same idle-animation character model
 // (there's only one character asset right now) tinted to tell them apart.
-function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (result: "win" | "lose", kills: number, survivalSec: number) => void }) {
+function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const joystickKnobRef = useRef<HTMLDivElement>(null);
   const joystickVec = useRef({ x: 0, y: 0 });
@@ -1917,11 +1917,14 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
   // below), not reset mid-match since a match only ends once.
   const killCountRef = useRef(0);
   const matchStartRef = useRef(Date.now());
+  // Total HP actually knocked off bots this match (clamped per-hit to each
+  // bot's remaining HP, so overkill damage past 0 isn't counted twice).
+  const damageDealtRef = useRef(0);
 
   useEffect(() => {
     if (result === "playing") return;
     const survivalSec = Math.round((Date.now() - matchStartRef.current) / 1000);
-    onMatchEnd(result, killCountRef.current, survivalSec);
+    onMatchEnd(result, killCountRef.current, survivalSec, Math.round(damageDealtRef.current));
     // onMatchEnd is a fresh closure each render (it wraps setProgress),
     // but the match-end transition itself only happens once per mount —
     // intentionally not in the deps array to avoid re-firing if the
@@ -2871,6 +2874,7 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
       const st = botStates[idx];
       const rig = bots[idx];
       if (st.dead || !rig) return;
+      damageDealtRef.current += Math.min(amount, st.hp);
       st.hp = Math.max(0, st.hp - amount);
       setBotHps((prev) => {
         const next = prev.slice();
@@ -4239,6 +4243,7 @@ type MatchHistoryEntry = {
   kills: number;
   xp: number;
   durationSec: number;
+  damage: number;
   timestamp: number;
 };
 
@@ -4393,6 +4398,7 @@ function ProfilePanel({ progress, onClose }: { progress: PlayerProgress; onClose
   const xpFraction = progress.xp / progress.xpNext;
   const winRate = progress.matches > 0 ? Math.round((progress.wins / progress.matches) * 100) : 0;
   const rank = rankForLevel(progress.level);
+  const [selectedMatch, setSelectedMatch] = useState<MatchHistoryEntry | null>(null);
   return (
     <div
       role="dialog"
@@ -4597,8 +4603,9 @@ function ProfilePanel({ progress, onClose }: { progress: PlayerProgress; onClose
                 const duration = `${mm}:${ss.toString().padStart(2, "0")}`;
                 const won = entry.result === "win";
                 return (
-                  <div
+                  <button
                     key={`${entry.timestamp}-${i}`}
+                    onClick={() => setSelectedMatch(entry)}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -4607,6 +4614,11 @@ function ProfilePanel({ progress, onClose }: { progress: PlayerProgress; onClose
                       borderRadius: 10,
                       background: "rgba(255,255,255,0.04)",
                       border: `1px solid ${won ? "rgba(90,220,140,0.3)" : "rgba(255,90,90,0.25)"}`,
+                      width: "100%",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      font: "inherit",
+                      color: "inherit",
                     }}
                   >
                     <div
@@ -4645,11 +4657,129 @@ function ProfilePanel({ progress, onClose }: { progress: PlayerProgress; onClose
                     >
                       +{entry.xp} XP
                     </div>
-                  </div>
+                  </button>
                 );
               })
             )}
           </div>
+        </div>
+      </div>
+      {selectedMatch && <MatchDetailPanel entry={selectedMatch} onClose={() => setSelectedMatch(null)} />}
+    </div>
+  );
+}
+
+function MatchDetailPanel({ entry, onClose }: { entry: MatchHistoryEntry; onClose: () => void }) {
+  const won = entry.result === "win";
+  const mm = Math.floor(entry.durationSec / 60);
+  const ss = entry.durationSec % 60;
+  const duration = `${mm}m ${ss.toString().padStart(2, "0")}s`;
+  const rows = [
+    { label: "MATCH", value: won ? "VICTORY" : "DEFEAT", color: won ? "#5adc8c" : "#ff8a8a" },
+    { label: "KILLS", value: String(entry.kills) },
+    { label: "SURVIVED", value: duration },
+    { label: "XP EARNED", value: `+${entry.xp}` },
+    { label: "DAMAGE DEALT", value: String(entry.damage ?? 0) },
+  ];
+  return (
+    <div
+      role="dialog"
+      aria-label="Match Detail"
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgba(4, 6, 16, 0.75)",
+        backdropFilter: "blur(6px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 20,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(380px, 86vw)",
+          background: "linear-gradient(180deg, rgba(20,14,42,0.97), rgba(8,6,20,0.97))",
+          border: "1px solid rgba(168,120,255,0.45)",
+          borderRadius: 14,
+          boxShadow: "0 0 60px rgba(120,60,255,0.35), inset 0 0 40px rgba(80,40,180,0.15)",
+          padding: "22px 26px 26px",
+          fontFamily: "'Barlow', sans-serif",
+          color: "#e8e2ff",
+          maxHeight: "82vh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2
+            style={{
+              margin: 0,
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 22,
+              letterSpacing: 2,
+              color: "#c9a8ff",
+              textShadow: "0 0 18px rgba(170,110,255,0.7)",
+            }}
+          >
+            MATCH DETAILS
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              border: "1px solid rgba(168,120,255,0.5)",
+              background: "rgba(255,255,255,0.05)",
+              color: "#e8e2ff",
+              fontSize: 18,
+              lineHeight: 1,
+              cursor: "pointer",
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            height: 1,
+            background: "linear-gradient(90deg, rgba(168,120,255,0.6), rgba(168,120,255,0))",
+          }}
+        />
+
+        <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 10 }}>
+          {rows.map((row) => (
+            <div
+              key={row.label}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "12px 16px",
+                borderRadius: 10,
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(168,120,255,0.25)",
+              }}
+            >
+              <span style={{ fontSize: 12, letterSpacing: "0.08em", color: "#9d8ac2" }}>{row.label}</span>
+              <span
+                style={{
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 18,
+                  color: row.color ?? "#fff",
+                }}
+              >
+                {row.value}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -4666,10 +4796,17 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [progress, setProgress] = useState<PlayerProgress>(loadPlayerProgress);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleMatchEnd = (result: "win" | "lose", kills: number, survivalSec: number) => {
+  const handleMatchEnd = (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => {
     setProgress((prev) => {
       const xpGained = kills * KILL_XP + (result === "win" ? WIN_XP_BONUS : 0);
-      const entry: MatchHistoryEntry = { result, kills, xp: xpGained, durationSec: survivalSec, timestamp: Date.now() };
+      const entry: MatchHistoryEntry = {
+        result,
+        kills,
+        xp: xpGained,
+        durationSec: survivalSec,
+        damage: damageDealt,
+        timestamp: Date.now(),
+      };
       const next: PlayerProgress = {
         ...applyXP(prev, xpGained),
         kills: prev.kills + kills,
