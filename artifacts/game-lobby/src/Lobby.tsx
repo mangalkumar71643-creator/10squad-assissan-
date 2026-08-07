@@ -4197,12 +4197,281 @@ function LobbyIconButton({
   );
 }
 
+// Placeholder player data — no account/backend exists yet, so this is
+// hardcoded rather than loaded from anywhere. Matches the reference
+// mockup's "ShadowReaper LV 18" so the lobby reads the same as the design.
+const PLAYER_NAME = "ShadowReaper";
+const PLAYER_LEVEL = 18;
+const PLAYER_XP = 2450;
+const PLAYER_XP_NEXT = 3300;
+const PLAYER_RANK = "Gold III";
+const PLAYER_STATS = { kills: 142, wins: 37, matches: 58 };
+
+const AVATAR_ICON = (
+  <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none">
+    <circle cx="12" cy="12" r="12" fill="#2a3550" />
+    <path
+      d="M12 4.5c-3.3 0-5.2 2-5.2 4.6 0 1.7.7 2.9 1.6 3.7-2.6 1-4.4 3-4.4 5.7v.5a12 12 0 0016 0v-.5c0-2.7-1.8-4.7-4.4-5.7.9-.8 1.6-2 1.6-3.7 0-2.6-1.9-4.6-5.2-4.6z"
+      fill="#8fa3c9"
+    />
+    <path d="M6.8 9.6c0-2.8 2.2-4.8 5.2-4.8s5.2 2 5.2 4.8" stroke="#4a5a80" strokeWidth="1.2" fill="none" />
+  </svg>
+);
+
+const RANK_BADGE_ICON = (
+  <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none">
+    <path
+      d="M12 2l2.6 5.4 5.9.6-4.4 4 1.3 5.8L12 15.1 6.6 17.8l1.3-5.8-4.4-4 5.9-.6L12 2z"
+      fill="#ffd23f"
+      stroke="#a8760f"
+      strokeWidth="1"
+    />
+  </svg>
+);
+
+function PlayerProfileButton({ onClick }: { onClick: () => void }) {
+  const [pressed, setPressed] = useState(false);
+  const xpFraction = PLAYER_XP / PLAYER_XP_NEXT;
+  return (
+    <button
+      onClick={onClick}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      onMouseLeave={() => setPressed(false)}
+      onTouchStart={() => setPressed(true)}
+      onTouchEnd={() => setPressed(false)}
+      onTouchCancel={() => setPressed(false)}
+      style={{
+        position: "absolute",
+        top: "3%",
+        left: "3%",
+        display: "flex",
+        alignItems: "center",
+        gap: "clamp(6px, 2vw, 10px)",
+        padding: "clamp(5px, 1.6vw, 8px) clamp(10px, 3vw, 14px) clamp(5px, 1.6vw, 8px) clamp(5px, 1.6vw, 8px)",
+        border: "1px solid rgba(140,160,200,0.4)",
+        borderRadius: 10,
+        background: "rgba(8,12,22,0.65)",
+        cursor: "pointer",
+        WebkitTapHighlightColor: "transparent",
+        transform: pressed ? "scale(0.96)" : "scale(1)",
+        transition: "transform 120ms ease",
+      }}
+    >
+      <div style={{ width: "clamp(34px, 9vw, 44px)", height: "clamp(34px, 9vw, 44px)", flexShrink: 0 }}>{AVATAR_ICON}</div>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, minWidth: 0 }}>
+        <span
+          style={{
+            color: "#fff",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: "clamp(11px, 3vw, 14px)",
+            letterSpacing: "0.02em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {PLAYER_NAME}
+        </span>
+        <span
+          style={{
+            color: "#9db0d4",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: "clamp(9px, 2.4vw, 11px)",
+            letterSpacing: "0.06em",
+          }}
+        >
+          LV {PLAYER_LEVEL}
+        </span>
+        <div style={{ width: "clamp(56px, 16vw, 84px)", height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", overflow: "hidden" }}>
+          <div style={{ width: `${xpFraction * 100}%`, height: "100%", background: "linear-gradient(90deg, #ff8a2e, #ff5b1f)" }} />
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function ProfilePanel({ onClose }: { onClose: () => void }) {
+  const xpFraction = PLAYER_XP / PLAYER_XP_NEXT;
+  const winRate = Math.round((PLAYER_STATS.wins / PLAYER_STATS.matches) * 100);
+  return (
+    <div
+      role="dialog"
+      aria-label="Profile"
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgba(4, 6, 16, 0.75)",
+        backdropFilter: "blur(6px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 10,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(380px, 86vw)",
+          background: "linear-gradient(180deg, rgba(20,14,42,0.97), rgba(8,6,20,0.97))",
+          border: "1px solid rgba(168,120,255,0.45)",
+          borderRadius: 14,
+          boxShadow: "0 0 60px rgba(120,60,255,0.35), inset 0 0 40px rgba(80,40,180,0.15)",
+          padding: "22px 26px 26px",
+          fontFamily: "'Barlow', sans-serif",
+          color: "#e8e2ff",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2
+            style={{
+              margin: 0,
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 22,
+              letterSpacing: 2,
+              color: "#c9a8ff",
+              textShadow: "0 0 18px rgba(170,110,255,0.7)",
+            }}
+          >
+            PROFILE
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              border: "1px solid rgba(168,120,255,0.5)",
+              background: "rgba(255,255,255,0.05)",
+              color: "#e8e2ff",
+              fontSize: 18,
+              lineHeight: 1,
+              cursor: "pointer",
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            height: 1,
+            background: "linear-gradient(90deg, rgba(168,120,255,0.6), rgba(168,120,255,0))",
+          }}
+        />
+
+        {/* Avatar + name + rank badge */}
+        <div style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 16 }}>
+          <div
+            style={{
+              width: 72,
+              height: 72,
+              flexShrink: 0,
+              borderRadius: "50%",
+              border: "2px solid rgba(168,120,255,0.5)",
+              boxShadow: "0 0 20px rgba(140,80,255,0.4)",
+              overflow: "hidden",
+            }}
+          >
+            {AVATAR_ICON}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+            <div
+              style={{
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                fontSize: 20,
+                color: "#fff",
+              }}
+            >
+              {PLAYER_NAME}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ width: 18, height: 18 }}>{RANK_BADGE_ICON}</div>
+              <span style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 600, fontSize: 14, color: "#ffd23f" }}>
+                {PLAYER_RANK}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Level + XP bar */}
+        <div style={{ marginTop: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#9d8ac2" }}>
+            <span>LEVEL {PLAYER_LEVEL}</span>
+            <span>
+              {PLAYER_XP} / {PLAYER_XP_NEXT} XP
+            </span>
+          </div>
+          <div
+            style={{
+              marginTop: 6,
+              width: "100%",
+              height: 10,
+              borderRadius: 5,
+              background: "rgba(255,255,255,0.08)",
+              border: "1px solid rgba(168,120,255,0.25)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${xpFraction * 100}%`,
+                height: "100%",
+                background: "linear-gradient(90deg, #ff8a2e, #ff5b1f)",
+                boxShadow: "0 0 10px rgba(255,140,60,0.6)",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Stats grid */}
+        <div
+          style={{
+            marginTop: 22,
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: 10,
+          }}
+        >
+          {[
+            { label: "KILLS", value: PLAYER_STATS.kills },
+            { label: "WINS", value: PLAYER_STATS.wins },
+            { label: "WIN RATE", value: `${winRate}%` },
+          ].map((stat) => (
+            <div
+              key={stat.label}
+              style={{
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(168,120,255,0.25)",
+                borderRadius: 10,
+                padding: "10px 6px",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 20, color: "#fff" }}>
+                {stat.value}
+              </div>
+              <div style={{ marginTop: 2, fontSize: 10, letterSpacing: "0.08em", color: "#9d8ac2" }}>{stat.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Lobby({ visible }: { visible: boolean }) {
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployPressed, setDeployPressed] = useState(false);
   const [rankOpen, setRankOpen] = useState(false);
   const [characterOpen, setCharacterOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   return (
@@ -4251,6 +4520,8 @@ export default function Lobby({ visible }: { visible: boolean }) {
           pointerEvents: "none",
         }}
       />
+
+      <PlayerProfileButton onClick={() => setProfileOpen(true)} />
 
       <GiftBox
         missionPressed={deployPressed}
@@ -4301,6 +4572,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
           onClose={() => setMailOpen(false)}
         />
       )}
+      {profileOpen && <ProfilePanel onClose={() => setProfileOpen(false)} />}
     </div>
   );
 }
