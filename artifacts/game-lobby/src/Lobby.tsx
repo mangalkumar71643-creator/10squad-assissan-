@@ -4165,9 +4165,8 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
           position: "absolute",
           top: 0,
           left: 0,
-          width: 700,
-          height: "calc(100vh - 100px)",
-          maxWidth: "94vw",
+          width: "calc(100vw - 100px)",
+          height: "calc(100vh - 80px)",
           objectFit: "contain",
           objectPosition: "left top",
         }}
