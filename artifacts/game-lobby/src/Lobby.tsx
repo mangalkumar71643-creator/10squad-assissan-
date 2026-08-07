@@ -1884,7 +1884,7 @@ function tintBossFighter(rig: FighterRig) {
 // "bot" is just a simple chase-and-swing AI running in the same tick loop
 // as the player, both driven by the same idle-animation character model
 // (there's only one character asset right now) tinted to tell them apart.
-function CombatArena({ onExit }: { onExit: () => void }) {
+function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (result: "win" | "lose", kills: number) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const joystickKnobRef = useRef<HTMLDivElement>(null);
   const joystickVec = useRef({ x: 0, y: 0 });
@@ -1912,6 +1912,20 @@ function CombatArena({ onExit }: { onExit: () => void }) {
   const [botHps, setBotHps] = useState<number[]>([100, 100, 100, 100, 100, 100]);
   const botHpBarRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
+  // Counts bot deaths this match, for the profile progress system's XP
+  // award — read once when `result` leaves "playing" (see the effect
+  // below), not reset mid-match since a match only ends once.
+  const killCountRef = useRef(0);
+
+  useEffect(() => {
+    if (result === "playing") return;
+    onMatchEnd(result, killCountRef.current);
+    // onMatchEnd is a fresh closure each render (it wraps setProgress),
+    // but the match-end transition itself only happens once per mount —
+    // intentionally not in the deps array to avoid re-firing if the
+    // parent re-renders and hands down a new function identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result]);
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
     return saved >= LOOK_SENSITIVITY_MIN && saved <= LOOK_SENSITIVITY_MAX ? saved : 1;
@@ -2864,6 +2878,7 @@ function CombatArena({ onExit }: { onExit: () => void }) {
       if (st.hp <= 0) {
         st.dead = true;
         st.deathT = 0;
+        killCountRef.current += 1;
         startDeath(rig);
         if (botStates.every((s) => s.dead)) {
           ended = true;
@@ -3678,6 +3693,18 @@ function CombatArena({ onExit }: { onExit: () => void }) {
           >
             {result === "win" ? "VICTORY" : "DEFEAT"}
           </div>
+          <div
+            style={{
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 600,
+              fontSize: "clamp(13px, 2.6vw, 16px)",
+              letterSpacing: "0.08em",
+              color: "#ffd23f",
+            }}
+          >
+            +{killCountRef.current * KILL_XP + (result === "win" ? WIN_XP_BONUS : 0)} XP
+            {killCountRef.current > 0 && ` · ${killCountRef.current} kill${killCountRef.current === 1 ? "" : "s"}`}
+          </div>
           <button
             onClick={onExit}
             style={{
@@ -4197,15 +4224,70 @@ function LobbyIconButton({
   );
 }
 
-// Placeholder player data — no account/backend exists yet, so this is
-// hardcoded rather than loaded from anywhere. Matches the reference
-// mockup's "ShadowReaper LV 18" so the lobby reads the same as the design.
+// Real progress now (no account/backend, but persisted in localStorage
+// instead of hardcoded) — every match played through CombatArena awards
+// XP and updates these numbers for good, surviving reloads.
 const PLAYER_NAME = "ShadowReaper";
-const PLAYER_LEVEL = 18;
-const PLAYER_XP = 2450;
-const PLAYER_XP_NEXT = 3300;
-const PLAYER_RANK = "Gold III";
-const PLAYER_STATS = { kills: 142, wins: 37, matches: 58 };
+const PLAYER_PROGRESS_STORAGE_KEY = "10sa-player-progress";
+const KILL_XP = 40;
+const WIN_XP_BONUS = 150;
+
+type PlayerProgress = {
+  level: number;
+  xp: number;
+  xpNext: number;
+  kills: number;
+  wins: number;
+  matches: number;
+};
+
+function xpNextForLevel(level: number): number {
+  return 800 + (level - 1) * 150;
+}
+
+const RANK_TIERS = ["Bronze", "Silver", "Gold", "Platinum", "Diamond"];
+function rankForLevel(level: number): string {
+  const tierIndex = Math.min(RANK_TIERS.length - 1, Math.floor((level - 1) / 5));
+  const numerals = ["I", "II", "III"];
+  const subIndex = (level - 1) % 3;
+  return `${RANK_TIERS[tierIndex]} ${numerals[subIndex]}`;
+}
+
+function defaultPlayerProgress(): PlayerProgress {
+  return { level: 1, xp: 0, xpNext: xpNextForLevel(1), kills: 0, wins: 0, matches: 0 };
+}
+
+function loadPlayerProgress(): PlayerProgress {
+  try {
+    const raw = localStorage.getItem(PLAYER_PROGRESS_STORAGE_KEY);
+    if (!raw) return defaultPlayerProgress();
+    const parsed = JSON.parse(raw);
+    return {
+      level: parsed.level ?? 1,
+      xp: parsed.xp ?? 0,
+      xpNext: parsed.xpNext ?? xpNextForLevel(parsed.level ?? 1),
+      kills: parsed.kills ?? 0,
+      wins: parsed.wins ?? 0,
+      matches: parsed.matches ?? 0,
+    };
+  } catch {
+    return defaultPlayerProgress();
+  }
+}
+
+// Applies a chunk of XP, rolling over into as many level-ups as it takes
+// (each level's own xpNext threshold, not a fixed one) — a big XP grant
+// can legitimately jump more than one level at once.
+function applyXP(progress: PlayerProgress, xpGained: number): PlayerProgress {
+  let { level, xp, xpNext } = progress;
+  xp += xpGained;
+  while (xp >= xpNext) {
+    xp -= xpNext;
+    level += 1;
+    xpNext = xpNextForLevel(level);
+  }
+  return { ...progress, level, xp, xpNext };
+}
 
 const AVATAR_ICON = (
   <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none">
@@ -4229,9 +4311,9 @@ const RANK_BADGE_ICON = (
   </svg>
 );
 
-function PlayerProfileButton({ onClick }: { onClick: () => void }) {
+function PlayerProfileButton({ progress, onClick }: { progress: PlayerProgress; onClick: () => void }) {
   const [pressed, setPressed] = useState(false);
-  const xpFraction = PLAYER_XP / PLAYER_XP_NEXT;
+  const xpFraction = progress.xp / progress.xpNext;
   return (
     <button
       onClick={onClick}
@@ -4281,7 +4363,7 @@ function PlayerProfileButton({ onClick }: { onClick: () => void }) {
             letterSpacing: "0.06em",
           }}
         >
-          LV {PLAYER_LEVEL}
+          LV {progress.level}
         </span>
         <div style={{ width: "clamp(56px, 16vw, 84px)", height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", overflow: "hidden" }}>
           <div style={{ width: `${xpFraction * 100}%`, height: "100%", background: "linear-gradient(90deg, #ff8a2e, #ff5b1f)" }} />
@@ -4291,9 +4373,10 @@ function PlayerProfileButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-function ProfilePanel({ onClose }: { onClose: () => void }) {
-  const xpFraction = PLAYER_XP / PLAYER_XP_NEXT;
-  const winRate = Math.round((PLAYER_STATS.wins / PLAYER_STATS.matches) * 100);
+function ProfilePanel({ progress, onClose }: { progress: PlayerProgress; onClose: () => void }) {
+  const xpFraction = progress.xp / progress.xpNext;
+  const winRate = progress.matches > 0 ? Math.round((progress.wins / progress.matches) * 100) : 0;
+  const rank = rankForLevel(progress.level);
   return (
     <div
       role="dialog"
@@ -4393,7 +4476,7 @@ function ProfilePanel({ onClose }: { onClose: () => void }) {
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <div style={{ width: 18, height: 18 }}>{RANK_BADGE_ICON}</div>
               <span style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 600, fontSize: 14, color: "#ffd23f" }}>
-                {PLAYER_RANK}
+                {rank}
               </span>
             </div>
           </div>
@@ -4402,9 +4485,9 @@ function ProfilePanel({ onClose }: { onClose: () => void }) {
         {/* Level + XP bar */}
         <div style={{ marginTop: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#9d8ac2" }}>
-            <span>LEVEL {PLAYER_LEVEL}</span>
+            <span>LEVEL {progress.level}</span>
             <span>
-              {PLAYER_XP} / {PLAYER_XP_NEXT} XP
+              {progress.xp} / {progress.xpNext} XP
             </span>
           </div>
           <div
@@ -4439,8 +4522,8 @@ function ProfilePanel({ onClose }: { onClose: () => void }) {
           }}
         >
           {[
-            { label: "KILLS", value: PLAYER_STATS.kills },
-            { label: "WINS", value: PLAYER_STATS.wins },
+            { label: "KILLS", value: progress.kills },
+            { label: "WINS", value: progress.wins },
             { label: "WIN RATE", value: `${winRate}%` },
           ].map((stat) => (
             <div
@@ -4472,7 +4555,22 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [characterOpen, setCharacterOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [progress, setProgress] = useState<PlayerProgress>(loadPlayerProgress);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleMatchEnd = (result: "win" | "lose", kills: number) => {
+    setProgress((prev) => {
+      const xpGained = kills * KILL_XP + (result === "win" ? WIN_XP_BONUS : 0);
+      const next: PlayerProgress = {
+        ...applyXP(prev, xpGained),
+        kills: prev.kills + kills,
+        wins: prev.wins + (result === "win" ? 1 : 0),
+        matches: prev.matches + 1,
+      };
+      localStorage.setItem(PLAYER_PROGRESS_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   return (
     <div
@@ -4521,7 +4619,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
         }}
       />
 
-      <PlayerProfileButton onClick={() => setProfileOpen(true)} />
+      <PlayerProfileButton progress={progress} onClick={() => setProfileOpen(true)} />
 
       <GiftBox
         missionPressed={deployPressed}
@@ -4547,7 +4645,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
         <LobbyIconButton icon={MAIL_ICON} onClick={() => setMailOpen(true)} />
       </div>
 
-      {deployOpen && <CombatArena onExit={() => setDeployOpen(false)} />}
+      {deployOpen && <CombatArena onExit={() => setDeployOpen(false)} onMatchEnd={handleMatchEnd} />}
       {rankOpen && (
         <ComingSoonPanel
           title="RANK"
@@ -4572,7 +4670,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
           onClose={() => setMailOpen(false)}
         />
       )}
-      {profileOpen && <ProfilePanel onClose={() => setProfileOpen(false)} />}
+      {profileOpen && <ProfilePanel progress={progress} onClose={() => setProfileOpen(false)} />}
     </div>
   );
 }
