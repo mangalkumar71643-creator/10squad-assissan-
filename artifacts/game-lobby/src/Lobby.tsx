@@ -4165,9 +4165,10 @@ const CHECK_ICON = (
   </svg>
 );
 
-// Only one character asset exists right now (char-1.glb / char-1.jpg,
-// reused for the player and bots) — the rest of the roster is shown as
-// locked slots previewing future unlocks, gated by player level.
+// Only one character asset exists right now (char-1.glb, reused for the
+// player and bots) — the portrait is a real in-game capture of that rig
+// (front-facing, camera-rotated), not stock art. The rest of the roster
+// is shown as locked slots previewing future unlocks, gated by player level.
 const CHARACTER_ROSTER: { name: string; unlockLevel: number | null }[] = [
   { name: "SHADOWREAPER", unlockLevel: null },
   { name: "NIGHT VIPER", unlockLevel: 5 },
@@ -4271,13 +4272,13 @@ export function CharacterSelectionPanel({ progress, onClose }: { progress: Playe
           }}
         >
           <img
-            src="/characters/char-1.jpg"
+            src="/characters/player-portrait.jpg"
             alt={selectedChar.name}
             style={{
               width: "100%",
               height: "100%",
               objectFit: "cover",
-              objectPosition: "50% 15%",
+              objectPosition: "50% 22%",
               filter: selectedUnlocked ? "none" : "grayscale(1) brightness(0.4)",
             }}
           />
@@ -4374,9 +4375,9 @@ export function CharacterSelectionPanel({ progress, onClose }: { progress: Playe
               >
                 {unlocked ? (
                   <img
-                    src="/characters/char-1.jpg"
+                    src="/characters/player-portrait.jpg"
                     alt={char.name}
-                    style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 15%" }}
+                    style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 22%" }}
                   />
                 ) : (
                   <div
