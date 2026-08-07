@@ -66,7 +66,7 @@ function StartMissionButton({
             position: "relative",
             overflow: "hidden",
             borderRadius: 999,
-            width: "clamp(190px, 46vw, 300px)",
+            width: "clamp(152px, 36.8vw, 240px)",
           }}
         >
           <img
@@ -3904,7 +3904,7 @@ function GiftBox({
             alt="Gift crate"
             draggable={false}
             style={{
-              width: "clamp(105px, 24vw, 175px)",
+              width: "clamp(95px, 21.6vw, 158px)",
               display: "block",
             }}
           />
@@ -3994,8 +3994,8 @@ export default function Lobby({ visible }: { visible: boolean }) {
           top: "calc(4% - 15px)",
           left: "50%",
           transform: "translateX(-50%)",
-          width: "25%",
-          maxWidth: 185,
+          width: "21.25%",
+          maxWidth: 157,
           pointerEvents: "none",
         }}
       />
