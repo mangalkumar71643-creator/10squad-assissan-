@@ -4197,7 +4197,7 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
           <img
             src="/character-select-full.jpg"
             alt="Character Selection"
-            style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "left top" }}
+            style={{ width: "100%", height: "100%", objectFit: "fill" }}
           />
         </div>
         <div style={{ width: 150, flexShrink: 0 }}>
