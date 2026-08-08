@@ -1711,7 +1711,7 @@ function loadSourceRigData(): Promise<SourceRigData> {
           const nativeHeight = box.getSize(new THREE.Vector3()).y || 1;
           const rest = captureRestPose(gltf.scene);
           const clips = new Map<string, THREE.AnimationClip>();
-          for (const name of ["RifleIdle", "RifleRun", "RifleFire", "DeathFromBackHeadshot"]) {
+          for (const name of ["RifleIdle", "RifleRun", "RifleFire", "DeathFromBackHeadshot", "IdleBreathing"]) {
             const clip = gltf.animations.find((c) => c.name === name);
             if (clip) clips.set(name, clip);
           }
@@ -1749,7 +1749,7 @@ function loadBotGltf(url: string) {
 // its own skeleton (see retargetClip above). Unlike loadFighter, this never
 // tints the material — the user supplied this character with its own
 // finished texture, and it must reach the game exactly as authored.
-function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: FighterRig) => void) {
+function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: FighterRig) => void, idleClipName: string = "RifleIdle") {
   Promise.all([loadBotGltf(url), loadSourceRigData()])
     .then(([gltf, source]) => {
       // Object3D.copy() (which Object3D.clone() calls under the hood, and
@@ -1834,7 +1834,7 @@ function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: Fighter
       let deathAction: THREE.AnimationAction | null = null;
 
       mixer = new THREE.AnimationMixer(model);
-      const idleClip = source.clips.get("RifleIdle");
+      const idleClip = source.clips.get(idleClipName);
       if (idleClip) {
         idleAction = mixer.clipAction(retargetClip(idleClip, source.rest, restNewbot, posRatio));
         idleAction.play();
@@ -4205,7 +4205,7 @@ function CharacterViewer3D({ src, kind = "source" }: { src: string; kind?: "sour
       loadBotFighter(scene, src, (rig) => {
         if (disposed) return;
         mixer = rig.mixer;
-      });
+      }, "IdleBreathing");
     } else {
       new GLTFLoader().load(
         src,
