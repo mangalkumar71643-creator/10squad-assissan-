@@ -4153,6 +4153,12 @@ function ComingSoonPanel({
 
 const CHAR_CARD_SIZE = 75;
 const CHAR_CARD_GAP = 8;
+// Roster slot index -> uploaded portrait for that character. Slots not
+// listed here stay the plain empty/locked card frame.
+const CARD_PORTRAITS: Record<number, string> = {
+  0: "/character-select-card1-portrait.jpg",
+  1: "/character-select-card2-portrait.jpg",
+};
 
 // Renders the real in-game character model (the same char-1.glb used by
 // CombatArena) standing on the stage, looping its breathing-idle clip —
@@ -4314,8 +4320,9 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
           overflowY: "hidden",
         }}
       >
-        {Array.from({ length: cardCount }).map((_, i) =>
-          i === 0 ? (
+        {Array.from({ length: cardCount }).map((_, i) => {
+          const portrait = CARD_PORTRAITS[i];
+          return portrait ? (
             <div
               key={i}
               style={{
@@ -4328,8 +4335,8 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
               }}
             >
               <img
-                src="/character-select-card1-portrait.jpg"
-                alt="Character slot 1"
+                src={portrait}
+                alt={`Character slot ${i + 1}`}
                 style={{
                   position: "absolute",
                   inset: 4,
@@ -4347,8 +4354,8 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
               alt={`Character slot ${i + 1}`}
               style={{ width: CHAR_CARD_SIZE, height: CHAR_CARD_SIZE, flexShrink: 0, objectFit: "cover" }}
             />
-          ),
-        )}
+          );
+        })}
       </div>
 
       <button
