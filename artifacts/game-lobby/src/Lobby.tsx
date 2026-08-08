@@ -4159,11 +4159,20 @@ const CARD_PORTRAITS: Record<number, string> = {
   0: "/character-select-card1-portrait.jpg",
   1: "/character-select-card2-portrait.jpg",
 };
+// Roster slot index -> which 3D model shows in the ring when that card is
+// tapped. Card 1 is the real player character; card 2 is the game's bot
+// character (see CharacterViewer3D for why bot-2.glb needs "bot" kind).
+const CARD_MODELS: Record<number, { src: string; kind: "source" | "bot" }> = {
+  0: { src: "/characters/char-1.glb", kind: "source" },
+  1: { src: "/characters/bot-2.glb", kind: "bot" },
+};
 
-// Renders the real in-game character model (the same char-1.glb used by
-// CombatArena) standing on the stage, looping its breathing-idle clip —
-// not the rifle-ready combat pose, since there's no weapon drawn here.
-function CharacterViewer3D({ src }: { src: string }) {
+// Renders a character model standing on the stage. "source" loads
+// char-1.glb directly and plays its own IdleBreathing clip. "bot" is for
+// bot-2.glb, which — same as in CombatArena — carries no baked animations
+// of its own; loadBotFighter retargets char-1's RifleIdle clip onto its
+// skeleton, so that's reused here rather than re-implementing retargeting.
+function CharacterViewer3D({ src, kind = "source" }: { src: string; kind?: "source" | "bot" }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -4192,34 +4201,41 @@ function CharacterViewer3D({ src }: { src: string }) {
     let mixer: THREE.AnimationMixer | null = null;
     const clock = new THREE.Clock();
 
-    new GLTFLoader().load(
-      src,
-      (gltf) => {
+    if (kind === "bot") {
+      loadBotFighter(scene, src, (rig) => {
         if (disposed) return;
-        const model = gltf.scene;
+        mixer = rig.mixer;
+      });
+    } else {
+      new GLTFLoader().load(
+        src,
+        (gltf) => {
+          if (disposed) return;
+          const model = gltf.scene;
 
-        // Center horizontally, sit exactly on the platform, and scale to a
-        // consistent on-screen height regardless of the source model's units.
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const scale = 1.7 / (size.y || 1);
-        model.scale.setScalar(scale);
-        model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
-        scene.add(model);
+          // Center horizontally, sit exactly on the platform, and scale to a
+          // consistent on-screen height regardless of the source model's units.
+          const box = new THREE.Box3().setFromObject(model);
+          const size = box.getSize(new THREE.Vector3());
+          const center = box.getCenter(new THREE.Vector3());
+          const scale = 1.7 / (size.y || 1);
+          model.scale.setScalar(scale);
+          model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+          scene.add(model);
 
-        const idleClip =
-          gltf.animations.find((c) => c.name === "IdleBreathing") ??
-          gltf.animations.find((c) => c.tracks.length > 0) ??
-          gltf.animations[0];
-        if (idleClip) {
-          mixer = new THREE.AnimationMixer(model);
-          mixer.clipAction(idleClip).play();
-        }
-      },
-      undefined,
-      (err) => console.error("Failed to load character model", src, err),
-    );
+          const idleClip =
+            gltf.animations.find((c) => c.name === "IdleBreathing") ??
+            gltf.animations.find((c) => c.tracks.length > 0) ??
+            gltf.animations[0];
+          if (idleClip) {
+            mixer = new THREE.AnimationMixer(model);
+            mixer.clipAction(idleClip).play();
+          }
+        },
+        undefined,
+        (err) => console.error("Failed to load character model", src, err),
+      );
+    }
 
     const resize = () => {
       const w = container.clientWidth;
@@ -4248,13 +4264,17 @@ function CharacterViewer3D({ src }: { src: string }) {
       renderer.dispose();
       container.removeChild(renderer.domElement);
     };
-  }, [src]);
+  }, [src, kind]);
 
   return <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />;
 }
 
 function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
   const rosterRef = useRef<HTMLDivElement>(null);
+  // Which roster card's model shows in the 3D ring — defaults to the
+  // player's real character (card 1).
+  const [selectedCard, setSelectedCard] = useState(0);
+  const activeModel = CARD_MODELS[selectedCard] ?? CARD_MODELS[0];
   // Enough cards to always overflow the row's actual width (plus 2 extra
   // past that) so it both reaches the right edge and stays scrollable on
   // any viewport — a fixed card count either left a gap or had nothing to
@@ -4298,7 +4318,7 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
             alt="Character Selection"
             style={{ width: "100%", height: "100%", objectFit: "fill" }}
           />
-          <CharacterViewer3D src="/characters/char-1.glb" />
+          <CharacterViewer3D key={selectedCard} src={activeModel.src} kind={activeModel.kind} />
         </div>
         <div style={{ width: 150, flexShrink: 0 }}>
           <img
@@ -4322,21 +4342,31 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
       >
         {Array.from({ length: cardCount }).map((_, i) => {
           const portrait = CARD_PORTRAITS[i];
+          const selectable = Boolean(CARD_MODELS[i]);
+          const isSelected = selectable && i === selectedCard;
           return portrait ? (
-            <div
+            <button
               key={i}
+              onClick={() => selectable && setSelectedCard(i)}
+              aria-label={`Character slot ${i + 1}`}
               style={{
                 position: "relative",
                 width: CHAR_CARD_SIZE,
                 height: CHAR_CARD_SIZE,
                 flexShrink: 0,
+                padding: 0,
+                border: "none",
+                cursor: selectable ? "pointer" : "default",
                 backgroundImage: "url(/character-select-card-single.jpg)",
                 backgroundSize: "100% 100%",
+                outline: isSelected ? "2px solid #ffcf4d" : "2px solid transparent",
+                outlineOffset: 1,
+                boxShadow: isSelected ? "0 0 12px rgba(255,207,77,0.6)" : "none",
               }}
             >
               <img
                 src={portrait}
-                alt={`Character slot ${i + 1}`}
+                alt=""
                 style={{
                   position: "absolute",
                   inset: 4,
@@ -4346,7 +4376,7 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
                   objectPosition: "top",
                 }}
               />
-            </div>
+            </button>
           ) : (
             <img
               key={i}
