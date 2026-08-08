@@ -4220,14 +4220,41 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
           overflowY: "hidden",
         }}
       >
-        {Array.from({ length: cardCount }).map((_, i) => (
-          <img
-            key={i}
-            src="/character-select-card-single.jpg"
-            alt={`Character slot ${i + 1}`}
-            style={{ width: CHAR_CARD_SIZE, height: CHAR_CARD_SIZE, flexShrink: 0, objectFit: "cover" }}
-          />
-        ))}
+        {Array.from({ length: cardCount }).map((_, i) =>
+          i === 0 ? (
+            <div
+              key={i}
+              style={{
+                position: "relative",
+                width: CHAR_CARD_SIZE,
+                height: CHAR_CARD_SIZE,
+                flexShrink: 0,
+                backgroundImage: "url(/character-select-card-single.jpg)",
+                backgroundSize: "100% 100%",
+              }}
+            >
+              <img
+                src="/character-select-card1-portrait.jpg"
+                alt="Character slot 1"
+                style={{
+                  position: "absolute",
+                  inset: 4,
+                  width: "calc(100% - 8px)",
+                  height: "calc(100% - 8px)",
+                  objectFit: "cover",
+                  objectPosition: "top",
+                }}
+              />
+            </div>
+          ) : (
+            <img
+              key={i}
+              src="/character-select-card-single.jpg"
+              alt={`Character slot ${i + 1}`}
+              style={{ width: CHAR_CARD_SIZE, height: CHAR_CARD_SIZE, flexShrink: 0, objectFit: "cover" }}
+            />
+          ),
+        )}
       </div>
 
       <button
