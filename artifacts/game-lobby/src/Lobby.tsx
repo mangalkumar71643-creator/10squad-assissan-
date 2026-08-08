@@ -4188,16 +4188,25 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
         flexDirection: "column",
       }}
     >
-      {/* Stage — takes all remaining vertical space above the card row, so
-          the card row below can never overlap it regardless of viewport
-          size (the previous fixed-pixel positioning let that happen on
-          wide screens, where the contained stage image renders taller). */}
-      <div style={{ flex: "1 1 0%", minHeight: 0, position: "relative", paddingRight: 50 }}>
-        <img
-          src="/character-select-full.jpg"
-          alt="Character Selection"
-          style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "left top" }}
-        />
+      {/* Stage + stats sidebar, side by side — both take all remaining
+          vertical space above the card row, so the card row below can
+          never overlap them regardless of viewport size (the previous
+          fixed-pixel positioning let that happen on wide screens). */}
+      <div style={{ flex: "1 1 0%", minHeight: 0, display: "flex" }}>
+        <div style={{ flex: "1 1 0%", minWidth: 0, position: "relative" }}>
+          <img
+            src="/character-select-full.jpg"
+            alt="Character Selection"
+            style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "left top" }}
+          />
+        </div>
+        <div style={{ width: 150, flexShrink: 0 }}>
+          <img
+            src="/character-select-stats.jpg"
+            alt="Character stats"
+            style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "left top" }}
+          />
+        </div>
       </div>
 
       <div
