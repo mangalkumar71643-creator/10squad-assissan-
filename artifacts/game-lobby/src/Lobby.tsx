@@ -4166,6 +4166,7 @@ const CARD_MODELS: Record<number, { src: string; kind: "source" | "bot" }> = {
   0: { src: "/characters/char-1.glb", kind: "source" },
   1: { src: "/characters/bot-2.glb", kind: "bot" },
 };
+const SELECTED_CARD_STORAGE_KEY = "10sa-selected-card";
 
 // Renders a character model standing on the stage. "source" loads
 // char-1.glb directly and plays its own IdleBreathing clip. "bot" is for
@@ -4271,9 +4272,16 @@ function CharacterViewer3D({ src, kind = "source" }: { src: string; kind?: "sour
 
 function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
   const rosterRef = useRef<HTMLDivElement>(null);
-  // Which roster card's model shows in the 3D ring — defaults to the
-  // player's real character (card 1).
-  const [selectedCard, setSelectedCard] = useState(0);
+  // Which roster card's model shows in the 3D ring — persisted so the pick
+  // survives closing the panel/leaving and re-entering the game, instead of
+  // always resetting back to the player's default character (card 1).
+  const [selectedCard, setSelectedCard] = useState(() => {
+    const saved = Number(localStorage.getItem(SELECTED_CARD_STORAGE_KEY));
+    return CARD_MODELS[saved] ? saved : 0;
+  });
+  useEffect(() => {
+    localStorage.setItem(SELECTED_CARD_STORAGE_KEY, String(selectedCard));
+  }, [selectedCard]);
   const activeModel = CARD_MODELS[selectedCard] ?? CARD_MODELS[0];
   // Enough cards to always overflow the row's actual width (plus 2 extra
   // past that) so it both reaches the right edge and stays scrollable on
