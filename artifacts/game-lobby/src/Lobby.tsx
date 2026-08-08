@@ -4192,7 +4192,7 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
           the card row below can never overlap it regardless of viewport
           size (the previous fixed-pixel positioning let that happen on
           wide screens, where the contained stage image renders taller). */}
-      <div style={{ flex: "1 1 0%", minHeight: 0, position: "relative", paddingRight: 100 }}>
+      <div style={{ flex: "1 1 0%", minHeight: 0, position: "relative", paddingRight: 50 }}>
         <img
           src="/character-select-full.jpg"
           alt="Character Selection"
