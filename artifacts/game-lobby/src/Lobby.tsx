@@ -4154,6 +4154,99 @@ function ComingSoonPanel({
 const CHAR_CARD_SIZE = 75;
 const CHAR_CARD_GAP = 8;
 
+// Renders the real in-game character model (the same char-1.glb used by
+// CombatArena) standing on the stage, looping its breathing-idle clip —
+// not the rifle-ready combat pose, since there's no weapon drawn here.
+function CharacterViewer3D({ src }: { src: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    let disposed = false;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+    camera.position.set(0, 1.35, 3.4);
+    camera.lookAt(0, 0.95, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    container.appendChild(renderer.domElement);
+
+    scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x0a0e18, 1.2));
+    const key = new THREE.DirectionalLight(0xbfe0ff, 1.6);
+    key.position.set(2, 4, 3);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0x8a6bff, 1.1);
+    rim.position.set(-2.5, 2.5, -2.5);
+    scene.add(rim);
+
+    let mixer: THREE.AnimationMixer | null = null;
+    const clock = new THREE.Clock();
+
+    new GLTFLoader().load(
+      src,
+      (gltf) => {
+        if (disposed) return;
+        const model = gltf.scene;
+
+        // Center horizontally, sit exactly on the platform, and scale to a
+        // consistent on-screen height regardless of the source model's units.
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const scale = 1.7 / (size.y || 1);
+        model.scale.setScalar(scale);
+        model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+        scene.add(model);
+
+        const idleClip =
+          gltf.animations.find((c) => c.name === "IdleBreathing") ??
+          gltf.animations.find((c) => c.tracks.length > 0) ??
+          gltf.animations[0];
+        if (idleClip) {
+          mixer = new THREE.AnimationMixer(model);
+          mixer.clipAction(idleClip).play();
+        }
+      },
+      undefined,
+      (err) => console.error("Failed to load character model", src, err),
+    );
+
+    const resize = () => {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w === 0 || h === 0) return;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(container);
+
+    let raf = 0;
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      mixer?.update(clock.getDelta());
+      renderer.render(scene, camera);
+    };
+    tick();
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      renderer.dispose();
+      container.removeChild(renderer.domElement);
+    };
+  }, [src]);
+
+  return <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />;
+}
+
 function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
   const rosterRef = useRef<HTMLDivElement>(null);
   // Enough cards to always overflow the row's actual width (plus 2 extra
@@ -4199,6 +4292,7 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
             alt="Character Selection"
             style={{ width: "100%", height: "100%", objectFit: "fill" }}
           />
+          <CharacterViewer3D src="/characters/char-1.glb" />
         </div>
         <div style={{ width: 150, flexShrink: 0 }}>
           <img
