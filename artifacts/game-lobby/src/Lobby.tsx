@@ -369,6 +369,11 @@ const PLAYER_ACCEL_RATE = 9; // per-second damping rate speeding up
 const PLAYER_DECEL_RATE = 15; // per-second damping rate slowing down (snappier stop than start)
 const PLAYER_TURN_RATE = 11; // per-second damping rate turning to face the move direction
 const GUN_RANGE = 14; // a shootout distance, not a melee reach
+// With Aim Assist off, a shot only auto-locks onto the nearest visible bot
+// if it's actually within this cone of where the camera's pointed — with
+// it on (default), any visible bot in range is hit regardless of aim, same
+// as before this setting existed.
+const AIM_ASSIST_CONE = Math.PI / 7;
 
 // A sci-fi outpost room off to the side of the arena — four walls around a
 // 40x40 footprint, each with its own door gap (one "entrance" side, three
@@ -904,6 +909,114 @@ const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
+
+// Every other settings-menu control lives in one consolidated blob rather
+// than its own key — LOOK_SENSITIVITY above stays a separate legacy key
+// since CombatArena's own in-match quick-settings popover already reads/
+// writes it directly (integrating with that existing control rather than
+// migrating it avoids a second source of truth for the same slider).
+type GraphicsQuality = "low" | "medium" | "high";
+type ShadowQuality = "low" | "high";
+type EffectsQuality = "low" | "high";
+type AppLanguage = "en" | "hi";
+
+type ControlOffset = { x: number; y: number };
+
+interface GameSettings {
+  aimAssist: boolean;
+  autoFire: boolean;
+  vibration: boolean;
+  movementSensitivity: number;
+  graphicsQuality: GraphicsQuality;
+  fps: 30 | 60;
+  shadowQuality: ShadowQuality;
+  effectsQuality: EffectsQuality;
+  masterVolume: number;
+  musicVolume: number;
+  sfxVolume: number;
+  voiceVolume: number;
+  buttonSize: number;
+  buttonOpacity: number;
+  controlOffsets: { joystick: ControlOffset; fire: ControlOffset; run: ControlOffset };
+  language: AppLanguage;
+  tutorial: boolean;
+}
+
+const MOVEMENT_SENSITIVITY_MIN = 0.5;
+const MOVEMENT_SENSITIVITY_MAX = 1.5;
+const BUTTON_SIZE_MIN = 0.75;
+const BUTTON_SIZE_MAX = 1.4;
+
+function defaultGameSettings(): GameSettings {
+  return {
+    aimAssist: true,
+    autoFire: false,
+    vibration: true,
+    movementSensitivity: 1,
+    graphicsQuality: "high",
+    fps: 60,
+    shadowQuality: "high",
+    effectsQuality: "high",
+    masterVolume: 0.8,
+    musicVolume: 0.8,
+    sfxVolume: 0.8,
+    voiceVolume: 0.8,
+    buttonSize: 1,
+    buttonOpacity: 1,
+    controlOffsets: { joystick: { x: 0, y: 0 }, fire: { x: 0, y: 0 }, run: { x: 0, y: 0 } },
+    language: "en",
+    tutorial: true,
+  };
+}
+
+const GAME_SETTINGS_STORAGE_KEY = "10sa-game-settings";
+const TUTORIAL_SEEN_STORAGE_KEY = "10sa-tutorial-seen";
+
+function loadGameSettings(): GameSettings {
+  const defaults = defaultGameSettings();
+  try {
+    const raw = localStorage.getItem(GAME_SETTINGS_STORAGE_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw);
+    return {
+      ...defaults,
+      ...parsed,
+      controlOffsets: { ...defaults.controlOffsets, ...parsed.controlOffsets },
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function saveGameSettings(settings: GameSettings) {
+  localStorage.setItem(GAME_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+// A small, deliberately bounded translation set — the settings menu itself
+// plus the handful of always-on-screen lobby/HUD labels — rather than
+// translating the entire game's text (menus, panel copy, tooltips
+// throughout), which is a much larger separate effort than a language
+// *option* in Settings.
+const TRANSLATIONS: Record<string, { en: string; hi: string }> = {
+  rank: { en: "RANK", hi: "रैंक" },
+  settings: { en: "SETTINGS", hi: "सेटिंग्स" },
+  share: { en: "SHARE", hi: "शेयर" },
+  startMission: { en: "START MISSION", hi: "मिशन शुरू करें" },
+  you: { en: "YOU", hi: "आप" },
+  exit: { en: "EXIT", hi: "बाहर" },
+  fire: { en: "FIRE", hi: "फायर" },
+  run: { en: "RUN", hi: "दौड़ो" },
+  gameplay: { en: "GAMEPLAY", hi: "गेमप्ले" },
+  graphics: { en: "GRAPHICS", hi: "ग्राफ़िक्स" },
+  audio: { en: "AUDIO", hi: "ऑडियो" },
+  controls: { en: "CONTROLS", hi: "नियंत्रण" },
+  more: { en: "MORE", hi: "और" },
+}; // Every value falls back to its own English text below the dictionary.
+
+function t(language: AppLanguage, key: string): string {
+  return TRANSLATIONS[key]?.[language] ?? key;
+}
+
 // A real firing/recoil animation ("RifleFire", grafted into the glb — see
 // the merge that added it) plays on every shot, at its own native mocap
 // pace (no artificial speed-up) — an earlier version compressed this into
@@ -1885,10 +1998,33 @@ function tintBossFighter(rig: FighterRig) {
 // as the player, both driven by the same idle-animation character model
 // (there's only one character asset right now) tinted to tell them apart.
 function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => void }) {
+  // Read once per match — the Settings panel lives in the lobby, outside
+  // CombatArena's lifetime, so there's nothing to react to mid-match.
+  const [settings] = useState(loadGameSettings);
+  // Shown once on the very first match ever (unless Tutorial is off) —
+  // re-enabling the toggle later doesn't replay it, it only makes it
+  // eligible to show again before the first time it's been seen.
+  const [showTutorial, setShowTutorial] = useState(
+    () => settings.tutorial && !localStorage.getItem(TUTORIAL_SEEN_STORAGE_KEY),
+  );
+  const dismissTutorial = () => {
+    localStorage.setItem(TUTORIAL_SEEN_STORAGE_KEY, "1");
+    setShowTutorial(false);
+  };
+  useEffect(() => {
+    if (!showTutorial) return;
+    const timer = setTimeout(dismissTutorial, 6000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showTutorial]);
   const containerRef = useRef<HTMLDivElement>(null);
   const joystickKnobRef = useRef<HTMLDivElement>(null);
   const joystickVec = useRef({ x: 0, y: 0 });
   const attackRequested = useRef(false);
+  // With Auto Fire on, tapping FIRE toggles continuous firing on/off (like
+  // RUN below) instead of requiring the button to be held down.
+  const autoFireToggled = useRef(false);
+  const [autoFireActive, setAutoFireActive] = useState(false);
   // Manual sprint toggle: tapping RUN forces full sprint on regardless of
   // how far the joystick is pushed, instead of requiring it held near max.
   const runToggled = useRef(false);
@@ -1974,14 +2110,15 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
     const CAM_PITCH_MAX = 1.3; // steep overhead angle, short of straight down
     camera.position.set(0, CAM_HEIGHT, CAM_DISTANCE + 3);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const renderer = new THREE.WebGLRenderer({ antialias: settings.graphicsQuality !== "low", alpha: true });
+    const pixelRatioCap = settings.graphicsQuality === "low" ? 1 : settings.graphicsQuality === "medium" ? 1.5 : 2;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Real shadows + filmic tone mapping — walls/crates/characters were
     // reading flat and "gamey" next to a reference with dramatic directional
     // shadows and richer contrast. PCFSoftShadowMap gives soft shadow edges
     // instead of the harsh aliased look of the default shadow type.
-    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.enabled = settings.shadowQuality === "high";
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
@@ -1995,8 +2132,9 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
     // bloom pass, since UnrealBloomPass's own output otherwise skips it.
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.4, 0.82);
-    composer.addPass(bloomPass);
+    if (settings.effectsQuality === "high") {
+      composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.4, 0.82));
+    }
     composer.addPass(new OutputPass());
 
     // Ground color raised from its original near-black (0x0a0e18) so
@@ -2904,8 +3042,13 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
       }
     };
 
+    const targetFrameMs = settings.fps === 30 ? 1000 / 30 : 0;
+    let lastFrameAt = performance.now();
     const tick = () => {
       raf = requestAnimationFrame(tick);
+      const now = performance.now();
+      if (targetFrameMs > 0 && now - lastFrameAt < targetFrameMs) return;
+      lastFrameAt = now;
       const dt = Math.min(clock.getDelta(), 0.05);
       player?.mixer?.update(dt);
       for (const rig of bots) rig?.mixer?.update(dt);
@@ -3086,7 +3229,7 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
         // instead of instantly spinning to face it.
         if (playerSpeedNow > 0.05) {
           const targetYaw = Math.atan2(playerVelX, playerVelZ);
-          player.root.rotation.y = dampAngle(player.root.rotation.y, targetYaw, PLAYER_TURN_RATE, dt);
+          player.root.rotation.y = dampAngle(player.root.rotation.y, targetYaw, PLAYER_TURN_RATE * settings.movementSensitivity, dt);
         }
 
         // How far into Idle -> Running the real mocap clips are blended,
@@ -3229,6 +3372,7 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
               if (botDist <= GUN_RANGE && st.cooldown <= 0 && canSeePlayer) {
                 playerHpLocal = Math.max(0, playerHpLocal - BOT_DAMAGE);
                 setPlayerHp(playerHpLocal);
+                if (settings.vibration && navigator.vibrate) navigator.vibrate(40);
                 st.cooldown = BOT_ATTACK_COOLDOWN;
                 st.fireT = 0;
                 rig.fireAction?.reset().play();
@@ -3270,8 +3414,18 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
             playerCooldown = PLAYER_ATTACK_COOLDOWN;
             playerFireT = 0;
             player.fireAction?.reset().play();
+            if (settings.vibration && navigator.vibrate) navigator.vibrate(15);
             const aimYaw = cameraYaw.current;
-            const canHitBot = nearestIdx !== -1 && nearestDist <= GUN_RANGE;
+            let canHitBot = nearestIdx !== -1 && nearestDist <= GUN_RANGE;
+            if (canHitBot && !settings.aimAssist) {
+              const target = bots[nearestIdx]!;
+              const bearingYaw = Math.atan2(
+                target.root.position.x - player.root.position.x,
+                target.root.position.z - player.root.position.z,
+              );
+              const diff = Math.atan2(Math.sin(bearingYaw - aimYaw), Math.cos(bearingYaw - aimYaw));
+              canHitBot = Math.abs(diff) <= AIM_ASSIST_CONE;
+            }
             const targetPoint =
               canHitBot && bots[nearestIdx]
                 ? new THREE.Vector3(bots[nearestIdx]!.root.position.x, TRACER_TARGET_HEIGHT, bots[nearestIdx]!.root.position.z)
@@ -3437,7 +3591,7 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
       {/* Health bar */}
       <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
         <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
-          YOU
+          {t(settings.language, "you")}
         </div>
         <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
@@ -3510,7 +3664,7 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
           cursor: "pointer",
         }}
       >
-        EXIT
+        {t(settings.language, "exit")}
       </button>
 
       {/* Look-sensitivity settings */}
@@ -3597,6 +3751,9 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
           background: "rgba(255,255,255,0.06)",
           border: "1.5px solid rgba(150,200,230,0.4)",
           touchAction: "none",
+          opacity: settings.buttonOpacity,
+          transform: `translate(${settings.controlOffsets.joystick.x}px, ${settings.controlOffsets.joystick.y}px) scale(${settings.buttonSize})`,
+          transformOrigin: "left bottom",
         }}
       >
         <div
@@ -3625,14 +3782,20 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
       <button
         onPointerDown={(e) => {
           e.preventDefault();
+          if (settings.autoFire) {
+            autoFireToggled.current = !autoFireToggled.current;
+            attackRequested.current = autoFireToggled.current;
+            setAutoFireActive(autoFireToggled.current);
+            return;
+          }
           (e.target as HTMLElement).setPointerCapture(e.pointerId);
           attackRequested.current = true;
         }}
         onPointerUp={() => {
-          attackRequested.current = false;
+          if (!settings.autoFire) attackRequested.current = false;
         }}
         onPointerCancel={() => {
-          attackRequested.current = false;
+          if (!settings.autoFire) attackRequested.current = false;
         }}
         aria-label="Fire"
         style={{
@@ -3642,18 +3805,23 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
           width: "clamp(72px, 13vw, 100px)",
           height: "clamp(72px, 13vw, 100px)",
           borderRadius: "50%",
-          background: "radial-gradient(circle, #ff8a6b, #d8402c)",
+          background: autoFireActive
+            ? "radial-gradient(circle, #ffd2a6, #ff5a2c)"
+            : "radial-gradient(circle, #ff8a6b, #d8402c)",
           border: "2px solid rgba(255,220,210,0.85)",
-          boxShadow: "0 0 20px rgba(255,90,60,0.6)",
+          boxShadow: autoFireActive ? "0 0 28px rgba(255,120,40,0.9)" : "0 0 20px rgba(255,90,60,0.6)",
           color: "#fff8f0",
           fontFamily: "'Rajdhani', sans-serif",
           fontWeight: 700,
           letterSpacing: "0.05em",
           fontSize: "clamp(13px, 2vw, 16px)",
           cursor: "pointer",
+          opacity: settings.buttonOpacity,
+          transform: `translate(${settings.controlOffsets.fire.x}px, ${settings.controlOffsets.fire.y}px) scale(${settings.buttonSize})`,
+          transformOrigin: "right bottom",
         }}
       >
-        FIRE
+        {t(settings.language, "fire")}
       </button>
 
       {/* Run toggle button */}
@@ -3680,10 +3848,52 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
           letterSpacing: "0.05em",
           fontSize: "clamp(11px, 1.7vw, 14px)",
           cursor: "pointer",
+          opacity: settings.buttonOpacity,
+          transform: `translate(${settings.controlOffsets.run.x}px, ${settings.controlOffsets.run.y}px) scale(${settings.buttonSize})`,
+          transformOrigin: "right bottom",
         }}
       >
-        RUN
+        {t(settings.language, "run")}
       </button>
+
+      {showTutorial && (
+        <div
+          role="dialog"
+          aria-label="How to play"
+          onClick={dismissTutorial}
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(4,6,16,0.55)",
+            zIndex: 25,
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "center",
+            padding: "0 5% 22%",
+          }}
+        >
+          <div
+            style={{
+              width: "min(340px, 90vw)",
+              background: "rgba(12,16,30,0.92)",
+              border: "1px solid rgba(168,120,255,0.45)",
+              borderRadius: 12,
+              padding: "14px 18px",
+              color: "#e8e2ff",
+              fontFamily: "'Barlow', sans-serif",
+              fontSize: 13,
+              lineHeight: 1.6,
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#c9a8ff", marginBottom: 6 }}>
+              HOW TO PLAY
+            </div>
+            Drag the left stick to move · hold FIRE to shoot · tap RUN to sprint
+            <div style={{ marginTop: 8, fontSize: 11, color: "#9d8ac2" }}>Tap anywhere to dismiss</div>
+          </div>
+        </div>
+      )}
 
       {result !== "playing" && (
         <div
@@ -5092,6 +5302,328 @@ const SHARE_ICON = (
 
 const GAME_SHARE_URL = "https://10squad-permanent-test.vercel.app/10squad-assassin.apk";
 
+function SettingsRowCard({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        padding: "12px 16px",
+        borderRadius: 10,
+        background: "rgba(255,255,255,0.05)",
+        border: "1px solid rgba(168,120,255,0.25)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SettingsSliderRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (v: number) => string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <SettingsRowCard>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+          letterSpacing: "0.06em",
+          marginBottom: 8,
+        }}
+      >
+        <span>{label}</span>
+        <span>{format(value)}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ width: "100%" }}
+      />
+    </SettingsRowCard>
+  );
+}
+
+function SettingsToggleRow({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <SettingsRowCard>
+      <button
+        onClick={() => onChange(!value)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          background: "none",
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
+          color: "#e8e2ff",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+          letterSpacing: "0.06em",
+        }}
+      >
+        <span>{label}</span>
+        <span
+          style={{
+            width: 46,
+            height: 26,
+            borderRadius: 13,
+            background: value ? "rgba(90,255,140,0.35)" : "rgba(255,255,255,0.12)",
+            border: `1px solid ${value ? "rgba(120,255,160,0.7)" : "rgba(200,200,220,0.35)"}`,
+            position: "relative",
+            transition: "background 150ms ease",
+            flexShrink: 0,
+          }}
+        >
+          <span
+            style={{
+              position: "absolute",
+              top: 2,
+              left: value ? 22 : 2,
+              width: 20,
+              height: 20,
+              borderRadius: "50%",
+              background: value ? "#7dffa0" : "#cfd0e0",
+              transition: "left 150ms ease",
+              boxShadow: "0 0 6px rgba(0,0,0,0.4)",
+            }}
+          />
+        </span>
+      </button>
+    </SettingsRowCard>
+  );
+}
+
+function SettingsSegmentRow<T extends string | number>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <SettingsRowCard>
+      <div
+        style={{
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+          letterSpacing: "0.06em",
+          marginBottom: 8,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {options.map((opt) => (
+          <button
+            key={String(opt.value)}
+            onClick={() => onChange(opt.value)}
+            style={{
+              flex: 1,
+              padding: "8px 4px",
+              borderRadius: 8,
+              border: `1px solid ${opt.value === value ? "rgba(120,255,255,0.7)" : "rgba(168,120,255,0.3)"}`,
+              background: opt.value === value ? "rgba(107,216,255,0.22)" : "rgba(255,255,255,0.04)",
+              color: opt.value === value ? "#bff3ff" : "#c8bce8",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 12,
+              letterSpacing: "0.04em",
+              cursor: "pointer",
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </SettingsRowCard>
+  );
+}
+
+const SETTINGS_TABS = ["gameplay", "graphics", "audio", "controls", "more"] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+function ControlsCustomizeOverlay({
+  offsets,
+  onChange,
+  onDone,
+}: {
+  offsets: GameSettings["controlOffsets"];
+  onChange: (offsets: GameSettings["controlOffsets"]) => void;
+  onDone: () => void;
+}) {
+  const dragging = useRef<"joystick" | "fire" | "run" | null>(null);
+  const lastPos = useRef({ x: 0, y: 0 });
+
+  const startDrag = (which: "joystick" | "fire" | "run") => (e: React.PointerEvent) => {
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    dragging.current = which;
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (!dragging.current) return;
+    const dx = e.clientX - lastPos.current.x;
+    const dy = e.clientY - lastPos.current.y;
+    lastPos.current = { x: e.clientX, y: e.clientY };
+    const key = dragging.current;
+    onChange({ ...offsets, [key]: { x: offsets[key].x + dx, y: offsets[key].y + dy } });
+  };
+  const endDrag = () => {
+    dragging.current = null;
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Customize Controls"
+      onPointerMove={onMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgba(4,6,16,0.92)",
+        zIndex: 30,
+        touchAction: "none",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: 14,
+          left: "50%",
+          transform: "translateX(-50%)",
+          color: "#c9a8ff",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+          letterSpacing: "0.06em",
+          textAlign: "center",
+          padding: "0 20px",
+        }}
+      >
+        Drag the controls to reposition them
+      </div>
+
+      <div
+        onPointerDown={startDrag("joystick")}
+        style={{
+          position: "absolute",
+          left: "6%",
+          bottom: "8%",
+          width: "clamp(90px, 16vw, 130px)",
+          height: "clamp(90px, 16vw, 130px)",
+          borderRadius: "50%",
+          background: "rgba(107,216,255,0.18)",
+          border: "1.5px dashed rgba(150,200,230,0.6)",
+          transform: `translate(${offsets.joystick.x}px, ${offsets.joystick.y}px)`,
+          touchAction: "none",
+          cursor: "grab",
+        }}
+      />
+      <div
+        onPointerDown={startDrag("fire")}
+        style={{
+          position: "absolute",
+          right: "7%",
+          bottom: "9%",
+          width: "clamp(72px, 13vw, 100px)",
+          height: "clamp(72px, 13vw, 100px)",
+          borderRadius: "50%",
+          background: "rgba(216,64,44,0.35)",
+          border: "1.5px dashed rgba(255,220,210,0.75)",
+          transform: `translate(${offsets.fire.x}px, ${offsets.fire.y}px)`,
+          touchAction: "none",
+          cursor: "grab",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#fff",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+        }}
+      >
+        FIRE
+      </div>
+      <div
+        onPointerDown={startDrag("run")}
+        style={{
+          position: "absolute",
+          right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+          bottom: "9%",
+          width: "clamp(56px, 10vw, 76px)",
+          height: "clamp(56px, 10vw, 76px)",
+          borderRadius: "50%",
+          background: "rgba(63,216,90,0.35)",
+          border: "1.5px dashed rgba(210,255,210,0.75)",
+          transform: `translate(${offsets.run.x}px, ${offsets.run.y}px)`,
+          touchAction: "none",
+          cursor: "grab",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#fff",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 12,
+        }}
+      >
+        RUN
+      </div>
+
+      <button
+        onClick={onDone}
+        style={{
+          position: "absolute",
+          top: 12,
+          right: 14,
+          padding: "8px 16px",
+          borderRadius: 8,
+          border: "1px solid rgba(168,120,255,0.5)",
+          background: "rgba(107,216,255,0.18)",
+          color: "#e8e2ff",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+          letterSpacing: "0.05em",
+          cursor: "pointer",
+        }}
+      >
+        DONE
+      </button>
+    </div>
+  );
+}
+
 function SettingsPanel({
   onClose,
   onResetProgress,
@@ -5099,15 +5631,39 @@ function SettingsPanel({
   onClose: () => void;
   onResetProgress: () => void;
 }) {
+  const [tab, setTab] = useState<SettingsTab>("gameplay");
+  const [settings, setSettings] = useState<GameSettings>(loadGameSettings);
   const [lookSensitivity, setLookSensitivity] = useState(() => {
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
     return saved >= LOOK_SENSITIVITY_MIN && saved <= LOOK_SENSITIVITY_MAX ? saved : 1;
   });
-  const changeSensitivity = (value: number) => {
+  const [customizing, setCustomizing] = useState(false);
+  const [expanded, setExpanded] = useState<"privacy" | "about" | null>(null);
+
+  useEffect(() => {
+    saveGameSettings(settings);
+  }, [settings]);
+
+  const update = <K extends keyof GameSettings>(key: K, value: GameSettings[K]) =>
+    setSettings((prev) => ({ ...prev, [key]: value }));
+
+  const changeLookSensitivity = (value: number) => {
     const clamped = clamp(value, LOOK_SENSITIVITY_MIN, LOOK_SENSITIVITY_MAX);
     setLookSensitivity(clamped);
     localStorage.setItem(LOOK_SENSITIVITY_STORAGE_KEY, String(clamped));
   };
+
+  const lang = settings.language;
+
+  if (customizing) {
+    return (
+      <ControlsCustomizeOverlay
+        offsets={settings.controlOffsets}
+        onChange={(controlOffsets) => update("controlOffsets", controlOffsets)}
+        onDone={() => setCustomizing(false)}
+      />
+    );
+  }
 
   return (
     <div
@@ -5122,25 +5678,27 @@ function SettingsPanel({
         alignItems: "center",
         justifyContent: "center",
         zIndex: 10,
+        padding: 12,
       }}
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: "min(380px, 86vw)",
+          width: "min(520px, 94vw)",
           background: "linear-gradient(180deg, rgba(20,14,42,0.97), rgba(8,6,20,0.97))",
           border: "1px solid rgba(168,120,255,0.45)",
           borderRadius: 14,
           boxShadow: "0 0 60px rgba(120,60,255,0.35), inset 0 0 40px rgba(80,40,180,0.15)",
-          padding: "22px 26px 26px",
+          padding: "18px 20px 22px",
           fontFamily: "'Barlow', sans-serif",
           color: "#e8e2ff",
-          maxHeight: "82vh",
-          overflowY: "auto",
+          maxHeight: "92vh",
+          display: "flex",
+          flexDirection: "column",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <h2
             style={{
               margin: 0,
@@ -5152,7 +5710,7 @@ function SettingsPanel({
               textShadow: "0 0 18px rgba(170,110,255,0.7)",
             }}
           >
-            SETTINGS
+            {t(lang, "settings")}
           </h2>
           <button
             onClick={onClose}
@@ -5167,6 +5725,7 @@ function SettingsPanel({
               fontSize: 18,
               lineHeight: 1,
               cursor: "pointer",
+              flexShrink: 0,
             }}
           >
             ×
@@ -5175,85 +5734,332 @@ function SettingsPanel({
 
         <div
           style={{
-            marginTop: 18,
-            height: 1,
-            background: "linear-gradient(90deg, rgba(168,120,255,0.6), rgba(168,120,255,0))",
+            marginTop: 14,
+            marginBottom: 14,
+            display: "flex",
+            gap: 6,
+            flexWrap: "wrap",
+            flexShrink: 0,
           }}
-        />
-
-        <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 14 }}>
-          <div
-            style={{
-              padding: "12px 16px",
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(168,120,255,0.25)",
-            }}
-          >
-            <div
+        >
+          {SETTINGS_TABS.map((key) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
               style={{
-                display: "flex",
-                justifyContent: "space-between",
+                flex: "1 1 auto",
+                minWidth: 70,
+                padding: "8px 6px",
+                borderRadius: 8,
+                border: `1px solid ${tab === key ? "rgba(120,255,255,0.7)" : "rgba(168,120,255,0.25)"}`,
+                background: tab === key ? "rgba(107,216,255,0.22)" : "rgba(255,255,255,0.04)",
+                color: tab === key ? "#bff3ff" : "#9d8ac2",
                 fontFamily: "'Rajdhani', sans-serif",
                 fontWeight: 700,
-                fontSize: 13,
-                letterSpacing: "0.06em",
-                marginBottom: 8,
+                fontSize: 11,
+                letterSpacing: "0.05em",
+                cursor: "pointer",
               }}
             >
-              <span>LOOK SENSITIVITY</span>
-              <span>{lookSensitivity.toFixed(1)}x</span>
-            </div>
-            <input
-              type="range"
-              min={LOOK_SENSITIVITY_MIN}
-              max={LOOK_SENSITIVITY_MAX}
-              step={0.1}
-              value={lookSensitivity}
-              onChange={(e) => changeSensitivity(Number(e.target.value))}
-              style={{ width: "100%" }}
-            />
-          </div>
+              {t(lang, key)}
+            </button>
+          ))}
+        </div>
 
-          <button
-            onClick={() => {
-              if (window.confirm("Reset all progress? Your level, XP, kills and match history will be cleared.")) {
-                onResetProgress();
-              }
-            }}
-            style={{
-              padding: "12px 16px",
-              borderRadius: 10,
-              background: "rgba(255,70,70,0.1)",
-              border: "1px solid rgba(255,90,90,0.4)",
-              color: "#ff9a9a",
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              fontSize: 13,
-              letterSpacing: "0.06em",
-              cursor: "pointer",
-              textAlign: "left",
-            }}
-          >
-            RESET PROGRESS
-          </button>
+        <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, paddingRight: 2 }}>
+          {tab === "gameplay" && (
+            <>
+              <SettingsToggleRow label="AIM ASSIST" value={settings.aimAssist} onChange={(v) => update("aimAssist", v)} />
+              <SettingsToggleRow label="AUTO FIRE" value={settings.autoFire} onChange={(v) => update("autoFire", v)} />
+              <SettingsToggleRow label="VIBRATION" value={settings.vibration} onChange={(v) => update("vibration", v)} />
+              <SettingsSliderRow
+                label="SENSITIVITY"
+                value={settings.movementSensitivity}
+                min={MOVEMENT_SENSITIVITY_MIN}
+                max={MOVEMENT_SENSITIVITY_MAX}
+                step={0.1}
+                format={(v) => `${v.toFixed(1)}x`}
+                onChange={(v) => update("movementSensitivity", v)}
+              />
+              <SettingsSliderRow
+                label="CAMERA SENSITIVITY"
+                value={lookSensitivity}
+                min={LOOK_SENSITIVITY_MIN}
+                max={LOOK_SENSITIVITY_MAX}
+                step={0.1}
+                format={(v) => `${v.toFixed(1)}x`}
+                onChange={changeLookSensitivity}
+              />
+            </>
+          )}
 
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "12px 16px",
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(168,120,255,0.25)",
-            }}
-          >
-            <span style={{ fontSize: 12, letterSpacing: "0.08em", color: "#9d8ac2" }}>10 SQUAD ASSASSIN</span>
-            <span style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 14, color: "#fff" }}>
-              v1.0.0
-            </span>
-          </div>
+          {tab === "graphics" && (
+            <>
+              <SettingsSegmentRow
+                label="GRAPHICS QUALITY"
+                value={settings.graphicsQuality}
+                options={[
+                  { value: "low", label: "LOW" },
+                  { value: "medium", label: "MEDIUM" },
+                  { value: "high", label: "HIGH" },
+                ]}
+                onChange={(v) => update("graphicsQuality", v)}
+              />
+              <SettingsSegmentRow
+                label="FPS"
+                value={settings.fps}
+                options={[
+                  { value: 30, label: "30" },
+                  { value: 60, label: "60" },
+                ]}
+                onChange={(v) => update("fps", v)}
+              />
+              <SettingsSegmentRow
+                label="SHADOW QUALITY"
+                value={settings.shadowQuality}
+                options={[
+                  { value: "low", label: "LOW" },
+                  { value: "high", label: "HIGH" },
+                ]}
+                onChange={(v) => update("shadowQuality", v)}
+              />
+              <SettingsSegmentRow
+                label="EFFECTS QUALITY"
+                value={settings.effectsQuality}
+                options={[
+                  { value: "low", label: "LOW" },
+                  { value: "high", label: "HIGH" },
+                ]}
+                onChange={(v) => update("effectsQuality", v)}
+              />
+            </>
+          )}
+
+          {tab === "audio" && (
+            <>
+              <SettingsSliderRow
+                label="MASTER VOLUME"
+                value={settings.masterVolume}
+                min={0}
+                max={1}
+                step={0.05}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => update("masterVolume", v)}
+              />
+              <SettingsSliderRow
+                label="MUSIC VOLUME"
+                value={settings.musicVolume}
+                min={0}
+                max={1}
+                step={0.05}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => update("musicVolume", v)}
+              />
+              <SettingsSliderRow
+                label="SFX VOLUME"
+                value={settings.sfxVolume}
+                min={0}
+                max={1}
+                step={0.05}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => update("sfxVolume", v)}
+              />
+              <SettingsSliderRow
+                label="VOICE VOLUME"
+                value={settings.voiceVolume}
+                min={0}
+                max={1}
+                step={0.05}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => update("voiceVolume", v)}
+              />
+              <div style={{ fontSize: 11, color: "#7a70a0", padding: "0 4px", lineHeight: 1.5 }}>
+                The game has no audio yet — these levels are saved and will apply as soon as sound is added.
+              </div>
+            </>
+          )}
+
+          {tab === "controls" && (
+            <>
+              <button
+                onClick={() => setCustomizing(true)}
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: 10,
+                  background: "rgba(107,216,255,0.12)",
+                  border: "1px solid rgba(120,255,255,0.4)",
+                  color: "#bff3ff",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  letterSpacing: "0.06em",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                CUSTOMIZE CONTROLS
+              </button>
+              <SettingsSliderRow
+                label="BUTTON SIZE"
+                value={settings.buttonSize}
+                min={BUTTON_SIZE_MIN}
+                max={BUTTON_SIZE_MAX}
+                step={0.05}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => update("buttonSize", v)}
+              />
+              <SettingsSliderRow
+                label="BUTTON OPACITY"
+                value={settings.buttonOpacity}
+                min={0.3}
+                max={1}
+                step={0.05}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => update("buttonOpacity", v)}
+              />
+              <button
+                onClick={() => {
+                  update("buttonSize", 1);
+                  update("buttonOpacity", 1);
+                  update("controlOffsets", defaultGameSettings().controlOffsets);
+                }}
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: 10,
+                  background: "rgba(255,70,70,0.1)",
+                  border: "1px solid rgba(255,90,90,0.4)",
+                  color: "#ff9a9a",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  letterSpacing: "0.06em",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                RESET CONTROLS
+              </button>
+            </>
+          )}
+
+          {tab === "more" && (
+            <>
+              <SettingsSegmentRow
+                label="LANGUAGE"
+                value={settings.language}
+                options={[
+                  { value: "en", label: "ENGLISH" },
+                  { value: "hi", label: "हिन्दी" },
+                ]}
+                onChange={(v) => update("language", v)}
+              />
+              <SettingsToggleRow label="TUTORIAL" value={settings.tutorial} onChange={(v) => update("tutorial", v)} />
+
+              <SettingsRowCard>
+                <button
+                  onClick={() => setExpanded(expanded === "privacy" ? null : "privacy")}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer",
+                    color: "#e8e2ff",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 13,
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  <span>PRIVACY</span>
+                  <span>{expanded === "privacy" ? "▲" : "▼"}</span>
+                </button>
+                {expanded === "privacy" && (
+                  <div style={{ marginTop: 10, fontSize: 12, color: "#b8aed8", lineHeight: 1.5 }}>
+                    All progress and settings are stored locally on this device only. Nothing is uploaded to a
+                    server or shared with anyone.
+                  </div>
+                )}
+              </SettingsRowCard>
+
+              <SettingsRowCard>
+                <button
+                  onClick={() => setExpanded(expanded === "about" ? null : "about")}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer",
+                    color: "#e8e2ff",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 13,
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  <span>ABOUT</span>
+                  <span>{expanded === "about" ? "▲" : "▼"}</span>
+                </button>
+                {expanded === "about" && (
+                  <div style={{ marginTop: 10, fontSize: 12, color: "#b8aed8", lineHeight: 1.5 }}>
+                    10 Squad Assassin — v1.0.0
+                  </div>
+                )}
+              </SettingsRowCard>
+
+              <button
+                onClick={() => {
+                  if (window.confirm("Restore all settings to their defaults?")) {
+                    setSettings(defaultGameSettings());
+                    changeLookSensitivity(1);
+                  }
+                }}
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: 10,
+                  background: "rgba(255,70,70,0.1)",
+                  border: "1px solid rgba(255,90,90,0.4)",
+                  color: "#ff9a9a",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  letterSpacing: "0.06em",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                RESTORE DEFAULTS
+              </button>
+
+              <button
+                onClick={() => {
+                  if (window.confirm("Reset all progress? Your level, XP, kills and match history will be cleared.")) {
+                    onResetProgress();
+                  }
+                }}
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: 10,
+                  background: "rgba(255,70,70,0.1)",
+                  border: "1px solid rgba(255,90,90,0.4)",
+                  color: "#ff9a9a",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  letterSpacing: "0.06em",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                RESET PROGRESS
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -5270,6 +6076,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [progress, setProgress] = useState<PlayerProgress>(loadPlayerProgress);
+  const [language, setLanguage] = useState<AppLanguage>(() => loadGameSettings().language);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const shareGame = () => {
@@ -5380,7 +6187,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
           gap: "clamp(6px, 2vw, 10px)",
         }}
       >
-        <LobbyIconButton icon={HOME_ICON} label="RANK" onClick={() => setRankOpen(true)} />
+        <LobbyIconButton icon={HOME_ICON} label={t(language, "rank")} onClick={() => setRankOpen(true)} />
         <LobbyIconButton icon={PEOPLE_ICON} onClick={() => setCharacterOpen(true)} />
         <LobbyIconButton icon={MAIL_ICON} onClick={() => setMailOpen(true)} />
       </div>
@@ -5396,8 +6203,8 @@ export default function Lobby({ visible }: { visible: boolean }) {
           gap: "clamp(6px, 2vw, 10px)",
         }}
       >
-        <LobbyIconButton icon={SETTINGS_ICON} label="SETTINGS" onClick={() => setSettingsOpen(true)} />
-        <LobbyIconButton icon={SHARE_ICON} label="SHARE" onClick={shareGame} />
+        <LobbyIconButton icon={SETTINGS_ICON} label={t(language, "settings")} onClick={() => setSettingsOpen(true)} />
+        <LobbyIconButton icon={SHARE_ICON} label={t(language, "share")} onClick={shareGame} />
       </div>
 
       {linkCopied && (
@@ -5445,7 +6252,10 @@ export default function Lobby({ visible }: { visible: boolean }) {
       {profileOpen && <ProfilePanel progress={progress} onClose={() => setProfileOpen(false)} />}
       {settingsOpen && (
         <SettingsPanel
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false);
+            setLanguage(loadGameSettings().language);
+          }}
           onResetProgress={() => {
             const fresh = defaultPlayerProgress();
             setProgress(fresh);
