@@ -6,22 +6,21 @@ export function comboMultiplier(combo: number): number {
   return 1;
 }
 
-export interface MatchOutcome {
+export interface BrickReward {
   perfect: boolean;
   scoreGain: number;
   coinGain: number;
 }
 
-export function computeMatchReward(
-  perfect: boolean,
-  special: boolean,
+export function computeBrickReward(
+  brickPoints: number,
   combo: number,
+  perfect: boolean,
   dangerTime: boolean,
-): MatchOutcome {
-  const base = perfect ? 25 : 10;
+): BrickReward {
   const multiplier = comboMultiplier(combo) * (dangerTime ? 1.5 : 1);
-  let scoreGain = Math.round(base * multiplier);
-  if (special) scoreGain += 50;
-  const coinGain = perfect ? 5 : 2;
+  const base = perfect ? brickPoints * 1.6 : brickPoints;
+  const scoreGain = Math.round(base * multiplier);
+  const coinGain = perfect ? 3 : 1;
   return { perfect, scoreGain, coinGain };
 }

@@ -7,8 +7,8 @@ export function TutorialOverlay() {
   return (
     <View style={styles.wrap} pointerEvents="none">
       <View style={styles.card}>
-        <Text style={styles.row}>👆 Single Tap = Change Color</Text>
-        <Text style={styles.row}>👆👆 Double Tap = Change Shape</Text>
+        <Text style={styles.row}>👉 Drag anywhere to move the paddle</Text>
+        <Text style={styles.row}>🧱 Break every brick to level up!</Text>
       </View>
     </View>
   );

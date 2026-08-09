@@ -3,8 +3,8 @@ import { ChallengeDef } from "@/types";
 export const CHALLENGES: ChallengeDef[] = [
   {
     id: "make_20_matches",
-    title: "Match Rush",
-    description: "Make 20 correct matches in one run.",
+    title: "Brick Rush",
+    description: "Break 20 bricks in one run.",
     type: "matches",
     target: 20,
     reward: { coins: 80 },
@@ -12,7 +12,7 @@ export const CHALLENGES: ChallengeDef[] = [
   {
     id: "reach_combo_5",
     title: "Combo Climb",
-    description: "Reach a x5 combo.",
+    description: "Reach a x5 brick-breaking combo.",
     type: "combo",
     target: 5,
     reward: { coins: 60, stars: 5 },
@@ -36,7 +36,7 @@ export const CHALLENGES: ChallengeDef[] = [
   {
     id: "ten_perfect_matches",
     title: "Perfectionist",
-    description: "Complete 10 perfect matches.",
+    description: "Land 10 perfect combo hits.",
     type: "perfect_matches",
     target: 10,
     reward: { coins: 120 },

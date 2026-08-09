@@ -1,22 +1,29 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, LayoutChangeEvent, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  GestureResponderEvent,
+  LayoutChangeEvent,
+  PanResponder,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { AlienCharacter } from "@/components/AlienCharacter";
+import { BallView } from "@/components/BallView";
+import { BrickGrid } from "@/components/BrickGrid";
 import { FloatingScoreLayer } from "@/components/FloatingScoreText";
 import { GameButton } from "@/components/GameButton";
 import { GameModal } from "@/components/Modal";
-import { GateVisual } from "@/components/GateVisual";
 import { HUD } from "@/components/HUD";
-import { MatchIndicator } from "@/components/MatchIndicator";
+import { PaddleView } from "@/components/PaddleView";
 import { ParticleBurst } from "@/components/ParticleBurst";
 import { ScreenBackground } from "@/components/ScreenBackground";
 import { TutorialOverlay } from "@/components/TutorialOverlay";
-import { COLOR_HEX } from "@/constants/colors";
 import { CHARACTERS } from "@/constants/characters";
 import { theme } from "@/constants/theme";
-import { useGameLoop } from "@/hooks/useGameLoop";
+import { paddleYFor, useGameLoop } from "@/hooks/useGameLoop";
 import { playSfx } from "@/hooks/useSound";
 import { useProfileStore } from "@/store/profileStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -25,11 +32,9 @@ import { vibrate } from "@/utils/haptics";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Gameplay">;
 
-const DOUBLE_TAP_DELAY = 300;
-
 export function GameplayScreen({ route, navigation }: Props) {
   const { mode, challengeId } = route.params;
-  const { state, changeColor, changeShape, pause, resume, restart, collectStar, removeFloating, setBounds } =
+  const { state, movePaddle, pause, resume, restart, collectStar, removeFloating, setBounds } =
     useGameLoop(mode, challengeId);
 
   const tutorialOn = useSettingsStore((s) => s.tutorialOn);
@@ -42,18 +47,18 @@ export function GameplayScreen({ route, navigation }: Props) {
 
   const character = CHARACTERS.find((c) => c.id === selectedCharacterId) ?? CHARACTERS[0];
 
-  const [sawColorChange, setSawColorChange] = useState(false);
-  const [sawShapeChange, setSawShapeChange] = useState(false);
+  const [hasMovedPaddle, setHasMovedPaddle] = useState(false);
   const [burstKey, setBurstKey] = useState(0);
+  const [burstPos, setBurstPos] = useState({ x: 0, y: 0, color: theme.accent.green });
 
-  const lastTapAt = useRef(0);
-  const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncedCoins = useRef(0);
   const syncedStars = useRef(0);
   const finalized = useRef(false);
   const prevLives = useRef(state.lives);
-  const prevMood = useRef(state.characterMood);
+  const prevMatches = useRef(state.matches);
   const flashAnim = useRef(new Animated.Value(0)).current;
+  const paddleWidthRef = useRef(state.paddle.width);
+  paddleWidthRef.current = state.paddle.width;
 
   // Sync earned run currency into the persisted profile as it's earned.
   useEffect(() => {
@@ -70,14 +75,20 @@ export function GameplayScreen({ route, navigation }: Props) {
     }
   }, [state.runCoins, state.runStars, addCoins, addStars, bumpStat]);
 
-  // React to match/hit feedback.
+  // Particle burst + sfx whenever a brick breaks.
   useEffect(() => {
-    if (state.characterMood === prevMood.current) return;
-    prevMood.current = state.characterMood;
-    if (state.characterMood === "success") {
+    if (state.matches === prevMatches.current) return;
+    prevMatches.current = state.matches;
+    const last = state.floatingTexts[state.floatingTexts.length - 1];
+    if (last) {
+      setBurstPos({ x: last.x, y: last.y, color: last.color });
       setBurstKey((k) => k + 1);
     }
-  }, [state.characterMood]);
+    if (last?.text.includes("PERFECT")) playSfx("perfect");
+    else if (state.combo >= 3) playSfx("combo");
+    else playSfx("correct");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.matches]);
 
   useEffect(() => {
     if (state.lives < prevLives.current) {
@@ -133,44 +144,28 @@ export function GameplayScreen({ route, navigation }: Props) {
     setBounds(width, height);
   };
 
-  const handleTap = () => {
-    if (state.status !== "playing") return;
-    const now = Date.now();
-    if (singleTapTimer.current && now - lastTapAt.current < DOUBLE_TAP_DELAY) {
-      if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
-      singleTapTimer.current = null;
-      changeShape();
-      setSawShapeChange(true);
-      playSfx("tap");
-      vibrate("medium");
-    } else {
-      lastTapAt.current = now;
-      singleTapTimer.current = setTimeout(() => {
-        changeColor();
-        setSawColorChange(true);
-        playSfx("tap");
-        vibrate("light");
-        singleTapTimer.current = null;
-      }, DOUBLE_TAP_DELAY);
-    }
-  };
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt: GestureResponderEvent) => {
+        movePaddle(evt.nativeEvent.locationX - paddleWidthRef.current / 2);
+        setHasMovedPaddle(true);
+      },
+      onPanResponderMove: (evt: GestureResponderEvent) => {
+        movePaddle(evt.nativeEvent.locationX - paddleWidthRef.current / 2);
+      },
+    }),
+  ).current;
 
-  useEffect(() => {
-    if (state.matches === 0) return;
-    const lastText = state.floatingTexts[state.floatingTexts.length - 1]?.text;
-    if (lastText?.includes("PERFECT")) playSfx("perfect");
-    else if (state.combo >= 3) playSfx("combo");
-    else playSfx("correct");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.matches]);
-
-  const showTutorial = tutorialOn && !(sawColorChange && sawShapeChange) && state.status === "playing";
+  const showTutorial = tutorialOn && !hasMovedPaddle && state.status === "playing";
   const bgColors = state.dangerTime ? theme.bg.danger : theme.bg.deep;
+  const paddleY = paddleYFor(state.bounds.height);
 
   return (
     <View style={styles.flex}>
       <ScreenBackground colors={bgColors} starCount={state.dangerTime ? 40 : 24} intense={state.dangerTime}>
-        <SafeAreaView style={styles.flex} onLayout={onLayout}>
+        <SafeAreaView style={styles.flex}>
           <View style={styles.hudWrap}>
             <HUD
               score={state.score}
@@ -185,55 +180,34 @@ export function GameplayScreen({ route, navigation }: Props) {
             />
           </View>
 
-          <View style={styles.matchIndicatorWrap}>
-            {state.gate && (
-              <MatchIndicator
-                color={state.gate.color}
-                shape={state.gate.shape}
-                special={state.gate.special}
-                timeProgress={1 - (state.now - state.gate.spawnedAt) / Math.max(1, state.gate.arrivesAt - state.gate.spawnedAt)}
-              />
-            )}
-          </View>
+          <View style={styles.playArea} onLayout={onLayout} {...panResponder.panHandlers}>
+            <BrickGrid bricks={state.bricks} />
 
-          <Pressable style={styles.playArea} onPress={handleTap}>
-            {state.gate && (
-              <GateVisual
-                color={state.gate.color}
-                shape={state.gate.shape}
-                special={state.gate.special}
-                trackHeight={state.bounds.height}
-                progress={(state.now - state.gate.spawnedAt) / Math.max(1, state.gate.arrivesAt - state.gate.spawnedAt)}
-              />
-            )}
+            <PaddleView
+              x={state.paddle.x}
+              y={paddleY}
+              width={state.paddle.width}
+              height={state.paddle.height}
+              color={character.primary}
+            />
 
-            <View style={styles.characterWrap}>
-              <ParticleBurst
-                color={COLOR_HEX[state.playerColor]}
-                burstKey={burstKey}
-              />
-              <AlienCharacter
-                color={COLOR_HEX[state.playerColor]}
-                secondaryColor={character.secondary}
-                shape={state.playerShape}
-                mood={state.characterMood}
-                size={120}
-              />
-            </View>
+            <BallView x={state.ball.x} y={state.ball.y} radius={state.ball.radius} glowing={state.dangerTime} />
+
+            <ParticleBurst color={burstPos.color} burstKey={burstKey} x={burstPos.x} y={burstPos.y} />
 
             {state.stars.map((star) => (
-              <Pressable
+              <View
                 key={star.id}
-                onPress={() => {
+                onStartShouldSetResponder={() => true}
+                onResponderRelease={() => {
                   collectStar(star.id);
                   playSfx("star");
                   vibrate("success");
                 }}
                 style={[styles.star, { left: star.x, top: star.y }]}
-                hitSlop={12}
               >
                 <Text style={styles.starIcon}>⭐</Text>
-              </Pressable>
+              </View>
             ))}
 
             <FloatingScoreLayer items={state.floatingTexts} onDone={removeFloating} />
@@ -253,6 +227,10 @@ export function GameplayScreen({ route, navigation }: Props) {
               </View>
             )}
 
+            <View style={styles.levelWrap} pointerEvents="none">
+              <Text style={styles.levelText}>LEVEL {state.level}</Text>
+            </View>
+
             {state.challenge && (
               <View style={styles.challengeWrap} pointerEvents="none">
                 <Text style={styles.challengeText}>
@@ -261,14 +239,11 @@ export function GameplayScreen({ route, navigation }: Props) {
                 </Text>
               </View>
             )}
-          </Pressable>
+          </View>
         </SafeAreaView>
       </ScreenBackground>
 
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.flashOverlay, { opacity: flashAnim }]}
-      />
+      <Animated.View pointerEvents="none" style={[styles.flashOverlay, { opacity: flashAnim }]} />
 
       <GameModal visible={state.status === "paused"}>
         <Text style={styles.pauseTitle}>PAUSED</Text>
@@ -296,20 +271,12 @@ const styles = StyleSheet.create({
   hudWrap: {
     paddingHorizontal: 16,
     paddingTop: 6,
-  },
-  matchIndicatorWrap: {
-    paddingHorizontal: 16,
-    marginTop: 10,
+    paddingBottom: 6,
   },
   playArea: {
     flex: 1,
     position: "relative",
-  },
-  characterWrap: {
-    position: "absolute",
-    bottom: "12%",
-    alignSelf: "center",
-    alignItems: "center",
+    overflow: "hidden",
   },
   star: {
     position: "absolute",
@@ -323,7 +290,7 @@ const styles = StyleSheet.create({
   },
   bannerWrap: {
     position: "absolute",
-    top: "26%",
+    top: "40%",
     alignSelf: "center",
   },
   bannerText: {
@@ -333,6 +300,17 @@ const styles = StyleSheet.create({
     textShadowColor: "#000000AA",
     textShadowRadius: 8,
     textShadowOffset: { width: 0, height: 2 },
+  },
+  levelWrap: {
+    position: "absolute",
+    top: 6,
+    right: 12,
+  },
+  levelText: {
+    color: theme.text.muted,
+    fontWeight: "700",
+    fontSize: 11,
+    letterSpacing: 1,
   },
   challengeWrap: {
     position: "absolute",

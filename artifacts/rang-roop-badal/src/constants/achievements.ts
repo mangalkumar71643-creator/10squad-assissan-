@@ -3,8 +3,8 @@ import { AchievementDef } from "@/types";
 export const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: "first_match",
-    title: "First Match",
-    description: "Make your very first correct match.",
+    title: "First Brick",
+    description: "Break your very first brick.",
     target: 1,
     reward: { coins: 20 },
     statKey: "totalMatches",
@@ -12,7 +12,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: "ten_perfect",
     title: "Precision Alien",
-    description: "Land 10 perfect matches.",
+    description: "Land 10 perfect combo hits.",
     target: 10,
     reward: { coins: 60, stars: 5 },
     statKey: "perfectMatches",
@@ -20,7 +20,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: "combo_x5",
     title: "Combo Master",
-    description: "Reach a x5 combo.",
+    description: "Reach a x5 brick-breaking combo.",
     target: 5,
     reward: { coins: 80 },
     statKey: "highestCombo",

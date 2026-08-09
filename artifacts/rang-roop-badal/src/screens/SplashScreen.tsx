@@ -70,7 +70,7 @@ export function SplashScreen({ navigation }: Props) {
                     </Text>
                   ))}
                 </View>
-                <Text style={styles.tagline}>a magical color + shape adventure</Text>
+                <Text style={styles.tagline}>a magical brick-smashing adventure</Text>
               </Animated.View>
             </View>
 

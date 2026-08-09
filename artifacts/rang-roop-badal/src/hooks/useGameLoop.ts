@@ -1,31 +1,29 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 
-import { COLOR_ORDER, nextColor } from "@/constants/colors";
-import { SHAPE_ORDER, nextShape } from "@/constants/shapes";
 import {
+  BALL_RADIUS_RATIO,
   DANGER_TIME_DURATION_MS,
   DANGER_TIME_SCORE_STEP,
+  PADDLE_BOTTOM_OFFSET,
+  PADDLE_HEIGHT,
+  PADDLE_WIDTH_MULTIPLIER,
+  PERFECT_COMBO_THRESHOLD,
   STAR_SHOWER_DURATION_MS,
   STAR_SHOWER_INTERVAL_MS,
   STAR_SHOWER_SPAWN_EVERY_MS,
-  gateIntervalFor,
+  ballSpeedFor,
 } from "@/game/difficulty";
-import { generateGate } from "@/game/gateGenerator";
-import { evaluateMatch } from "@/game/matchLogic";
-import { computeMatchReward } from "@/game/scoring";
+import { generateBricks } from "@/game/brickGenerator";
+import { findBrickHit, reflectOffPaddle, reflectOffRect } from "@/game/physics";
+import { computeBrickReward } from "@/game/scoring";
 import { CHALLENGES } from "@/constants/challenges";
-import {
-  ChallengeDef,
-  ColorName,
-  FloatingText,
-  Gate,
-  GameMode,
-  ShapeName,
-} from "@/types";
+import { Ball, Brick, ChallengeDef, FloatingText, GameMode, Paddle } from "@/types";
 import { uid } from "@/utils/id";
 
 const STAR_LIFETIME_MS = 2400;
-const MOOD_HOLD_MS = 420;
+const BALL_RELAUNCH_DELAY_MS = 900;
+const MAX_DT_SEC = 1 / 20;
+const STAR_ZONE_TOP_RATIO = 0.5;
 
 export interface CollectibleStar {
   id: string;
@@ -40,7 +38,34 @@ export interface Banner {
   tone: "danger" | "star" | "info";
 }
 
-export type CharacterMood = "idle" | "run" | "hit" | "success";
+export function paddleYFor(boundsHeight: number): number {
+  return boundsHeight - PADDLE_BOTTOM_OFFSET;
+}
+
+function makePaddle(boundsWidth: number, ballRadius: number): Paddle {
+  const width = ballRadius * 2 * PADDLE_WIDTH_MULTIPLIER;
+  return {
+    x: boundsWidth / 2 - width / 2,
+    width,
+    height: PADDLE_HEIGHT,
+  };
+}
+
+function makeBall(boundsWidth: number, boundsHeight: number, paddle: Paddle): Ball {
+  const radius = Math.max(6, boundsWidth * BALL_RADIUS_RATIO);
+  return {
+    x: paddle.x + paddle.width / 2,
+    y: paddleYFor(boundsHeight) - radius,
+    vx: 0,
+    vy: 0,
+    radius,
+  };
+}
+
+function launchDirection(speed: number) {
+  const angle = (Math.random() * 60 - 30) * (Math.PI / 180);
+  return { vx: speed * Math.sin(angle), vy: -speed * Math.cos(angle) };
+}
 
 export interface GameLoopState {
   status: "playing" | "paused" | "gameover";
@@ -53,15 +78,14 @@ export interface GameLoopState {
   lives: number;
   combo: number;
   highestCombo: number;
-  matches: number;
-  perfectMatches: number;
-  playerColor: ColorName;
-  playerShape: ShapeName;
-  lastColorChangeAt: number;
-  lastShapeChangeAt: number;
-  gate: Gate | null;
-  characterMood: CharacterMood;
-  moodUntil: number;
+  matches: number; // bricks broken
+  perfectMatches: number; // perfect-combo brick hits
+  level: number;
+  ball: Ball;
+  paddle: Paddle;
+  bricks: Brick[];
+  ballLaunched: boolean;
+  launchAt: number;
   dangerTime: boolean;
   dangerEndsAt: number;
   nextDangerScore: number;
@@ -82,12 +106,11 @@ export interface GameLoopState {
 
 type Action =
   | { type: "TICK"; now: number }
-  | { type: "CHANGE_COLOR"; now: number }
-  | { type: "CHANGE_SHAPE"; now: number }
+  | { type: "MOVE_PADDLE"; x: number }
   | { type: "PAUSE"; now: number }
   | { type: "RESUME"; now: number }
   | { type: "RESTART"; now: number }
-  | { type: "COLLECT_STAR"; id: string; now: number }
+  | { type: "COLLECT_STAR"; id: string }
   | { type: "REMOVE_FLOATING"; id: string }
   | { type: "SET_BOUNDS"; width: number; height: number };
 
@@ -118,15 +141,29 @@ function challengeProgressValue(
   }
 }
 
+function pushFloating(
+  list: FloatingText[],
+  text: string,
+  color: string,
+  x: number,
+  y: number,
+): FloatingText[] {
+  const item: FloatingText = { id: uid("float"), text, x, y, color, createdAt: Date.now() };
+  const next = [...list, item];
+  return next.length > 6 ? next.slice(next.length - 6) : next;
+}
+
 function makeInitialState(
   mode: GameMode,
   challengeId: string | undefined,
   now: number,
 ): GameLoopState {
-  const challenge = challengeId
-    ? CHALLENGES.find((c) => c.id === challengeId) ?? null
-    : null;
-  const interval = gateIntervalFor(mode, 0, false);
+  const challenge = challengeId ? CHALLENGES.find((c) => c.id === challengeId) ?? null : null;
+  const boundsWidth = 360;
+  const boundsHeight = 640;
+  const paddle = makePaddle(boundsWidth, Math.max(6, boundsWidth * BALL_RADIUS_RATIO));
+  const ball = makeBall(boundsWidth, boundsHeight, paddle);
+
   return {
     status: "playing",
     mode,
@@ -140,13 +177,12 @@ function makeInitialState(
     highestCombo: 0,
     matches: 0,
     perfectMatches: 0,
-    playerColor: COLOR_ORDER[0],
-    playerShape: SHAPE_ORDER[0],
-    lastColorChangeAt: 0,
-    lastShapeChangeAt: 0,
-    gate: generateGate(now, interval),
-    characterMood: "run",
-    moodUntil: 0,
+    level: 1,
+    ball,
+    paddle,
+    bricks: generateBricks(boundsWidth, boundsHeight),
+    ballLaunched: false,
+    launchAt: now + BALL_RELAUNCH_DELAY_MS,
     dangerTime: false,
     dangerEndsAt: 0,
     nextDangerScore: DANGER_TIME_SCORE_STEP,
@@ -162,44 +198,46 @@ function makeInitialState(
     challengeProgress: 0,
     challengeCompleted: false,
     pausedAt: null,
-    bounds: { width: 320, height: 500 },
+    bounds: { width: boundsWidth, height: boundsHeight },
   };
 }
 
-function pushFloating(list: FloatingText[], text: string, color: string, bounds: { width: number; height: number }): FloatingText[] {
-  const item: FloatingText = {
-    id: uid("float"),
-    text,
-    x: bounds.width / 2 - 40 + (Math.random() * 40 - 20),
-    y: bounds.height * 0.42,
-    color,
-    createdAt: Date.now(),
+function resetBallToPaddle(ball: Ball, paddle: Paddle, boundsHeight: number): Ball {
+  return {
+    ...ball,
+    x: paddle.x + paddle.width / 2,
+    y: paddleYFor(boundsHeight) - ball.radius,
+    vx: 0,
+    vy: 0,
   };
-  const next = [...list, item];
-  return next.length > 6 ? next.slice(next.length - 6) : next;
 }
 
 function reducer(state: GameLoopState, action: Action): GameLoopState {
   switch (action.type) {
-    case "SET_BOUNDS":
-      return { ...state, bounds: { width: action.width, height: action.height } };
-
-    case "CHANGE_COLOR": {
-      if (state.status !== "playing") return state;
+    case "SET_BOUNDS": {
+      const { width, height } = action;
+      if (width === state.bounds.width && height === state.bounds.height) return state;
+      const paddle = makePaddle(width, Math.max(6, width * BALL_RADIUS_RATIO));
+      const ball = makeBall(width, height, paddle);
       return {
         ...state,
-        playerColor: nextColor(state.playerColor),
-        lastColorChangeAt: action.now,
+        bounds: { width, height },
+        paddle,
+        ball,
+        bricks: generateBricks(width, height),
+        ballLaunched: false,
+        launchAt: state.now + BALL_RELAUNCH_DELAY_MS,
       };
     }
 
-    case "CHANGE_SHAPE": {
+    case "MOVE_PADDLE": {
       if (state.status !== "playing") return state;
-      return {
-        ...state,
-        playerShape: nextShape(state.playerShape),
-        lastShapeChangeAt: action.now,
-      };
+      const x = Math.max(0, Math.min(state.bounds.width - state.paddle.width, action.x));
+      const paddle = { ...state.paddle, x };
+      const ball = state.ballLaunched
+        ? state.ball
+        : resetBallToPaddle(state.ball, paddle, state.bounds.height);
+      return { ...state, paddle, ball };
     }
 
     case "PAUSE":
@@ -213,16 +251,12 @@ function reducer(state: GameLoopState, action: Action): GameLoopState {
         ...state,
         status: "playing",
         pausedAt: null,
-        gate: state.gate
-          ? { ...state.gate, spawnedAt: state.gate.spawnedAt + delta, arrivesAt: state.gate.arrivesAt + delta }
-          : null,
+        launchAt: state.launchAt + delta,
         dangerEndsAt: state.dangerEndsAt + delta,
-        nextDangerScore: state.nextDangerScore,
         starShowerEndsAt: state.starShowerEndsAt + delta,
         nextStarShowerAt: state.nextStarShowerAt + delta,
         stars: state.stars.map((s) => ({ ...s, spawnedAt: s.spawnedAt + delta })),
         bannerUntil: state.bannerUntil + delta,
-        moodUntil: state.moodUntil + delta,
       };
     }
 
@@ -240,7 +274,13 @@ function reducer(state: GameLoopState, action: Action): GameLoopState {
         stars: state.stars.filter((s) => s.id !== action.id),
         runStars: state.runStars + 1,
         score: state.score + 5,
-        floatingTexts: pushFloating(state.floatingTexts, "+1 ⭐", "#FFD35E", state.bounds),
+        floatingTexts: pushFloating(
+          state.floatingTexts,
+          "+1 ⭐",
+          "#FFD35E",
+          state.bounds.width / 2,
+          state.bounds.height * 0.3,
+        ),
       };
     }
 
@@ -249,75 +289,117 @@ function reducer(state: GameLoopState, action: Action): GameLoopState {
       const now = action.now;
       let next: GameLoopState = { ...state, now };
 
-      // Mood reset
-      if (next.characterMood !== "run" && now >= next.moodUntil) {
-        next.characterMood = "run";
+      if (next.banner && now >= next.bannerUntil) next.banner = null;
+
+      // Auto-serve the ball after a life is lost / level starts.
+      if (!next.ballLaunched && now >= next.launchAt) {
+        const speed = ballSpeedFor(next.mode, next.level, next.dangerTime);
+        const dir = launchDirection(speed);
+        next.ballLaunched = true;
+        next.ball = { ...next.ball, vx: dir.vx, vy: dir.vy };
       }
 
-      // Banner expiry
-      if (next.banner && now >= next.bannerUntil) {
-        next.banner = null;
-      }
+      if (next.ballLaunched) {
+        const dt = Math.min(MAX_DT_SEC, Math.max(0, (now - state.now) / 1000));
+        const speed = ballSpeedFor(next.mode, next.level, next.dangerTime);
+        const currentMag = Math.hypot(next.ball.vx, next.ball.vy) || speed;
+        const scale = speed / currentMag;
+        let ball: Ball = {
+          ...next.ball,
+          vx: next.ball.vx * scale,
+          vy: next.ball.vy * scale,
+        };
+        ball = { ...ball, x: ball.x + ball.vx * dt, y: ball.y + ball.vy * dt };
 
-      // Gate resolution
-      if (next.gate && now >= next.gate.arrivesAt) {
-        const gate = next.gate;
-        const result = evaluateMatch(
-          gate,
-          next.playerColor,
-          next.playerShape,
-          next.lastColorChangeAt,
-          next.lastShapeChangeAt,
-        );
+        // Walls
+        if (ball.x - ball.radius < 0) {
+          ball.x = ball.radius;
+          ball.vx = Math.abs(ball.vx);
+        } else if (ball.x + ball.radius > next.bounds.width) {
+          ball.x = next.bounds.width - ball.radius;
+          ball.vx = -Math.abs(ball.vx);
+        }
+        if (ball.y - ball.radius < 0) {
+          ball.y = ball.radius;
+          ball.vy = Math.abs(ball.vy);
+        }
 
-        if (result === "wrong") {
-          const lives = next.lives - 1;
-          next = {
-            ...next,
-            lives,
-            combo: 0,
-            characterMood: "hit",
-            moodUntil: now + MOOD_HOLD_MS,
-            status: lives <= 0 ? "gameover" : "playing",
-          };
-        } else {
-          const perfect = result === "perfect";
+        // Paddle
+        const paddleY = paddleYFor(next.bounds.height);
+        const paddleRect = { x: next.paddle.x, y: paddleY, width: next.paddle.width, height: next.paddle.height };
+        if (
+          ball.vy > 0 &&
+          ball.y + ball.radius >= paddleRect.y &&
+          ball.y - ball.radius <= paddleRect.y + paddleRect.height &&
+          ball.x >= paddleRect.x - ball.radius &&
+          ball.x <= paddleRect.x + paddleRect.width + ball.radius
+        ) {
+          reflectOffPaddle(ball, next.paddle, paddleY, speed);
+        }
+
+        // Bricks
+        const hitBrick = findBrickHit(ball, next.bricks);
+        if (hitBrick) {
+          reflectOffRect(ball, hitBrick);
           const combo = next.combo + 1;
-          const reward = computeMatchReward(perfect, gate.special, combo, next.dangerTime);
-          const matches = next.matches + 1;
-          const perfectMatches = next.perfectMatches + (perfect ? 1 : 0);
-          const score = next.score + reward.scoreGain;
-          const runCoins = next.runCoins + reward.coinGain;
+          const perfect = combo % PERFECT_COMBO_THRESHOLD === 0;
+          const reward = computeBrickReward(hitBrick.points, combo, perfect, next.dangerTime);
+          const bricks = next.bricks.map((b) => (b.id === hitBrick.id ? { ...b, alive: false } : b));
 
           let floatingTexts = pushFloating(
             next.floatingTexts,
             perfect ? `+${reward.scoreGain} PERFECT!` : `+${reward.scoreGain}`,
             perfect ? "#FFD35E" : "#2ED47A",
-            next.bounds,
+            hitBrick.x + hitBrick.width / 2,
+            hitBrick.y,
           );
           if (combo >= 3) {
-            floatingTexts = pushFloating(floatingTexts, `x${Math.min(5, Math.floor(combo / 3) + 1)} COMBO`, "#FF6FB5", next.bounds);
+            floatingTexts = pushFloating(
+              floatingTexts,
+              `x${Math.min(5, Math.floor(combo / 3) + 1)} COMBO`,
+              "#FF6FB5",
+              hitBrick.x + hitBrick.width / 2,
+              hitBrick.y + 18,
+            );
           }
 
           next = {
             ...next,
-            score,
-            runCoins,
-            matches,
-            perfectMatches,
+            bricks,
             combo,
             highestCombo: Math.max(next.highestCombo, combo),
-            characterMood: "success",
-            moodUntil: now + MOOD_HOLD_MS,
+            matches: next.matches + 1,
+            perfectMatches: next.perfectMatches + (perfect ? 1 : 0),
+            score: next.score + reward.scoreGain,
+            runCoins: next.runCoins + reward.coinGain,
             floatingTexts,
           };
+
+          if (bricks.every((b) => !b.alive)) {
+            next = {
+              ...next,
+              level: next.level + 1,
+              bricks: generateBricks(next.bounds.width, next.bounds.height),
+              banner: { key: now, text: "LEVEL UP!", tone: "info" },
+              bannerUntil: now + 1600,
+            };
+          }
         }
 
-        if (next.status === "playing") {
-          const interval = gateIntervalFor(next.mode, next.score, next.dangerTime);
-          next.gate = generateGate(now, interval);
+        // Missed paddle -> lost ball
+        if (ball.y - ball.radius > next.bounds.height) {
+          const lives = next.lives - 1;
+          next = {
+            ...next,
+            lives,
+            combo: 0,
+            status: lives <= 0 ? "gameover" : "playing",
+            ballLaunched: false,
+            launchAt: now + BALL_RELAUNCH_DELAY_MS,
+            ball: resetBallToPaddle(ball, next.paddle, next.bounds.height),
+          };
         } else {
-          next.gate = null;
+          next.ball = ball;
         }
       }
 
@@ -329,15 +411,11 @@ function reducer(state: GameLoopState, action: Action): GameLoopState {
             dangerTime: true,
             dangerEndsAt: now + DANGER_TIME_DURATION_MS,
             nextDangerScore: next.nextDangerScore + DANGER_TIME_SCORE_STEP,
-            banner: { key: Date.now(), text: "DANGER TIME!", tone: "danger" },
+            banner: { key: now + 1, text: "DANGER TIME!", tone: "danger" },
             bannerUntil: now + 1800,
           };
         } else if (next.dangerTime && now >= next.dangerEndsAt) {
-          next = {
-            ...next,
-            dangerTime: false,
-            dangerSurvivedThisRun: true,
-          };
+          next = { ...next, dangerTime: false, dangerSurvivedThisRun: true };
         }
       }
 
@@ -349,17 +427,12 @@ function reducer(state: GameLoopState, action: Action): GameLoopState {
             starShower: true,
             starShowerEndsAt: now + STAR_SHOWER_DURATION_MS,
             lastStarSpawnAt: 0,
-            banner: { key: Date.now(), text: "STAR SHOWER!", tone: "star" },
+            banner: { key: now + 2, text: "STAR SHOWER!", tone: "star" },
             bannerUntil: now + 1800,
           };
         } else if (next.starShower) {
           if (now >= next.starShowerEndsAt) {
-            next = {
-              ...next,
-              starShower: false,
-              stars: [],
-              nextStarShowerAt: now + STAR_SHOWER_INTERVAL_MS,
-            };
+            next = { ...next, starShower: false, stars: [], nextStarShowerAt: now + STAR_SHOWER_INTERVAL_MS };
           } else {
             let stars = next.stars.filter((s) => now - s.spawnedAt < STAR_LIFETIME_MS);
             if (now - next.lastStarSpawnAt >= STAR_SHOWER_SPAWN_EVERY_MS) {
@@ -367,8 +440,8 @@ function reducer(state: GameLoopState, action: Action): GameLoopState {
                 ...stars,
                 {
                   id: uid("star"),
-                  x: 30 + Math.random() * Math.max(40, next.bounds.width - 90),
-                  y: 90 + Math.random() * Math.max(40, next.bounds.height * 0.5),
+                  x: 24 + Math.random() * Math.max(40, next.bounds.width - 70),
+                  y: next.bounds.height * STAR_ZONE_TOP_RATIO + Math.random() * next.bounds.height * 0.2,
                   spawnedAt: now,
                 },
               ];
@@ -406,33 +479,22 @@ export function useGameLoop(mode: GameMode, challengeId: string | undefined) {
   useEffect(() => {
     intervalRef.current = setInterval(() => {
       dispatch({ type: "TICK", now: Date.now() });
-    }, 33);
+    }, 16);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
 
-  const changeColor = useCallback(() => dispatch({ type: "CHANGE_COLOR", now: Date.now() }), []);
-  const changeShape = useCallback(() => dispatch({ type: "CHANGE_SHAPE", now: Date.now() }), []);
+  const movePaddle = useCallback((x: number) => dispatch({ type: "MOVE_PADDLE", x }), []);
   const pause = useCallback(() => dispatch({ type: "PAUSE", now: Date.now() }), []);
   const resume = useCallback(() => dispatch({ type: "RESUME", now: Date.now() }), []);
   const restart = useCallback(() => dispatch({ type: "RESTART", now: Date.now() }), []);
-  const collectStar = useCallback((id: string) => dispatch({ type: "COLLECT_STAR", id, now: Date.now() }), []);
+  const collectStar = useCallback((id: string) => dispatch({ type: "COLLECT_STAR", id }), []);
   const removeFloating = useCallback((id: string) => dispatch({ type: "REMOVE_FLOATING", id }), []);
   const setBounds = useCallback(
     (width: number, height: number) => dispatch({ type: "SET_BOUNDS", width, height }),
     [],
   );
 
-  return {
-    state,
-    changeColor,
-    changeShape,
-    pause,
-    resume,
-    restart,
-    collectStar,
-    removeFloating,
-    setBounds,
-  };
+  return { state, movePaddle, pause, resume, restart, collectStar, removeFloating, setBounds };
 }

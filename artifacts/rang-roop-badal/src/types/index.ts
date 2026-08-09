@@ -18,16 +18,31 @@ export type CurrencyType = "coins" | "stars";
 
 export type GraphicsQuality = "Low" | "Medium" | "High";
 
-export type MatchResult = "perfect" | "correct" | "wrong";
+export interface Ball {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+}
 
-export interface Gate {
+export interface Paddle {
+  x: number;
+  width: number;
+  height: number;
+}
+
+export interface Brick {
   id: string;
-  color: ColorName;
-  shape: ShapeName;
-  spawnedAt: number;
-  arrivesAt: number;
-  special: boolean;
-  resolved: boolean;
+  row: number;
+  col: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+  points: number;
+  alive: boolean;
 }
 
 export interface FloatingText {

@@ -6,9 +6,11 @@ interface Props {
   count?: number;
   size?: number;
   burstKey: number;
+  x?: number;
+  y?: number;
 }
 
-export function ParticleBurst({ color, count = 12, size = 8, burstKey }: Props) {
+export function ParticleBurst({ color, count = 12, size = 8, burstKey, x, y }: Props) {
   const particles = useMemo(
     () =>
       Array.from({ length: count }).map((_, i) => ({
@@ -28,8 +30,10 @@ export function ParticleBurst({ color, count = 12, size = 8, burstKey }: Props) 
     }).start();
   }, [burstKey, progress]);
 
+  const positionStyle = x !== undefined && y !== undefined ? { left: x, top: y } : styles.centered;
+
   return (
-    <View style={styles.container} pointerEvents="none">
+    <View style={[styles.container, positionStyle]} pointerEvents="none">
       {particles.map((p, i) => {
         const tx = progress.interpolate({ inputRange: [0, 1], outputRange: [0, Math.cos(p.angle) * p.distance] });
         const ty = progress.interpolate({ inputRange: [0, 1], outputRange: [0, Math.sin(p.angle) * p.distance] });
@@ -58,9 +62,11 @@ export function ParticleBurst({ color, count = 12, size = 8, burstKey }: Props) 
 const styles = StyleSheet.create({
   container: {
     position: "absolute",
-    alignSelf: "center",
     alignItems: "center",
     justifyContent: "center",
+  },
+  centered: {
+    alignSelf: "center",
   },
   particle: {
     position: "absolute",

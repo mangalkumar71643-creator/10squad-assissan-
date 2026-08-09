@@ -24,7 +24,7 @@ export function ProfileScreen({ navigation }: Props) {
   const statRows: { label: string; value: number | string }[] = [
     { label: "Best Score", value: profile.bestScore },
     { label: "Games Played", value: profile.stats.gamesPlayed },
-    { label: "Perfect Matches", value: profile.stats.perfectMatches },
+    { label: "Perfect Hits", value: profile.stats.perfectMatches },
     { label: "Highest Combo", value: `x${profile.stats.highestCombo}` },
     { label: "Achievements Completed", value: claimedCount },
   ];
