@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
-import { AdMob, BannerAdPosition, BannerAdSize } from "@capacitor-community/admob";
+import { AdMob, BannerAdPluginEvents, BannerAdPosition, BannerAdSize } from "@capacitor-community/admob";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinnedObject } from "three/examples/jsm/utils/SkeletonUtils.js";
@@ -38,9 +38,12 @@ async function showBannerAd(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
   await ensureAdsInitialized();
   try {
+    // Fixed BANNER (320x50dp) instead of ADAPTIVE_BANNER — the adaptive
+    // size scales up with screen width and was tall enough to sit on top
+    // of the lobby's own bottom button row.
     await AdMob.showBanner({
       adId: ADMOB_TEST_BANNER_ID,
-      adSize: BannerAdSize.ADAPTIVE_BANNER,
+      adSize: BannerAdSize.BANNER,
       position: BannerAdPosition.BOTTOM_CENTER,
       isTesting: true,
     });
@@ -6482,16 +6485,29 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [language, setLanguage] = useState<AppLanguage>(() => loadGameSettings().language);
   const [currency, setCurrency] = useState<number>(loadCurrency);
   const [storeOpen, setStoreOpen] = useState(false);
+  // Actual banner height (native px), so the bottom button rows can be
+  // pushed up by exactly that much — the banner is a native view drawn on
+  // top of the WebView, not part of the page layout, so nothing shifts
+  // for it automatically.
+  const [bannerHeight, setBannerHeight] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Banner ad stays up over the lobby (menus/store included) but comes down
   // for the actual 3D match — a native overlay drawn on top of the WebView
   // would otherwise sit on top of the game view too.
   useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const sub = AdMob.addListener(BannerAdPluginEvents.SizeChanged, (info) => setBannerHeight(info.height));
+    return () => {
+      sub.then((handle) => handle.remove());
+    };
+  }, []);
+  useEffect(() => {
     if (visible && !deployOpen) {
       showBannerAd();
     } else {
       hideBannerAd();
+      setBannerHeight(0);
     }
     return () => {
       hideBannerAd();
@@ -6645,7 +6661,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
         style={{
           position: "absolute",
           left: "3%",
-          bottom: "3%",
+          bottom: `calc(3% + ${bannerHeight}px)`,
           display: "flex",
           gap: "clamp(6px, 2vw, 10px)",
         }}
@@ -6656,12 +6672,14 @@ export default function Lobby({ visible }: { visible: boolean }) {
       </div>
 
       {/* Settings / Share row: bottom-right corner, mirroring the
-          RANK/Character/Mail row on the opposite side. */}
+          RANK/Character/Mail row on the opposite side. Both rows are
+          pushed up by bannerHeight so the (native, WebView-overlaying)
+          banner ad never sits on top of them. */}
       <div
         style={{
           position: "absolute",
           right: "3%",
-          bottom: "3%",
+          bottom: `calc(3% + ${bannerHeight}px)`,
           display: "flex",
           gap: "clamp(6px, 2vw, 10px)",
         }}
