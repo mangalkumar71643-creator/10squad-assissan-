@@ -690,9 +690,12 @@ const NEWROOM_WALLS: Obstacle[] = [
 // ============================================================================
 const MAP2_ORIGIN = { x: 230, z: 0 };
 const MAP2_DOOR_WIDTH = ROOM_DOOR_WIDTH;
-const MAP2_ROOM_HEIGHT = 6;
-const MAP2_CORRIDOR_HEIGHT = 5;
-const MAP2_HALL_HEIGHT = 10;
+// Same wall height everywhere, matching Map 1's ROOM_WALL_HEIGHT — the
+// blueprint's own varying 6m/5m/10m room/corridor/hall heights read as too
+// tall next to Map 1's rooms once actually walked through.
+const MAP2_ROOM_HEIGHT = ROOM_WALL_HEIGHT;
+const MAP2_CORRIDOR_HEIGHT = ROOM_WALL_HEIGHT;
+const MAP2_HALL_HEIGHT = ROOM_WALL_HEIGHT;
 // Every zone below is hand-placed with a 10-unit corridor gap already baked
 // into its center coordinates (matching the connections in MAP2_CORRIDORS).
 
