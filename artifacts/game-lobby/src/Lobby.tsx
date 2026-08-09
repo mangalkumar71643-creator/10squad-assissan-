@@ -842,18 +842,21 @@ const MAP2_ZONES: Map2Zone[] = [
 // the Parking Area <-> Central Hall shortcut, which would need a
 // non-rectilinear jog around Control Room to build safely — Parking Area is
 // still fully reachable via Control Room, just not as a second route into
-// the boss room).
+// the boss room). Walkway width matches Map 1's own CORRIDOR_WIDTH — the
+// door gap itself (MAP2_DOOR_WIDTH) stays narrower, same as every doorway
+// in Map 1, but the corridor beyond it opens back up.
+const MAP2_CORRIDOR_WIDTH = CORRIDOR_WIDTH;
 const MAP2_CORRIDORS: { a: Map2Zone; sideA: ZoneSide; b: Map2Zone; sideB: ZoneSide; width: number }[] = [
-  { a: MAP2_MAIN_GATE, sideA: "n", b: MAP2_MAINTENANCE_TUNNEL, sideB: "s", width: MAP2_DOOR_WIDTH },
-  { a: MAP2_MAINTENANCE_TUNNEL, sideA: "n", b: MAP2_TRAINING_AREA, sideB: "s", width: MAP2_DOOR_WIDTH },
-  { a: MAP2_TRAINING_AREA, sideA: "n", b: MAP2_MAINTENANCE_AREA, sideB: "s", width: MAP2_DOOR_WIDTH },
-  { a: MAP2_MAINTENANCE_AREA, sideA: "w", b: MAP2_WAREHOUSE, sideB: "e", width: MAP2_DOOR_WIDTH },
-  { a: MAP2_MAINTENANCE_AREA, sideA: "n", b: MAP2_NORTH_CORRIDOR, sideB: "s", width: MAP2_DOOR_WIDTH },
-  { a: MAP2_NORTH_CORRIDOR, sideA: "e", b: MAP2_HELIPAD, sideB: "w", width: MAP2_DOOR_WIDTH },
-  { a: MAP2_NORTH_CORRIDOR, sideA: "n", b: MAP2_SERVER_ROOM, sideB: "s", width: MAP2_DOOR_WIDTH },
-  { a: MAP2_SERVER_ROOM, sideA: "n", b: MAP2_CONTROL_ROOM, sideB: "s", width: MAP2_DOOR_WIDTH },
-  { a: MAP2_CONTROL_ROOM, sideA: "e", b: MAP2_CENTRAL_HALL, sideB: "w", width: MAP2_DOOR_WIDTH },
-  { a: MAP2_CONTROL_ROOM, sideA: "w", b: MAP2_PARKING_AREA, sideB: "e", width: MAP2_DOOR_WIDTH },
+  { a: MAP2_MAIN_GATE, sideA: "n", b: MAP2_MAINTENANCE_TUNNEL, sideB: "s", width: MAP2_CORRIDOR_WIDTH },
+  { a: MAP2_MAINTENANCE_TUNNEL, sideA: "n", b: MAP2_TRAINING_AREA, sideB: "s", width: MAP2_CORRIDOR_WIDTH },
+  { a: MAP2_TRAINING_AREA, sideA: "n", b: MAP2_MAINTENANCE_AREA, sideB: "s", width: MAP2_CORRIDOR_WIDTH },
+  { a: MAP2_MAINTENANCE_AREA, sideA: "w", b: MAP2_WAREHOUSE, sideB: "e", width: MAP2_CORRIDOR_WIDTH },
+  { a: MAP2_MAINTENANCE_AREA, sideA: "n", b: MAP2_NORTH_CORRIDOR, sideB: "s", width: MAP2_CORRIDOR_WIDTH },
+  { a: MAP2_NORTH_CORRIDOR, sideA: "e", b: MAP2_HELIPAD, sideB: "w", width: MAP2_CORRIDOR_WIDTH },
+  { a: MAP2_NORTH_CORRIDOR, sideA: "n", b: MAP2_SERVER_ROOM, sideB: "s", width: MAP2_CORRIDOR_WIDTH },
+  { a: MAP2_SERVER_ROOM, sideA: "n", b: MAP2_CONTROL_ROOM, sideB: "s", width: MAP2_CORRIDOR_WIDTH },
+  { a: MAP2_CONTROL_ROOM, sideA: "e", b: MAP2_CENTRAL_HALL, sideB: "w", width: MAP2_CORRIDOR_WIDTH },
+  { a: MAP2_CONTROL_ROOM, sideA: "w", b: MAP2_PARKING_AREA, sideB: "e", width: MAP2_CORRIDOR_WIDTH },
 ];
 
 function zoneDoorPoint(zone: Map2Zone, side: ZoneSide) {
