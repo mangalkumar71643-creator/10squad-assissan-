@@ -2368,6 +2368,15 @@ function CombatArena({
     return saved >= LOOK_SENSITIVITY_MIN && saved <= LOOK_SENSITIVITY_MAX ? saved : 1;
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Map View: pulls the chase camera back and up (reusing the same orbit
+  // math, just at a bigger radius and pinned near CAM_PITCH_MAX) so the
+  // player can see the level's layout from above. Mirrored into a ref
+  // since the render tick below is a stable closure set up once on mount.
+  const [topDownView, setTopDownView] = useState(false);
+  const topDownViewRef = useRef(false);
+  useEffect(() => {
+    topDownViewRef.current = topDownView;
+  }, [topDownView]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -2411,6 +2420,7 @@ function CombatArena({
     const CAM_BASE_PITCH = Math.atan2(CAM_HEIGHT - CAM_LOOK_HEIGHT, CAM_DISTANCE);
     const CAM_PITCH_MIN = -0.15; // near-level, looking slightly down at most
     const CAM_PITCH_MAX = 1.3; // steep overhead angle, short of straight down
+    const CAM_TOPDOWN_ZOOM = 10; // Map View: how far back the orbit pulls out
     camera.position.set(0, CAM_HEIGHT, CAM_DISTANCE + 3);
 
     const renderer = new THREE.WebGLRenderer({ antialias: settings.graphicsQuality !== "low", alpha: true });
@@ -3845,9 +3855,12 @@ function CombatArena({
         // quickly — accelerating off the mark or braking to a stop — which
         // reads as a slight, natural lag instead of a rigid, glued-on rig.
         const facing = cameraYaw.current;
-        const pitch = clamp(CAM_BASE_PITCH + cameraPitch.current, CAM_PITCH_MIN, CAM_PITCH_MAX);
-        const orbitHoriz = CAM_ORBIT_RADIUS * Math.cos(pitch);
-        const orbitVert = CAM_ORBIT_RADIUS * Math.sin(pitch);
+        const pitch = topDownViewRef.current
+          ? CAM_PITCH_MAX
+          : clamp(CAM_BASE_PITCH + cameraPitch.current, CAM_PITCH_MIN, CAM_PITCH_MAX);
+        const orbitRadius = topDownViewRef.current ? CAM_ORBIT_RADIUS * CAM_TOPDOWN_ZOOM : CAM_ORBIT_RADIUS;
+        const orbitHoriz = orbitRadius * Math.cos(pitch);
+        const orbitVert = orbitRadius * Math.sin(pitch);
         camTargetPos.set(
           player.root.position.x - Math.sin(facing) * orbitHoriz,
           CAM_LOOK_HEIGHT + player.root.position.y + orbitVert,
@@ -4032,6 +4045,28 @@ function CombatArena({
         }}
       >
         {t(settings.language, "exit")}
+      </button>
+
+      {/* Map View: pulls the camera up/back for a bird's-eye look at the
+          level layout, without leaving the match. */}
+      <button
+        onClick={() => setTopDownView((v) => !v)}
+        aria-label="Toggle map view"
+        style={{
+          position: "absolute",
+          top: 58,
+          right: 56,
+          width: 32,
+          height: 32,
+          borderRadius: "50%",
+          background: topDownView ? "rgba(107,216,255,0.25)" : "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(200,220,240,0.4)",
+          color: "#dce8f5",
+          fontSize: 15,
+          cursor: "pointer",
+        }}
+      >
+        🗺
       </button>
 
       {/* Look-sensitivity settings */}
@@ -7006,7 +7041,12 @@ export default function Lobby({ visible }: { visible: boolean }) {
         missionPressed={deployPressed}
         onMissionPress={() => setDeployPressed(true)}
         onMissionRelease={() => setDeployPressed(false)}
-        onMissionClick={() => setMapSelectOpen(true)}
+        onMissionClick={() => {
+          // Map select is temporarily hidden — jump straight into Map 1
+          // until the user asks to bring the Map 2 picker back.
+          setSelectedMapId(1);
+          setDeployOpen(true);
+        }}
       />
 
       {mapSelectOpen && (
