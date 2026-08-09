@@ -842,10 +842,10 @@ const MAP2_ZONES: Map2Zone[] = [
 // the Parking Area <-> Central Hall shortcut, which would need a
 // non-rectilinear jog around Control Room to build safely — Parking Area is
 // still fully reachable via Control Room, just not as a second route into
-// the boss room). Walkway width matches Map 1's own CORRIDOR_WIDTH — the
-// door gap itself (MAP2_DOOR_WIDTH) stays narrower, same as every doorway
+// the boss room). Walkway width is a bit wider than Map 1's CORRIDOR_WIDTH —
+// the door gap itself (MAP2_DOOR_WIDTH) stays narrower, same as every doorway
 // in Map 1, but the corridor beyond it opens back up.
-const MAP2_CORRIDOR_WIDTH = CORRIDOR_WIDTH;
+const MAP2_CORRIDOR_WIDTH = 4;
 const MAP2_CORRIDORS: { a: Map2Zone; sideA: ZoneSide; b: Map2Zone; sideB: ZoneSide; width: number }[] = [
   { a: MAP2_MAIN_GATE, sideA: "n", b: MAP2_MAINTENANCE_TUNNEL, sideB: "s", width: MAP2_CORRIDOR_WIDTH },
   { a: MAP2_MAINTENANCE_TUNNEL, sideA: "n", b: MAP2_TRAINING_AREA, sideB: "s", width: MAP2_CORRIDOR_WIDTH },
