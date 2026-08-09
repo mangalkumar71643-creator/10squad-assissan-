@@ -2374,8 +2374,14 @@ function CombatArena({
   // since the render tick below is a stable closure set up once on mount.
   const [topDownView, setTopDownView] = useState(false);
   const topDownViewRef = useRef(false);
+  // Populated once by the scene-building effect below with every ceiling
+  // slab in the level, so toggling Map View can hide them — otherwise
+  // looking straight down just shows the solid (double-sided) roof instead
+  // of the room underneath.
+  const ceilingMeshesRef = useRef<THREE.Mesh[]>([]);
   useEffect(() => {
     topDownViewRef.current = topDownView;
+    for (const ceiling of ceilingMeshesRef.current) ceiling.visible = !topDownView;
   }, [topDownView]);
 
   useEffect(() => {
@@ -2587,13 +2593,16 @@ function CombatArena({
     // slab's own footprint the same way addWallMesh scales the wall
     // texture — a small MIDROOM ceiling and ROOM6's big one both read at
     // the same real-world panel size instead of one stretching the other.
-    const createCeilingMat = (width: number, depth: number) =>
-      new THREE.MeshStandardMaterial({
+    const createCeilingMat = (width: number, depth: number) => {
+      const mat = new THREE.MeshStandardMaterial({
         map: createSciFiCeilingTexture(width / SCIFI_CEILING_TILE_SIZE, depth / SCIFI_CEILING_TILE_SIZE, wallMaxAnisotropy),
         roughness: 0.6,
         metalness: 0.4,
         side: THREE.DoubleSide,
       });
+      mat.userData.isCeilingMat = true;
+      return mat;
+    };
     const lightStripMat = new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.5, metalness: 0.3 });
 
     // Builds one full sci-fi outpost room (walls, door glows, crates, floor
@@ -3075,6 +3084,18 @@ function CombatArena({
         scene.add(ceiling);
       }
     }
+
+    // Every ceiling slab built above shares a material created by
+    // createCeilingMat, tagged isCeilingMat — collect them once here so
+    // Map View (see the camera tick below) can hide them all instead of
+    // looking down at a solid roof from above.
+    const ceilingMeshes: THREE.Mesh[] = [];
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && !Array.isArray(obj.material) && obj.material.userData?.isCeilingMat) {
+        ceilingMeshes.push(obj);
+      }
+    });
+    ceilingMeshesRef.current = ceilingMeshes;
 
     // Sliding gates — one pair of panels per door, closed by default and
     // sliding apart automatically as the player gets close (see the gate
