@@ -1196,6 +1196,10 @@ const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
+// Map View: world units panned per dragged screen pixel, scaled up to
+// match the doubled CAM_TOPDOWN_ZOOM so a drag still covers a similar
+// fraction of the (now bigger) visible ground.
+const MAP_PAN_SENSITIVITY = 0.18;
 
 // Every other settings-menu control lives in one consolidated blob rather
 // than its own key — LOOK_SENSITIVITY above stays a separate legacy key
@@ -2379,9 +2383,14 @@ function CombatArena({
   // looking straight down just shows the solid (double-sided) roof instead
   // of the room underneath.
   const ceilingMeshesRef = useRef<THREE.Mesh[]>([]);
+  // World-space (x, z) offset from the player, freely dragged while Map
+  // View is on (see handleLookMove) so the whole level can be panned
+  // around instead of only orbiting a fixed point above the player.
+  const mapPanRef = useRef({ x: 0, z: 0 });
   useEffect(() => {
     topDownViewRef.current = topDownView;
     for (const ceiling of ceilingMeshesRef.current) ceiling.visible = !topDownView;
+    if (topDownView) mapPanRef.current = { x: 0, z: 0 };
   }, [topDownView]);
 
   useEffect(() => {
@@ -2426,13 +2435,13 @@ function CombatArena({
     const CAM_BASE_PITCH = Math.atan2(CAM_HEIGHT - CAM_LOOK_HEIGHT, CAM_DISTANCE);
     const CAM_PITCH_MIN = -0.15; // near-level, looking slightly down at most
     const CAM_PITCH_MAX = 1.3; // steep overhead angle, short of straight down
-    const CAM_TOPDOWN_ZOOM = 10; // Map View: how far back the orbit pulls out
-    // Map View still lets vertical drag tilt the view (same cameraPitch
-    // input as normal look), just re-centered around a much steeper base
-    // angle and kept short of straight-down to avoid the lookAt gimbal
-    // singularity that sits exactly at pitch = PI/2.
-    const CAM_TOPDOWN_PITCH_MIN = 0.9;
-    const CAM_TOPDOWN_PITCH_MAX = 1.5;
+    const CAM_TOPDOWN_ZOOM = 20; // Map View: how far back the orbit pulls out (2x the original)
+    // Map View uses a fixed, steep-but-not-quite-vertical angle (short of
+    // the lookAt gimbal singularity at pitch = PI/2) rather than the
+    // adjustable chase-cam pitch — drag instead freely pans the look-at
+    // point itself (see mapPanRef / handleLookMove) so the whole map is
+    // explorable, not just orbitable around the player.
+    const CAM_TOPDOWN_PITCH = 1.45;
     camera.position.set(0, CAM_HEIGHT, CAM_DISTANCE + 3);
 
     const renderer = new THREE.WebGLRenderer({ antialias: settings.graphicsQuality !== "low", alpha: true });
@@ -3881,28 +3890,40 @@ function CombatArena({
         // it eases a little slower while the player's speed is changing
         // quickly — accelerating off the mark or braking to a stop — which
         // reads as a slight, natural lag instead of a rigid, glued-on rig.
-        const facing = cameraYaw.current;
-        const pitch = topDownViewRef.current
-          ? clamp(CAM_PITCH_MAX + cameraPitch.current, CAM_TOPDOWN_PITCH_MIN, CAM_TOPDOWN_PITCH_MAX)
-          : clamp(CAM_BASE_PITCH + cameraPitch.current, CAM_PITCH_MIN, CAM_PITCH_MAX);
-        const orbitRadius = topDownViewRef.current ? CAM_ORBIT_RADIUS * CAM_TOPDOWN_ZOOM : CAM_ORBIT_RADIUS;
-        const orbitHoriz = orbitRadius * Math.cos(pitch);
-        const orbitVert = orbitRadius * Math.sin(pitch);
-        camTargetPos.set(
-          player.root.position.x - Math.sin(facing) * orbitHoriz,
-          CAM_LOOK_HEIGHT + player.root.position.y + orbitVert,
-          player.root.position.z - Math.cos(facing) * orbitHoriz,
-        );
-        // The follow used to add a head bob synced to the running phase
-        // and a slight roll while turning, for a more cinematic feel —
-        // but on a small phone screen that reads as the whole view
-        // shaking rather than adding life, so the camera now just tracks
-        // the player's position and facing with nothing layered on top:
-        // fully stable regardless of how fast the player is moving.
-        camera.position.lerp(camTargetPos, 1 - Math.exp(-CAM_DAMP_RATE * dt));
+        if (topDownViewRef.current) {
+          // Map View: a fixed, far-pulled-back overhead angle, freely
+          // pannable (mapPanRef, driven by drag in handleLookMove) instead
+          // of orbiting/tilting around the player like the chase cam does.
+          const orbitRadius = CAM_ORBIT_RADIUS * CAM_TOPDOWN_ZOOM;
+          const orbitHoriz = orbitRadius * Math.cos(CAM_TOPDOWN_PITCH);
+          const orbitVert = orbitRadius * Math.sin(CAM_TOPDOWN_PITCH);
+          const centerX = player.root.position.x + mapPanRef.current.x;
+          const centerZ = player.root.position.z + mapPanRef.current.z;
+          camTargetPos.set(centerX, CAM_LOOK_HEIGHT + player.root.position.y + orbitVert, centerZ + orbitHoriz);
+          camera.position.lerp(camTargetPos, 1 - Math.exp(-CAM_DAMP_RATE * dt));
+          camLookAt.set(centerX, player.root.position.y, centerZ);
+          camera.lookAt(camLookAt);
+        } else {
+          const facing = cameraYaw.current;
+          const pitch = clamp(CAM_BASE_PITCH + cameraPitch.current, CAM_PITCH_MIN, CAM_PITCH_MAX);
+          const orbitHoriz = CAM_ORBIT_RADIUS * Math.cos(pitch);
+          const orbitVert = CAM_ORBIT_RADIUS * Math.sin(pitch);
+          camTargetPos.set(
+            player.root.position.x - Math.sin(facing) * orbitHoriz,
+            CAM_LOOK_HEIGHT + player.root.position.y + orbitVert,
+            player.root.position.z - Math.cos(facing) * orbitHoriz,
+          );
+          // The follow used to add a head bob synced to the running phase
+          // and a slight roll while turning, for a more cinematic feel —
+          // but on a small phone screen that reads as the whole view
+          // shaking rather than adding life, so the camera now just tracks
+          // the player's position and facing with nothing layered on top:
+          // fully stable regardless of how fast the player is moving.
+          camera.position.lerp(camTargetPos, 1 - Math.exp(-CAM_DAMP_RATE * dt));
 
-        camLookAt.set(player.root.position.x, CAM_LOOK_HEIGHT + player.root.position.y, player.root.position.z);
-        camera.lookAt(camLookAt);
+          camLookAt.set(player.root.position.x, CAM_LOOK_HEIGHT + player.root.position.y, player.root.position.z);
+          camera.lookAt(camLookAt);
+        }
       }
 
       composer.render();
@@ -3959,6 +3980,17 @@ function CombatArena({
     const dy = e.clientY - lookLastY.current;
     lookLastX.current = e.clientX;
     lookLastY.current = e.clientY;
+    if (topDownViewRef.current) {
+      // Map View: drag freely pans the overhead look-at point instead of
+      // orbiting/tilting — dragging right reveals ground to the right, so
+      // the pan target itself moves left (opposite the finger), matching
+      // the usual "drag a map" convention.
+      mapPanRef.current = {
+        x: mapPanRef.current.x - dx * MAP_PAN_SENSITIVITY,
+        z: mapPanRef.current.z - dy * MAP_PAN_SENSITIVITY,
+      };
+      return;
+    }
     cameraYaw.current -= dx * LOOK_SENSITIVITY_BASE * lookSensitivity;
     // Dragging up (dy negative) looks up, so subtract dy rather than add it.
     cameraPitch.current = clamp(cameraPitch.current - dy * LOOK_SENSITIVITY_BASE * lookSensitivity, -1.6, 1.6);
