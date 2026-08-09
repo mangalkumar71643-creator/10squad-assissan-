@@ -1196,10 +1196,8 @@ const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
-// Map View: world units panned per dragged screen pixel, scaled up to
-// match the doubled CAM_TOPDOWN_ZOOM so a drag still covers a similar
-// fraction of the (now bigger) visible ground.
-const MAP_PAN_SENSITIVITY = 0.18;
+// Map View: radians of bird heading turned per dragged screen pixel.
+const BIRD_STEER_SENSITIVITY = 0.006;
 
 // Every other settings-menu control lives in one consolidated blob rather
 // than its own key — LOOK_SENSITIVITY above stays a separate legacy key
@@ -2372,10 +2370,10 @@ function CombatArena({
     return saved >= LOOK_SENSITIVITY_MIN && saved <= LOOK_SENSITIVITY_MAX ? saved : 1;
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // Map View: pulls the chase camera back and up (reusing the same orbit
-  // math, just at a bigger radius and pinned near CAM_PITCH_MAX) so the
-  // player can see the level's layout from above. Mirrored into a ref
-  // since the render tick below is a stable closure set up once on mount.
+  // Map View: a bird flying itself over the level — the player only steers
+  // left/right (dragged into birdYawRef below), forward flight and
+  // altitude are automatic autopilot. Mirrored into a ref since the render
+  // tick below is a stable closure set up once on mount.
   const [topDownView, setTopDownView] = useState(false);
   const topDownViewRef = useRef(false);
   // Populated once by the scene-building effect below with every ceiling
@@ -2383,14 +2381,12 @@ function CombatArena({
   // looking straight down just shows the solid (double-sided) roof instead
   // of the room underneath.
   const ceilingMeshesRef = useRef<THREE.Mesh[]>([]);
-  // World-space (x, z) offset from the player, freely dragged while Map
-  // View is on (see handleLookMove) so the whole level can be panned
-  // around instead of only orbiting a fixed point above the player.
-  const mapPanRef = useRef({ x: 0, z: 0 });
+  // The bird's heading, steered by horizontal drag only (see
+  // handleLookMove) — vertical drag does nothing in this mode.
+  const birdYawRef = useRef(0);
   useEffect(() => {
     topDownViewRef.current = topDownView;
     for (const ceiling of ceilingMeshesRef.current) ceiling.visible = !topDownView;
-    if (topDownView) mapPanRef.current = { x: 0, z: 0 };
   }, [topDownView]);
 
   useEffect(() => {
@@ -2435,13 +2431,16 @@ function CombatArena({
     const CAM_BASE_PITCH = Math.atan2(CAM_HEIGHT - CAM_LOOK_HEIGHT, CAM_DISTANCE);
     const CAM_PITCH_MIN = -0.15; // near-level, looking slightly down at most
     const CAM_PITCH_MAX = 1.3; // steep overhead angle, short of straight down
-    const CAM_TOPDOWN_ZOOM = 20; // Map View: how far back the orbit pulls out (2x the original)
-    // Map View uses a fixed, steep-but-not-quite-vertical angle (short of
-    // the lookAt gimbal singularity at pitch = PI/2) rather than the
-    // adjustable chase-cam pitch — drag instead freely pans the look-at
-    // point itself (see mapPanRef / handleLookMove) so the whole map is
-    // explorable, not just orbitable around the player.
-    const CAM_TOPDOWN_PITCH = 1.45;
+    // Map View: an autopilot bird flying a steady course over the level —
+    // altitude and forward speed are fixed, the player only steers left/
+    // right (birdYawRef, dragged in handleLookMove). The camera looks at a
+    // point ahead of the bird rather than straight down, which naturally
+    // gives a tilted, forward-looking aerial angle (and avoids the lookAt
+    // gimbal singularity at pitch = PI/2) without any manual pitch trig.
+    const BIRD_ALTITUDE = 16;
+    const BIRD_SPEED = 9;
+    const BIRD_LOOK_AHEAD = 10;
+    const BIRD_BOUNDS = ARENA_HALF - 5;
     camera.position.set(0, CAM_HEIGHT, CAM_DISTANCE + 3);
 
     const renderer = new THREE.WebGLRenderer({ antialias: settings.graphicsQuality !== "low", alpha: true });
@@ -3409,6 +3408,15 @@ function CombatArena({
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
 
+    // Map View: a bird flying itself over the level on autopilot — the
+    // player only steers left/right (dragged into birdYawRef via
+    // handleLookMove); forward flight and altitude are automatic. Position
+    // resets the moment Map View is (re-)opened, detected below by
+    // comparing against last frame's flag.
+    let birdX = 0;
+    let birdZ = 0;
+    let wasTopDownView = false;
+
     // Index 0-4: the five room guards, one per ROOM_POSITIONS entry (see
     // roomIndex). Index 5: the Boss — tougher, and isBoss skips the
     // patrol/chase behavior entirely in favor of holding its ground.
@@ -3891,17 +3899,27 @@ function CombatArena({
         // quickly — accelerating off the mark or braking to a stop — which
         // reads as a slight, natural lag instead of a rigid, glued-on rig.
         if (topDownViewRef.current) {
-          // Map View: a fixed, far-pulled-back overhead angle, freely
-          // pannable (mapPanRef, driven by drag in handleLookMove) instead
-          // of orbiting/tilting around the player like the chase cam does.
-          const orbitRadius = CAM_ORBIT_RADIUS * CAM_TOPDOWN_ZOOM;
-          const orbitHoriz = orbitRadius * Math.cos(CAM_TOPDOWN_PITCH);
-          const orbitVert = orbitRadius * Math.sin(CAM_TOPDOWN_PITCH);
-          const centerX = player.root.position.x + mapPanRef.current.x;
-          const centerZ = player.root.position.z + mapPanRef.current.z;
-          camTargetPos.set(centerX, CAM_LOOK_HEIGHT + player.root.position.y + orbitVert, centerZ + orbitHoriz);
-          camera.position.lerp(camTargetPos, 1 - Math.exp(-CAM_DAMP_RATE * dt));
-          camLookAt.set(centerX, player.root.position.y, centerZ);
+          // Map View: the bird's own autopilot flight — on the frame Map
+          // View is (re-)opened, it launches from directly above the
+          // player; every frame after that it just flies itself forward
+          // along birdYaw, which the player steers with left/right drag.
+          const justLaunched = !wasTopDownView;
+          if (justLaunched) {
+            birdX = player.root.position.x;
+            birdZ = player.root.position.z;
+          }
+          const birdForwardX = Math.sin(birdYawRef.current);
+          const birdForwardZ = Math.cos(birdYawRef.current);
+          birdX = clamp(birdX + birdForwardX * BIRD_SPEED * dt, -BIRD_BOUNDS, BIRD_BOUNDS);
+          birdZ = clamp(birdZ + birdForwardZ * BIRD_SPEED * dt, -BIRD_BOUNDS, BIRD_BOUNDS);
+          camTargetPos.set(birdX, player.root.position.y + BIRD_ALTITUDE, birdZ);
+          // Snap straight to altitude on launch instead of easing up from
+          // the old chase-cam height — easing left the look-ahead point
+          // pointed almost level for the first moment, flashing a
+          // horizon/sky view before the bird "arrived" at height.
+          if (justLaunched) camera.position.copy(camTargetPos);
+          else camera.position.lerp(camTargetPos, 1 - Math.exp(-CAM_DAMP_RATE * dt));
+          camLookAt.set(birdX + birdForwardX * BIRD_LOOK_AHEAD, player.root.position.y, birdZ + birdForwardZ * BIRD_LOOK_AHEAD);
           camera.lookAt(camLookAt);
         } else {
           const facing = cameraYaw.current;
@@ -3924,6 +3942,7 @@ function CombatArena({
           camLookAt.set(player.root.position.x, CAM_LOOK_HEIGHT + player.root.position.y, player.root.position.z);
           camera.lookAt(camLookAt);
         }
+        wasTopDownView = topDownViewRef.current;
       }
 
       composer.render();
@@ -3981,14 +4000,9 @@ function CombatArena({
     lookLastX.current = e.clientX;
     lookLastY.current = e.clientY;
     if (topDownViewRef.current) {
-      // Map View: drag freely pans the overhead look-at point instead of
-      // orbiting/tilting — dragging right reveals ground to the right, so
-      // the pan target itself moves left (opposite the finger), matching
-      // the usual "drag a map" convention.
-      mapPanRef.current = {
-        x: mapPanRef.current.x - dx * MAP_PAN_SENSITIVITY,
-        z: mapPanRef.current.z - dy * MAP_PAN_SENSITIVITY,
-      };
+      // Map View: the bird flies itself forward — only left/right drag
+      // steers its heading, vertical drag does nothing here.
+      birdYawRef.current -= dx * BIRD_STEER_SENSITIVITY;
       return;
     }
     cameraYaw.current -= dx * LOOK_SENSITIVITY_BASE * lookSensitivity;
