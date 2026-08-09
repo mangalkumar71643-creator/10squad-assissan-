@@ -2427,6 +2427,12 @@ function CombatArena({
     const CAM_PITCH_MIN = -0.15; // near-level, looking slightly down at most
     const CAM_PITCH_MAX = 1.3; // steep overhead angle, short of straight down
     const CAM_TOPDOWN_ZOOM = 10; // Map View: how far back the orbit pulls out
+    // Map View still lets vertical drag tilt the view (same cameraPitch
+    // input as normal look), just re-centered around a much steeper base
+    // angle and kept short of straight-down to avoid the lookAt gimbal
+    // singularity that sits exactly at pitch = PI/2.
+    const CAM_TOPDOWN_PITCH_MIN = 0.9;
+    const CAM_TOPDOWN_PITCH_MAX = 1.5;
     camera.position.set(0, CAM_HEIGHT, CAM_DISTANCE + 3);
 
     const renderer = new THREE.WebGLRenderer({ antialias: settings.graphicsQuality !== "low", alpha: true });
@@ -3481,7 +3487,7 @@ function CombatArena({
         }
         const barEl = botHpBarRefs.current[i];
         if (barEl) {
-          if (rig && !st.dead && st.hp / botMaxHps[i] <= 0.5) {
+          if (!topDownViewRef.current && rig && !st.dead && st.hp / botMaxHps[i] <= 0.5) {
             const markPoint = rig.root.position.clone();
             markPoint.y += st.isBoss ? 2.6 : 1.95;
             markPoint.project(camera);
@@ -3877,7 +3883,7 @@ function CombatArena({
         // reads as a slight, natural lag instead of a rigid, glued-on rig.
         const facing = cameraYaw.current;
         const pitch = topDownViewRef.current
-          ? CAM_PITCH_MAX
+          ? clamp(CAM_PITCH_MAX + cameraPitch.current, CAM_TOPDOWN_PITCH_MIN, CAM_TOPDOWN_PITCH_MAX)
           : clamp(CAM_BASE_PITCH + cameraPitch.current, CAM_PITCH_MIN, CAM_PITCH_MAX);
         const orbitRadius = topDownViewRef.current ? CAM_ORBIT_RADIUS * CAM_TOPDOWN_ZOOM : CAM_ORBIT_RADIUS;
         const orbitHoriz = orbitRadius * Math.cos(pitch);
@@ -3989,15 +3995,18 @@ function CombatArena({
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
       />
 
-      {/* Health bar */}
-      <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
-        <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
-          {t(settings.language, "you")}
+      {/* Health bar — hidden in Map View, along with the rest of the
+          combat HUD, so nothing but the level itself is on screen. */}
+      {!topDownView && (
+        <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
+          <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
+            {t(settings.language, "you")}
+          </div>
+          <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
+          </div>
         </div>
-        <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${playerHp}%`, background: "linear-gradient(90deg,#4fd8ff,#6be2ff)", transition: "width 150ms ease-out" }} />
-        </div>
-      </div>
+      )}
 
       {/* Each fighter's own health bar floats directly above its head
           in-world (see the screen-projection block in the tick loop),
@@ -4151,133 +4160,140 @@ function CombatArena({
         </div>
       )}
 
-      {/* Virtual joystick */}
-      <div
-        ref={joystickBaseRef}
-        onPointerDown={(e) => {
-          (e.target as HTMLElement).setPointerCapture(e.pointerId);
-          joystickTouchId.current = e.pointerId;
-          updateJoystick(e.clientX, e.clientY);
-        }}
-        onPointerMove={(e) => {
-          if (joystickTouchId.current === e.pointerId) updateJoystick(e.clientX, e.clientY);
-        }}
-        onPointerUp={() => resetJoystick()}
-        onPointerCancel={() => resetJoystick()}
-        style={{
-          position: "absolute",
-          left: "6%",
-          bottom: "8%",
-          width: "clamp(90px, 16vw, 130px)",
-          height: "clamp(90px, 16vw, 130px)",
-          borderRadius: "50%",
-          background: "rgba(255,255,255,0.06)",
-          border: "1.5px solid rgba(150,200,230,0.4)",
-          touchAction: "none",
-          opacity: settings.buttonOpacity,
-          transform: `translate(${settings.controlOffsets.joystick.x}px, ${settings.controlOffsets.joystick.y}px) scale(${settings.buttonSize})`,
-          transformOrigin: "left bottom",
-        }}
-      >
-        <div
-          ref={joystickKnobRef}
-          style={{
-            position: "absolute",
-            left: "50%",
-            top: "50%",
-            width: "42%",
-            height: "42%",
-            marginLeft: "-21%",
-            marginTop: "-21%",
-            borderRadius: "50%",
-            background: "rgba(107,216,255,0.5)",
-            border: "1.5px solid rgba(190,235,255,0.85)",
-            pointerEvents: "none",
-          }}
-        />
-      </div>
+      {/* Movement/combat controls — hidden in Map View, which is purely a
+          look-around mode (drag anywhere to orbit/tilt), not a way to keep
+          playing without them on screen. */}
+      {!topDownView && (
+        <>
+          {/* Virtual joystick */}
+          <div
+            ref={joystickBaseRef}
+            onPointerDown={(e) => {
+              (e.target as HTMLElement).setPointerCapture(e.pointerId);
+              joystickTouchId.current = e.pointerId;
+              updateJoystick(e.clientX, e.clientY);
+            }}
+            onPointerMove={(e) => {
+              if (joystickTouchId.current === e.pointerId) updateJoystick(e.clientX, e.clientY);
+            }}
+            onPointerUp={() => resetJoystick()}
+            onPointerCancel={() => resetJoystick()}
+            style={{
+              position: "absolute",
+              left: "6%",
+              bottom: "8%",
+              width: "clamp(90px, 16vw, 130px)",
+              height: "clamp(90px, 16vw, 130px)",
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.06)",
+              border: "1.5px solid rgba(150,200,230,0.4)",
+              touchAction: "none",
+              opacity: settings.buttonOpacity,
+              transform: `translate(${settings.controlOffsets.joystick.x}px, ${settings.controlOffsets.joystick.y}px) scale(${settings.buttonSize})`,
+              transformOrigin: "left bottom",
+            }}
+          >
+            <div
+              ref={joystickKnobRef}
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: "50%",
+                width: "42%",
+                height: "42%",
+                marginLeft: "-21%",
+                marginTop: "-21%",
+                borderRadius: "50%",
+                background: "rgba(107,216,255,0.5)",
+                border: "1.5px solid rgba(190,235,255,0.85)",
+                pointerEvents: "none",
+              }}
+            />
+          </div>
 
-      {/* Fire button — auto-fires for as long as it's held down (see the
-          attackRequested consumption in the tick loop), not just once per
-          tap. setPointerCapture keeps the up/cancel events firing on this
-          button even if the finger slides off it while held, so a drag-off
-          reliably stops the fire instead of leaving it stuck on. */}
-      <button
-        onPointerDown={(e) => {
-          e.preventDefault();
-          if (settings.autoFire) {
-            autoFireToggled.current = !autoFireToggled.current;
-            attackRequested.current = autoFireToggled.current;
-            setAutoFireActive(autoFireToggled.current);
-            return;
-          }
-          (e.target as HTMLElement).setPointerCapture(e.pointerId);
-          attackRequested.current = true;
-        }}
-        onPointerUp={() => {
-          if (!settings.autoFire) attackRequested.current = false;
-        }}
-        onPointerCancel={() => {
-          if (!settings.autoFire) attackRequested.current = false;
-        }}
-        aria-label="Fire"
-        style={{
-          position: "absolute",
-          right: "7%",
-          bottom: "9%",
-          width: "clamp(72px, 13vw, 100px)",
-          height: "clamp(72px, 13vw, 100px)",
-          borderRadius: "50%",
-          background: autoFireActive
-            ? "radial-gradient(circle, #ffd2a6, #ff5a2c)"
-            : "radial-gradient(circle, #ff8a6b, #d8402c)",
-          border: "2px solid rgba(255,220,210,0.85)",
-          boxShadow: autoFireActive ? "0 0 28px rgba(255,120,40,0.9)" : "0 0 20px rgba(255,90,60,0.6)",
-          color: "#fff8f0",
-          fontFamily: "'Rajdhani', sans-serif",
-          fontWeight: 700,
-          letterSpacing: "0.05em",
-          fontSize: "clamp(13px, 2vw, 16px)",
-          cursor: "pointer",
-          opacity: settings.buttonOpacity,
-          transform: `translate(${settings.controlOffsets.fire.x}px, ${settings.controlOffsets.fire.y}px) scale(${settings.buttonSize})`,
-          transformOrigin: "right bottom",
-        }}
-      >
-        {t(settings.language, "fire")}
-      </button>
+          {/* Fire button — auto-fires for as long as it's held down (see the
+              attackRequested consumption in the tick loop), not just once per
+              tap. setPointerCapture keeps the up/cancel events firing on this
+              button even if the finger slides off it while held, so a drag-off
+              reliably stops the fire instead of leaving it stuck on. */}
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              if (settings.autoFire) {
+                autoFireToggled.current = !autoFireToggled.current;
+                attackRequested.current = autoFireToggled.current;
+                setAutoFireActive(autoFireToggled.current);
+                return;
+              }
+              (e.target as HTMLElement).setPointerCapture(e.pointerId);
+              attackRequested.current = true;
+            }}
+            onPointerUp={() => {
+              if (!settings.autoFire) attackRequested.current = false;
+            }}
+            onPointerCancel={() => {
+              if (!settings.autoFire) attackRequested.current = false;
+            }}
+            aria-label="Fire"
+            style={{
+              position: "absolute",
+              right: "7%",
+              bottom: "9%",
+              width: "clamp(72px, 13vw, 100px)",
+              height: "clamp(72px, 13vw, 100px)",
+              borderRadius: "50%",
+              background: autoFireActive
+                ? "radial-gradient(circle, #ffd2a6, #ff5a2c)"
+                : "radial-gradient(circle, #ff8a6b, #d8402c)",
+              border: "2px solid rgba(255,220,210,0.85)",
+              boxShadow: autoFireActive ? "0 0 28px rgba(255,120,40,0.9)" : "0 0 20px rgba(255,90,60,0.6)",
+              color: "#fff8f0",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              fontSize: "clamp(13px, 2vw, 16px)",
+              cursor: "pointer",
+              opacity: settings.buttonOpacity,
+              transform: `translate(${settings.controlOffsets.fire.x}px, ${settings.controlOffsets.fire.y}px) scale(${settings.buttonSize})`,
+              transformOrigin: "right bottom",
+            }}
+          >
+            {t(settings.language, "fire")}
+          </button>
 
-      {/* Run toggle button */}
-      <button
-        onPointerDown={(e) => {
-          e.preventDefault();
-          runToggled.current = !runToggled.current;
-          setRunActive(runToggled.current);
-        }}
-        aria-label="Run"
-        style={{
-          position: "absolute",
-          right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-          bottom: "9%",
-          width: "clamp(56px, 10vw, 76px)",
-          height: "clamp(56px, 10vw, 76px)",
-          borderRadius: "50%",
-          background: runActive ? "radial-gradient(circle, #baffb0, #3fd85a)" : "radial-gradient(circle, #8fe89a, #2f8f45)",
-          border: runActive ? "2px solid rgba(220,255,220,0.95)" : "2px solid rgba(210,255,210,0.7)",
-          boxShadow: runActive ? "0 0 26px rgba(90,255,120,0.85)" : "0 0 14px rgba(90,255,120,0.4)",
-          color: "#f0fff2",
-          fontFamily: "'Rajdhani', sans-serif",
-          fontWeight: 700,
-          letterSpacing: "0.05em",
-          fontSize: "clamp(11px, 1.7vw, 14px)",
-          cursor: "pointer",
-          opacity: settings.buttonOpacity,
-          transform: `translate(${settings.controlOffsets.run.x}px, ${settings.controlOffsets.run.y}px) scale(${settings.buttonSize})`,
-          transformOrigin: "right bottom",
-        }}
-      >
-        {t(settings.language, "run")}
-      </button>
+          {/* Run toggle button */}
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              runToggled.current = !runToggled.current;
+              setRunActive(runToggled.current);
+            }}
+            aria-label="Run"
+            style={{
+              position: "absolute",
+              right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+              bottom: "9%",
+              width: "clamp(56px, 10vw, 76px)",
+              height: "clamp(56px, 10vw, 76px)",
+              borderRadius: "50%",
+              background: runActive ? "radial-gradient(circle, #baffb0, #3fd85a)" : "radial-gradient(circle, #8fe89a, #2f8f45)",
+              border: runActive ? "2px solid rgba(220,255,220,0.95)" : "2px solid rgba(210,255,210,0.7)",
+              boxShadow: runActive ? "0 0 26px rgba(90,255,120,0.85)" : "0 0 14px rgba(90,255,120,0.4)",
+              color: "#f0fff2",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              fontSize: "clamp(11px, 1.7vw, 14px)",
+              cursor: "pointer",
+              opacity: settings.buttonOpacity,
+              transform: `translate(${settings.controlOffsets.run.x}px, ${settings.controlOffsets.run.y}px) scale(${settings.buttonSize})`,
+              transformOrigin: "right bottom",
+            }}
+          >
+            {t(settings.language, "run")}
+          </button>
+        </>
+      )}
 
       {showTutorial && (
         <div
