@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Capacitor } from "@capacitor/core";
+import { AdMob, BannerAdPosition, BannerAdSize } from "@capacitor-community/admob";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinnedObject } from "three/examples/jsm/utils/SkeletonUtils.js";
@@ -6,6 +8,86 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+// --- Ads (AdMob via Capacitor) ---------------------------------------
+// The AdMob native SDK only exists inside the installed Android app (a
+// Capacitor plugin wraps real native code) — none of this does anything
+// in the plain web/Vercel build, where Capacitor.isNativePlatform() is
+// false and every function below just resolves immediately.
+//
+// These are Google's public TEST ad unit IDs — they always work, never
+// serve real ads, and never earn real revenue, so it's safe to ship as-is.
+// Swap them for the game's own IDs from https://apps.admob.com once that
+// account exists; nothing else in this file needs to change.
+const ADMOB_TEST_BANNER_ID = "ca-app-pub-3940256099942544/6300978111";
+const ADMOB_TEST_INTERSTITIAL_ID = "ca-app-pub-3940256099942544/1033173712";
+const ADMOB_TEST_REWARDED_ID = "ca-app-pub-3940256099942544/5224354917";
+
+let adsReady: Promise<void> | null = null;
+function ensureAdsInitialized(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return Promise.resolve();
+  if (!adsReady) {
+    adsReady = AdMob.initialize({ initializeForTesting: true }).catch((err) => {
+      console.error("AdMob initialize failed", err);
+    });
+  }
+  return adsReady;
+}
+
+async function showBannerAd(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  await ensureAdsInitialized();
+  try {
+    await AdMob.showBanner({
+      adId: ADMOB_TEST_BANNER_ID,
+      adSize: BannerAdSize.ADAPTIVE_BANNER,
+      position: BannerAdPosition.BOTTOM_CENTER,
+      isTesting: true,
+    });
+  } catch (err) {
+    console.error("Banner ad failed", err);
+  }
+}
+
+async function hideBannerAd(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    await AdMob.removeBanner();
+  } catch {
+    // Nothing to remove if the banner never loaded — not an error worth
+    // surfacing.
+  }
+}
+
+// Fire-and-forget from the caller's point of view — a failed/slow ad load
+// should never block returning to the lobby.
+async function showInterstitialAd(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  await ensureAdsInitialized();
+  try {
+    await AdMob.prepareInterstitial({ adId: ADMOB_TEST_INTERSTITIAL_ID, isTesting: true });
+    await AdMob.showInterstitial();
+  } catch (err) {
+    console.error("Interstitial ad failed", err);
+  }
+}
+
+// Resolves true only once the user has actually watched the reward video
+// to completion (AdMob's own rewarded-ad contract) — false for every
+// failure path, so the caller never grants currency for an ad that didn't
+// really play.
+async function showRewardedAd(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false;
+  await ensureAdsInitialized();
+  try {
+    await AdMob.prepareRewardVideoAd({ adId: ADMOB_TEST_REWARDED_ID, isTesting: true });
+    const reward = await AdMob.showRewardVideoAd();
+    return Boolean(reward);
+  } catch (err) {
+    console.error("Rewarded ad failed", err);
+    return false;
+  }
+}
 
 function StartMissionButton({
   pressed,
@@ -2061,6 +2143,7 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
     if (result === "playing") return;
     const survivalSec = Math.round((Date.now() - matchStartRef.current) / 1000);
     onMatchEnd(result, killCountRef.current, survivalSec, Math.round(damageDealtRef.current));
+    showInterstitialAd();
     // onMatchEnd is a fresh closure each render (it wraps setProgress),
     // but the match-end transition itself only happens once per mount —
     // intentionally not in the deps array to avoid re-firing if the
@@ -4395,6 +4478,7 @@ const SELECTED_CARD_STORAGE_KEY = "10sa-selected-card";
 const CURRENCY_STORAGE_KEY = "10sa-currency";
 const CURRENCY_PER_KILL = 5;
 const CURRENCY_WIN_BONUS = 30;
+const REWARDED_AD_CURRENCY = 50;
 
 function loadCurrency(): number {
   const saved = Number(localStorage.getItem(CURRENCY_STORAGE_KEY));
@@ -4541,7 +4625,26 @@ const CURRENCY_PACKS = [
 // (see the conversation this shipped in). The packs are real prices/
 // amounts for when that lands; the buttons are honestly disabled rather
 // than pretending to charge money they can't actually process.
-function StorePanel({ balance, onClose }: { balance: number; onClose: () => void }) {
+function StorePanel({
+  balance,
+  onClose,
+  onEarn,
+}: {
+  balance: number;
+  onClose: () => void;
+  onEarn: (amount: number) => void;
+}) {
+  const [watchingAd, setWatchingAd] = useState(false);
+  const watchAd = async () => {
+    if (!Capacitor.isNativePlatform()) {
+      window.alert("Ads only play inside the installed app, not this web preview.");
+      return;
+    }
+    setWatchingAd(true);
+    const rewarded = await showRewardedAd();
+    setWatchingAd(false);
+    if (rewarded) onEarn(REWARDED_AD_CURRENCY);
+  };
   return (
     <div
       role="dialog"
@@ -4627,6 +4730,31 @@ function StorePanel({ balance, onClose }: { balance: number; onClose: () => void
           <span>🏆</span>
           <span>{balance.toLocaleString()}</span>
         </div>
+
+        <button
+          onClick={watchAd}
+          disabled={watchingAd}
+          style={{
+            marginTop: 16,
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "12px 16px",
+            borderRadius: 10,
+            background: "rgba(90,255,140,0.1)",
+            border: "1px solid rgba(120,255,160,0.45)",
+            color: "#a6ffc2",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: 14,
+            cursor: watchingAd ? "default" : "pointer",
+            opacity: watchingAd ? 0.6 : 1,
+          }}
+        >
+          <span>▶ WATCH AD</span>
+          <span>{watchingAd ? "LOADING…" : `+🏆 ${REWARDED_AD_CURRENCY}`}</span>
+        </button>
 
         <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
           {CURRENCY_PACKS.map((pack) => (
@@ -4903,7 +5031,17 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
         <span style={{ marginLeft: 2, opacity: 0.8, fontSize: 16 }}>+</span>
       </button>
 
-      {storeOpen && <StorePanel balance={currency} onClose={() => setStoreOpen(false)} />}
+      {storeOpen && (
+        <StorePanel
+          balance={currency}
+          onClose={() => setStoreOpen(false)}
+          onEarn={(amount) => {
+            const next = currency + amount;
+            setCurrency(next);
+            saveCurrency(next);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -6346,6 +6484,20 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [storeOpen, setStoreOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Banner ad stays up over the lobby (menus/store included) but comes down
+  // for the actual 3D match — a native overlay drawn on top of the WebView
+  // would otherwise sit on top of the game view too.
+  useEffect(() => {
+    if (visible && !deployOpen) {
+      showBannerAd();
+    } else {
+      hideBannerAd();
+    }
+    return () => {
+      hideBannerAd();
+    };
+  }, [visible, deployOpen]);
+
   const shareGame = () => {
     const shareData = { title: "10 Squad Assassin", text: "Play 10 Squad Assassin!", url: GAME_SHARE_URL };
     if (navigator.share) {
@@ -6467,7 +6619,17 @@ export default function Lobby({ visible }: { visible: boolean }) {
         <span style={{ marginLeft: 2, opacity: 0.8 }}>+</span>
       </button>
 
-      {storeOpen && <StorePanel balance={currency} onClose={() => setStoreOpen(false)} />}
+      {storeOpen && (
+        <StorePanel
+          balance={currency}
+          onClose={() => setStoreOpen(false)}
+          onEarn={(amount) => {
+            const next = currency + amount;
+            setCurrency(next);
+            saveCurrency(next);
+          }}
+        />
+      )}
 
       <GiftBox
         missionPressed={deployPressed}

@@ -4,4 +4,8 @@
     <string name="title_activity_main">10 Squad Assassin</string>
     <string name="package_name">com.tensquad.assassin</string>
     <string name="custom_url_scheme">com.tensquad.assassin</string>
+    <!-- Google's public TEST AdMob App ID (safe to ship, never serves real
+         ads/real revenue) — swap for the game's real AdMob App ID once one
+         exists at https://apps.admob.com. -->
+    <string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>
 </resources>
