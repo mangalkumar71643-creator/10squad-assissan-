@@ -16,7 +16,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "MainMenu">;
 const MENU_ITEMS: { label: string; route: keyof RootStackParamList; colors: readonly [string, string]; icon: string }[] = [
   { label: "PLAY", route: "Gameplay", colors: [theme.accent.magenta, theme.accent.purple], icon: "▶" },
   { label: "GAME MODES", route: "GameModes", colors: [theme.accent.cyan, "#1E9CA6"], icon: "🎮" },
-  { label: "CHARACTERS", route: "CharacterSelect", colors: [theme.accent.green, "#1B8F55"], icon: "👽" },
+  { label: "BALLS", route: "BallSelect", colors: [theme.accent.green, "#1B8F55"], icon: "⚪" },
   { label: "SHOP", route: "Shop", colors: [theme.accent.gold, "#D19A2A"], icon: "🛍" },
   { label: "ACHIEVEMENTS", route: "Achievements", colors: [theme.accent.purple, "#6A2FCB"], icon: "🏆" },
   { label: "DAILY REWARD", route: "DailyReward", colors: [theme.accent.red, "#B33240"], icon: "🎁" },

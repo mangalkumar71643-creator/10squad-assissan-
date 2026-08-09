@@ -54,14 +54,6 @@ export interface FloatingText {
   createdAt: number;
 }
 
-export interface CharacterDef {
-  id: string;
-  name: string;
-  price: number;
-  currency: CurrencyType;
-  primary: string;
-  secondary: string;
-}
 
 export interface ShopItemDef {
   id: string;
@@ -139,7 +131,7 @@ export type RootStackParamList = {
   MainMenu: undefined;
   GameModes: undefined;
   ChallengeSelect: undefined;
-  CharacterSelect: undefined;
+  BallSelect: undefined;
   Shop: undefined;
   DailyReward: undefined;
   Achievements: undefined;

@@ -4,11 +4,11 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { AlienCharacter } from "@/components/AlienCharacter";
+import { BallFace } from "@/components/BallView";
 import { GameButton } from "@/components/GameButton";
 import { RankBadge } from "@/components/RankBadge";
 import { ScreenBackground } from "@/components/ScreenBackground";
-import { CHARACTERS } from "@/constants/characters";
+import { BALLS } from "@/constants/balls";
 import { theme } from "@/constants/theme";
 import { useProfileStore } from "@/store/profileStore";
 import { useAchievementsStore } from "@/store/achievementsStore";
@@ -19,7 +19,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
 export function ProfileScreen({ navigation }: Props) {
   const profile = useProfileStore((s) => s);
   const claimedCount = useAchievementsStore((s) => s.claimedIds.length);
-  const character = CHARACTERS.find((c) => c.id === profile.selectedCharacterId) ?? CHARACTERS[0];
+  const ball = BALLS.find((b) => b.id === profile.selectedBallId) ?? BALLS[0];
 
   const statRows: { label: string; value: number | string }[] = [
     { label: "Best Score", value: profile.bestScore },
@@ -37,7 +37,7 @@ export function ProfileScreen({ navigation }: Props) {
           <ScrollView contentContainerStyle={styles.body}>
             <LinearGradient colors={theme.bg.card} style={styles.card}>
               <View style={styles.avatarWrap}>
-                <AlienCharacter color={character.primary} secondaryColor={character.secondary} shape="Circle" mood="idle" size={100} />
+                <BallFace size={70} color={ball.color} glowColor={ball.glowColor} animation={ball.animation} />
               </View>
               <Text style={styles.name}>{profile.playerName}</Text>
               <View style={styles.rankRow}>

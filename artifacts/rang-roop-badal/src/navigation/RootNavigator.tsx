@@ -7,7 +7,7 @@ import { GameplayScreen } from "@/screens/GameplayScreen";
 import { MainMenuScreen } from "@/screens/MainMenuScreen";
 import { GameModesScreen } from "@/screens/GameModesScreen";
 import { ChallengeSelectScreen } from "@/screens/ChallengeSelectScreen";
-import { CharacterSelectScreen } from "@/screens/CharacterSelectScreen";
+import { BallSelectScreen } from "@/screens/BallSelectScreen";
 import { ShopScreen } from "@/screens/ShopScreen";
 import { DailyRewardScreen } from "@/screens/DailyRewardScreen";
 import { AchievementsScreen } from "@/screens/AchievementsScreen";
@@ -33,7 +33,7 @@ export function RootNavigator() {
       <Stack.Screen name="MainMenu" component={MainMenuScreen} />
       <Stack.Screen name="GameModes" component={GameModesScreen} />
       <Stack.Screen name="ChallengeSelect" component={ChallengeSelectScreen} />
-      <Stack.Screen name="CharacterSelect" component={CharacterSelectScreen} />
+      <Stack.Screen name="BallSelect" component={BallSelectScreen} />
       <Stack.Screen name="Shop" component={ShopScreen} />
       <Stack.Screen name="DailyReward" component={DailyRewardScreen} />
       <Stack.Screen name="Achievements" component={AchievementsScreen} />

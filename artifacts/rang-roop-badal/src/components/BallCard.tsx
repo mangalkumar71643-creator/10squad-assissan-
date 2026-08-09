@@ -2,13 +2,13 @@ import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { AlienCharacter } from "@/components/AlienCharacter";
+import { BallFace } from "@/components/BallView";
 import { GameButton } from "@/components/GameButton";
-import { CharacterDef } from "@/types";
+import { BallDef } from "@/constants/balls";
 import { theme } from "@/constants/theme";
 
 interface Props {
-  character: CharacterDef;
+  ball: BallDef;
   owned: boolean;
   selected: boolean;
   onSelect: () => void;
@@ -16,13 +16,13 @@ interface Props {
   canAfford: boolean;
 }
 
-export function CharacterCard({ character, owned, selected, onSelect, onBuy, canAfford }: Props) {
+export function BallCard({ ball, owned, selected, onSelect, onBuy, canAfford }: Props) {
   return (
     <LinearGradient colors={theme.bg.card} style={styles.card}>
       <View style={styles.preview}>
-        <AlienCharacter color={character.primary} secondaryColor={character.secondary} shape="Circle" mood="idle" size={110} />
+        <BallFace size={64} color={ball.color} glowColor={ball.glowColor} animation={ball.animation} />
       </View>
-      <Text style={styles.name}>{character.name}</Text>
+      <Text style={styles.name}>{ball.name}</Text>
       {owned ? (
         <GameButton
           label={selected ? "Selected" : "Select"}
@@ -33,7 +33,7 @@ export function CharacterCard({ character, owned, selected, onSelect, onBuy, can
         />
       ) : (
         <GameButton
-          label={`${character.price} ${character.currency === "coins" ? "🪙" : "⭐"}`}
+          label={`${ball.price} ${ball.currency === "coins" ? "🪙" : "⭐"}`}
           onPress={onBuy}
           disabled={!canAfford}
           colors={[theme.accent.gold, "#D19A2A"]}

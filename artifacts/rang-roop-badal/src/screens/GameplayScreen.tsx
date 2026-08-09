@@ -21,7 +21,7 @@ import { PaddleView } from "@/components/PaddleView";
 import { ParticleBurst } from "@/components/ParticleBurst";
 import { ScreenBackground } from "@/components/ScreenBackground";
 import { TutorialOverlay } from "@/components/TutorialOverlay";
-import { CHARACTERS } from "@/constants/characters";
+import { BALLS } from "@/constants/balls";
 import { theme } from "@/constants/theme";
 import { paddleYFor, useGameLoop } from "@/hooks/useGameLoop";
 import { playSfx } from "@/hooks/useSound";
@@ -38,14 +38,14 @@ export function GameplayScreen({ route, navigation }: Props) {
     useGameLoop(mode, challengeId);
 
   const tutorialOn = useSettingsStore((s) => s.tutorialOn);
-  const selectedCharacterId = useProfileStore((s) => s.selectedCharacterId);
+  const selectedBallId = useProfileStore((s) => s.selectedBallId);
   const addCoins = useProfileStore((s) => s.addCoins);
   const addStars = useProfileStore((s) => s.addStars);
   const addXp = useProfileStore((s) => s.addXp);
   const recordRunEnd = useProfileStore((s) => s.recordRunEnd);
   const bumpStat = useProfileStore((s) => s.bumpStat);
 
-  const character = CHARACTERS.find((c) => c.id === selectedCharacterId) ?? CHARACTERS[0];
+  const ball = BALLS.find((b) => b.id === selectedBallId) ?? BALLS[0];
 
   const [hasMovedPaddle, setHasMovedPaddle] = useState(false);
   const [burstKey, setBurstKey] = useState(0);
@@ -188,10 +188,17 @@ export function GameplayScreen({ route, navigation }: Props) {
               y={paddleY}
               width={state.paddle.width}
               height={state.paddle.height}
-              color={character.primary}
+              color={ball.glowColor}
             />
 
-            <BallView x={state.ball.x} y={state.ball.y} radius={state.ball.radius} glowing={state.dangerTime} />
+            <BallView
+              x={state.ball.x}
+              y={state.ball.y}
+              radius={state.ball.radius}
+              color={ball.color}
+              glowColor={ball.glowColor}
+              animation={ball.animation}
+            />
 
             <ParticleBurst color={burstPos.color} burstKey={burstKey} x={burstPos.x} y={burstPos.y} />
 

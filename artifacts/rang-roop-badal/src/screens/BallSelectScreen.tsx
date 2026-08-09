@@ -3,51 +3,51 @@ import { Dimensions, FlatList, StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { AlienCharacter } from "@/components/AlienCharacter";
+import { BallFace } from "@/components/BallView";
 import { GameButton } from "@/components/GameButton";
 import { ScreenBackground } from "@/components/ScreenBackground";
-import { CHARACTERS } from "@/constants/characters";
+import { BALLS, BallDef } from "@/constants/balls";
 import { theme } from "@/constants/theme";
 import { useProfileStore } from "@/store/profileStore";
-import { CharacterDef, RootStackParamList } from "@/types";
+import { RootStackParamList } from "@/types";
 
-type Props = NativeStackScreenProps<RootStackParamList, "CharacterSelect">;
+type Props = NativeStackScreenProps<RootStackParamList, "BallSelect">;
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const CARD_WIDTH = SCREEN_W * 0.72;
 
-export function CharacterSelectScreen({ navigation }: Props) {
-  const unlockedIds = useProfileStore((s) => s.unlockedCharacterIds);
-  const selectedId = useProfileStore((s) => s.selectedCharacterId);
+export function BallSelectScreen({ navigation }: Props) {
+  const unlockedIds = useProfileStore((s) => s.unlockedBallIds);
+  const selectedId = useProfileStore((s) => s.selectedBallId);
   const coins = useProfileStore((s) => s.coins);
   const stars = useProfileStore((s) => s.stars);
-  const unlockCharacter = useProfileStore((s) => s.unlockCharacter);
-  const selectCharacter = useProfileStore((s) => s.selectCharacter);
+  const unlockBall = useProfileStore((s) => s.unlockBall);
+  const selectBall = useProfileStore((s) => s.selectBall);
   const spendCoins = useProfileStore((s) => s.spendCoins);
   const spendStars = useProfileStore((s) => s.spendStars);
 
   const [activeIndex, setActiveIndex] = useState(
-    Math.max(0, CHARACTERS.findIndex((c) => c.id === selectedId)),
+    Math.max(0, BALLS.findIndex((b) => b.id === selectedId)),
   );
-  const listRef = useRef<FlatList<CharacterDef>>(null);
+  const listRef = useRef<FlatList<BallDef>>(null);
 
-  const buy = (c: CharacterDef) => {
-    const funds = c.currency === "coins" ? coins : stars;
-    if (funds < c.price) return;
-    const success = c.currency === "coins" ? spendCoins(c.price) : spendStars(c.price);
-    if (success) unlockCharacter(c.id);
+  const buy = (b: BallDef) => {
+    const funds = b.currency === "coins" ? coins : stars;
+    if (funds < b.price) return;
+    const success = b.currency === "coins" ? spendCoins(b.price) : spendStars(b.price);
+    if (success) unlockBall(b.id);
   };
 
   return (
     <View style={styles.flex}>
       <ScreenBackground colors={theme.bg.menu}>
         <SafeAreaView style={styles.flex}>
-          <Text style={styles.header}>CHARACTERS</Text>
+          <Text style={styles.header}>BALLS</Text>
 
           <FlatList
             ref={listRef}
-            data={CHARACTERS}
-            keyExtractor={(c) => c.id}
+            data={BALLS}
+            keyExtractor={(b) => b.id}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
@@ -65,7 +65,7 @@ export function CharacterSelectScreen({ navigation }: Props) {
               return (
                 <View style={[styles.card, { width: CARD_WIDTH }]}>
                   <View style={styles.preview}>
-                    <AlienCharacter color={item.primary} secondaryColor={item.secondary} shape="Circle" mood="idle" size={170} />
+                    <BallFace size={110} color={item.color} glowColor={item.glowColor} animation={item.animation} />
                   </View>
                   <Text style={styles.name}>{item.name}</Text>
                   <Text style={styles.status}>
@@ -76,7 +76,7 @@ export function CharacterSelectScreen({ navigation }: Props) {
                       label={isSelected ? "Selected" : "Select"}
                       selected={isSelected}
                       colors={[theme.accent.green, "#1B8F55"]}
-                      onPress={() => selectCharacter(item.id)}
+                      onPress={() => selectBall(item.id)}
                     />
                   ) : (
                     <GameButton
@@ -91,7 +91,7 @@ export function CharacterSelectScreen({ navigation }: Props) {
             }}
           />
 
-          <Text style={styles.hint}>Swipe left / right to browse • {activeIndex + 1}/{CHARACTERS.length}</Text>
+          <Text style={styles.hint}>Swipe left / right to browse • {activeIndex + 1}/{BALLS.length}</Text>
 
           <GameButton label="Back" onPress={() => navigation.goBack()} colors={["#7C71A8", "#4A4460"]} style={styles.back} />
         </SafeAreaView>

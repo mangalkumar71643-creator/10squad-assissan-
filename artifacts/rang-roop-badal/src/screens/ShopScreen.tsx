@@ -15,8 +15,8 @@ import { RootStackParamList } from "@/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Shop">;
 
-const TABS: { key: "characters" | "trails" | "effects" | "themes"; label: string }[] = [
-  { key: "characters", label: "Characters" },
+const TABS: { key: "balls" | "trails" | "effects" | "themes"; label: string }[] = [
+  { key: "balls", label: "Balls" },
   { key: "trails", label: "Trails" },
   { key: "effects", label: "Effects" },
   { key: "themes", label: "Themes" },
@@ -60,8 +60,8 @@ export function ShopScreen({ navigation }: Props) {
               <Pressable
                 key={t.key}
                 onPress={() => {
-                  if (t.key === "characters") {
-                    navigation.navigate("CharacterSelect");
+                  if (t.key === "balls") {
+                    navigation.navigate("BallSelect");
                     return;
                   }
                   setTab(t.key);
@@ -76,7 +76,7 @@ export function ShopScreen({ navigation }: Props) {
           <ScrollView contentContainerStyle={styles.list}>
             {items.map((item) => {
               const owned = ownedItemIds.includes(item.id);
-              const equipped = tab !== "characters" && equipMap[tab as "trails" | "effects" | "themes"] === item.id;
+              const equipped = tab !== "balls" && equipMap[tab as "trails" | "effects" | "themes"] === item.id;
               const funds = item.currency === "coins" ? coins : stars;
               return (
                 <ShopItemCard

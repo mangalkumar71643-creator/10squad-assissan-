@@ -25,8 +25,8 @@ interface ProfileState {
   rankXp: number;
   region: string;
   regionFlag: string;
-  selectedCharacterId: string;
-  unlockedCharacterIds: string[];
+  selectedBallId: string;
+  unlockedBallIds: string[];
   stats: PlayerStats;
 
   addCoins: (n: number) => void;
@@ -34,8 +34,8 @@ interface ProfileState {
   addStars: (n: number) => void;
   spendStars: (n: number) => boolean;
   addXp: (n: number) => void;
-  unlockCharacter: (id: string) => void;
-  selectCharacter: (id: string) => void;
+  unlockBall: (id: string) => void;
+  selectBall: (id: string) => void;
   recordRunEnd: (result: {
     score: number;
     combo: number;
@@ -58,8 +58,8 @@ export const useProfileStore = create<ProfileState>()(
       rankXp: 0,
       region: "India",
       regionFlag: "🇮🇳",
-      selectedCharacterId: "zeno",
-      unlockedCharacterIds: ["zeno"],
+      selectedBallId: "nova",
+      unlockedBallIds: ["nova"],
       stats: EMPTY_STATS,
 
       addCoins: (n) => set((s) => ({ coins: s.coins + Math.max(0, n) })),
@@ -81,13 +81,11 @@ export const useProfileStore = create<ProfileState>()(
         const progress = applyXp(rank, rankXp, n);
         set({ rank: progress.rank, rankXp: progress.xp });
       },
-      unlockCharacter: (id) =>
+      unlockBall: (id) =>
         set((s) =>
-          s.unlockedCharacterIds.includes(id)
-            ? s
-            : { unlockedCharacterIds: [...s.unlockedCharacterIds, id] },
+          s.unlockedBallIds.includes(id) ? s : { unlockedBallIds: [...s.unlockedBallIds, id] },
         ),
-      selectCharacter: (id) => set({ selectedCharacterId: id }),
+      selectBall: (id) => set({ selectedBallId: id }),
       bumpStat: (key, delta) =>
         set((s) => ({
           stats: { ...s.stats, [key]: (s.stats[key] as number) + delta },
