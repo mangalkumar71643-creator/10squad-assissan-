@@ -2381,12 +2381,23 @@ function CombatArena({
   // looking straight down just shows the solid (double-sided) roof instead
   // of the room underneath.
   const ceilingMeshesRef = useRef<THREE.Mesh[]>([]);
-  // The bird's heading, steered by horizontal drag only (see
-  // handleLookMove) — vertical drag does nothing in this mode.
+  // The bird's heading (horizontal drag) and look pitch (vertical drag —
+  // negative looks down at the ground, positive looks up toward the sky),
+  // both set in handleLookMove. Flight direction always follows yaw only;
+  // pitch just tilts the camera, it doesn't climb/dive the bird.
   const birdYawRef = useRef(0);
+  const birdPitchRef = useRef(-1);
+  // Stop/Start: while false, the bird holds its position (still steerable/
+  // lookable) instead of flying itself forward every frame.
+  const [birdFlying, setBirdFlying] = useState(true);
+  const birdFlyingRef = useRef(true);
+  useEffect(() => {
+    birdFlyingRef.current = birdFlying;
+  }, [birdFlying]);
   useEffect(() => {
     topDownViewRef.current = topDownView;
     for (const ceiling of ceilingMeshesRef.current) ceiling.visible = !topDownView;
+    if (topDownView) setBirdFlying(true);
   }, [topDownView]);
 
   useEffect(() => {
@@ -3901,17 +3912,23 @@ function CombatArena({
         if (topDownViewRef.current) {
           // Map View: the bird's own autopilot flight — on the frame Map
           // View is (re-)opened, it launches from directly above the
-          // player; every frame after that it just flies itself forward
-          // along birdYaw, which the player steers with left/right drag.
+          // player, flying (Stop/Start: birdFlyingRef) along birdYaw,
+          // which the player steers with left/right drag. Up/down drag
+          // tilts birdPitchRef, which only re-aims the camera — it never
+          // changes the flight direction or altitude.
           const justLaunched = !wasTopDownView;
           if (justLaunched) {
             birdX = player.root.position.x;
             birdZ = player.root.position.z;
+            birdYawRef.current = 0;
+            birdPitchRef.current = -1;
           }
           const birdForwardX = Math.sin(birdYawRef.current);
           const birdForwardZ = Math.cos(birdYawRef.current);
-          birdX = clamp(birdX + birdForwardX * BIRD_SPEED * dt, -BIRD_BOUNDS, BIRD_BOUNDS);
-          birdZ = clamp(birdZ + birdForwardZ * BIRD_SPEED * dt, -BIRD_BOUNDS, BIRD_BOUNDS);
+          if (birdFlyingRef.current) {
+            birdX = clamp(birdX + birdForwardX * BIRD_SPEED * dt, -BIRD_BOUNDS, BIRD_BOUNDS);
+            birdZ = clamp(birdZ + birdForwardZ * BIRD_SPEED * dt, -BIRD_BOUNDS, BIRD_BOUNDS);
+          }
           camTargetPos.set(birdX, player.root.position.y + BIRD_ALTITUDE, birdZ);
           // Snap straight to altitude on launch instead of easing up from
           // the old chase-cam height — easing left the look-ahead point
@@ -3919,7 +3936,18 @@ function CombatArena({
           // horizon/sky view before the bird "arrived" at height.
           if (justLaunched) camera.position.copy(camTargetPos);
           else camera.position.lerp(camTargetPos, 1 - Math.exp(-CAM_DAMP_RATE * dt));
-          camLookAt.set(birdX + birdForwardX * BIRD_LOOK_AHEAD, player.root.position.y, birdZ + birdForwardZ * BIRD_LOOK_AHEAD);
+          // Standard FPS-style look vector from yaw+pitch — robust as long
+          // as pitch stays short of the ±PI/2 gimbal singularity (clamped
+          // to [-1.5, 1.4] in handleLookMove).
+          const pitch = birdPitchRef.current;
+          const lookDirX = birdForwardX * Math.cos(pitch);
+          const lookDirZ = birdForwardZ * Math.cos(pitch);
+          const lookDirY = Math.sin(pitch);
+          camLookAt.set(
+            camera.position.x + lookDirX * BIRD_LOOK_AHEAD,
+            camera.position.y + lookDirY * BIRD_LOOK_AHEAD,
+            camera.position.z + lookDirZ * BIRD_LOOK_AHEAD,
+          );
           camera.lookAt(camLookAt);
         } else {
           const facing = cameraYaw.current;
@@ -4000,9 +4028,12 @@ function CombatArena({
     lookLastX.current = e.clientX;
     lookLastY.current = e.clientY;
     if (topDownViewRef.current) {
-      // Map View: the bird flies itself forward — only left/right drag
-      // steers its heading, vertical drag does nothing here.
+      // Map View: left/right drag steers the bird's heading, up/down drag
+      // tilts where it's looking (all the way up toward the sky or down
+      // at the ground) — flight direction always follows yaw only, pitch
+      // doesn't climb/dive it.
       birdYawRef.current -= dx * BIRD_STEER_SENSITIVITY;
+      birdPitchRef.current = clamp(birdPitchRef.current - dy * BIRD_STEER_SENSITIVITY, -1.5, 1.4);
       return;
     }
     cameraYaw.current -= dx * LOOK_SENSITIVITY_BASE * lookSensitivity;
@@ -4144,6 +4175,33 @@ function CombatArena({
       >
         🗺
       </button>
+
+      {/* Bird Stop/Start — freezes the bird in place (still steerable/
+          lookable) so the player can study a spot instead of always
+          drifting past it, then sends it flying again. */}
+      {topDownView && (
+        <button
+          onClick={() => setBirdFlying((v) => !v)}
+          aria-label={birdFlying ? "Stop bird" : "Start bird"}
+          style={{
+            position: "absolute",
+            top: 58,
+            right: 96,
+            padding: "6px 14px",
+            borderRadius: 6,
+            background: birdFlying ? "rgba(255,255,255,0.08)" : "rgba(107,216,255,0.25)",
+            border: "1px solid rgba(200,220,240,0.4)",
+            color: "#dce8f5",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          {birdFlying ? "STOP" : "START"}
+        </button>
+      )}
 
       {/* Look-sensitivity settings */}
       <button
