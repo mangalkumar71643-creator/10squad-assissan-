@@ -5069,6 +5069,197 @@ function MatchDetailPanel({ entry, onClose }: { entry: MatchHistoryEntry; onClos
   );
 }
 
+const SETTINGS_ICON = (
+  <svg viewBox="0 0 24 24" width="46%" height="46%" fill="none">
+    <circle cx="12" cy="12" r="3" stroke="#fff" strokeWidth="2" />
+    <path
+      d="M19.4 13a7.97 7.97 0 000-2l2.1-1.6-2-3.4-2.5 1a8 8 0 00-1.7-1L14.9 3h-4l-.4 2.9a8 8 0 00-1.7 1l-2.5-1-2 3.4L6.4 11a7.97 7.97 0 000 2l-2.1 1.6 2 3.4 2.5-1a8 8 0 001.7 1l.4 2.9h4l.4-2.9a8 8 0 001.7-1l2.5 1 2-3.4L19.4 13z"
+      stroke="#fff"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const SHARE_ICON = (
+  <svg viewBox="0 0 24 24" width="46%" height="46%" fill="none">
+    <circle cx="18" cy="5" r="2.4" fill="#fff" />
+    <circle cx="6" cy="12" r="2.4" fill="#fff" />
+    <circle cx="18" cy="19" r="2.4" fill="#fff" />
+    <path d="M8.1 10.8L15.9 6.2M8.1 13.2l7.8 4.6" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+);
+
+const GAME_SHARE_URL = "https://10squad-permanent-test.vercel.app/10squad-assassin.apk";
+
+function SettingsPanel({
+  onClose,
+  onResetProgress,
+}: {
+  onClose: () => void;
+  onResetProgress: () => void;
+}) {
+  const [lookSensitivity, setLookSensitivity] = useState(() => {
+    const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
+    return saved >= LOOK_SENSITIVITY_MIN && saved <= LOOK_SENSITIVITY_MAX ? saved : 1;
+  });
+  const changeSensitivity = (value: number) => {
+    const clamped = clamp(value, LOOK_SENSITIVITY_MIN, LOOK_SENSITIVITY_MAX);
+    setLookSensitivity(clamped);
+    localStorage.setItem(LOOK_SENSITIVITY_STORAGE_KEY, String(clamped));
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Settings"
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgba(4, 6, 16, 0.75)",
+        backdropFilter: "blur(6px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 10,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(380px, 86vw)",
+          background: "linear-gradient(180deg, rgba(20,14,42,0.97), rgba(8,6,20,0.97))",
+          border: "1px solid rgba(168,120,255,0.45)",
+          borderRadius: 14,
+          boxShadow: "0 0 60px rgba(120,60,255,0.35), inset 0 0 40px rgba(80,40,180,0.15)",
+          padding: "22px 26px 26px",
+          fontFamily: "'Barlow', sans-serif",
+          color: "#e8e2ff",
+          maxHeight: "82vh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2
+            style={{
+              margin: 0,
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 22,
+              letterSpacing: 2,
+              color: "#c9a8ff",
+              textShadow: "0 0 18px rgba(170,110,255,0.7)",
+            }}
+          >
+            SETTINGS
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              border: "1px solid rgba(168,120,255,0.5)",
+              background: "rgba(255,255,255,0.05)",
+              color: "#e8e2ff",
+              fontSize: 18,
+              lineHeight: 1,
+              cursor: "pointer",
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            height: 1,
+            background: "linear-gradient(90deg, rgba(168,120,255,0.6), rgba(168,120,255,0))",
+          }}
+        />
+
+        <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div
+            style={{
+              padding: "12px 16px",
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(168,120,255,0.25)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                fontSize: 13,
+                letterSpacing: "0.06em",
+                marginBottom: 8,
+              }}
+            >
+              <span>LOOK SENSITIVITY</span>
+              <span>{lookSensitivity.toFixed(1)}x</span>
+            </div>
+            <input
+              type="range"
+              min={LOOK_SENSITIVITY_MIN}
+              max={LOOK_SENSITIVITY_MAX}
+              step={0.1}
+              value={lookSensitivity}
+              onChange={(e) => changeSensitivity(Number(e.target.value))}
+              style={{ width: "100%" }}
+            />
+          </div>
+
+          <button
+            onClick={() => {
+              if (window.confirm("Reset all progress? Your level, XP, kills and match history will be cleared.")) {
+                onResetProgress();
+              }
+            }}
+            style={{
+              padding: "12px 16px",
+              borderRadius: 10,
+              background: "rgba(255,70,70,0.1)",
+              border: "1px solid rgba(255,90,90,0.4)",
+              color: "#ff9a9a",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 13,
+              letterSpacing: "0.06em",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            RESET PROGRESS
+          </button>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(168,120,255,0.25)",
+            }}
+          >
+            <span style={{ fontSize: 12, letterSpacing: "0.08em", color: "#9d8ac2" }}>10 SQUAD ASSASSIN</span>
+            <span style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 14, color: "#fff" }}>
+              v1.0.0
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Lobby({ visible }: { visible: boolean }) {
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployPressed, setDeployPressed] = useState(false);
@@ -5076,8 +5267,27 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [characterOpen, setCharacterOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [progress, setProgress] = useState<PlayerProgress>(loadPlayerProgress);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const shareGame = () => {
+    const shareData = { title: "10 Squad Assassin", text: "Play 10 Squad Assassin!", url: GAME_SHARE_URL };
+    if (navigator.share) {
+      navigator.share(shareData).catch(() => {});
+      return;
+    }
+    if (navigator.clipboard) {
+      navigator.clipboard
+        .writeText(GAME_SHARE_URL)
+        .then(() => {
+          setLinkCopied(true);
+          setTimeout(() => setLinkCopied(false), 1800);
+        })
+        .catch(() => {});
+    }
+  };
 
   const handleMatchEnd = (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => {
     setProgress((prev) => {
@@ -5175,6 +5385,45 @@ export default function Lobby({ visible }: { visible: boolean }) {
         <LobbyIconButton icon={MAIL_ICON} onClick={() => setMailOpen(true)} />
       </div>
 
+      {/* Settings / Share row: bottom-right corner, mirroring the
+          RANK/Character/Mail row on the opposite side. */}
+      <div
+        style={{
+          position: "absolute",
+          right: "3%",
+          bottom: "3%",
+          display: "flex",
+          gap: "clamp(6px, 2vw, 10px)",
+        }}
+      >
+        <LobbyIconButton icon={SETTINGS_ICON} label="SETTINGS" onClick={() => setSettingsOpen(true)} />
+        <LobbyIconButton icon={SHARE_ICON} label="SHARE" onClick={shareGame} />
+      </div>
+
+      {linkCopied && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "14%",
+            left: "50%",
+            transform: "translateX(-50%)",
+            padding: "8px 18px",
+            borderRadius: 8,
+            background: "rgba(20,14,42,0.95)",
+            border: "1px solid rgba(168,120,255,0.5)",
+            color: "#e8e2ff",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: 13,
+            letterSpacing: "0.05em",
+            pointerEvents: "none",
+            zIndex: 30,
+          }}
+        >
+          Link copied!
+        </div>
+      )}
+
       {deployOpen && <CombatArena onExit={() => setDeployOpen(false)} onMatchEnd={handleMatchEnd} />}
       {rankOpen && (
         <ComingSoonPanel
@@ -5194,6 +5443,17 @@ export default function Lobby({ visible }: { visible: boolean }) {
         />
       )}
       {profileOpen && <ProfilePanel progress={progress} onClose={() => setProfileOpen(false)} />}
+      {settingsOpen && (
+        <SettingsPanel
+          onClose={() => setSettingsOpen(false)}
+          onResetProgress={() => {
+            const fresh = defaultPlayerProgress();
+            setProgress(fresh);
+            localStorage.setItem(PLAYER_PROGRESS_STORAGE_KEY, JSON.stringify(fresh));
+            setSettingsOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
