@@ -2782,13 +2782,24 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
       });
     };
 
-    loadFighter(scene, 0xffffff, (rig) => {
+    // The player spawns as whichever character was picked in Character
+    // Selection (persisted under SELECTED_CARD_STORAGE_KEY) instead of
+    // always being the SWAT model — CARD_MODELS/loadBotFighter are the same
+    // lookup + retargeting pipeline the selection ring itself uses.
+    const spawnPlayer = (rig: FighterRig) => {
       if (disposed) return;
       rig.root.position.set(0, 0, 3);
       rig.root.rotation.y = Math.PI; // face into the dungeon at the start
       player = rig;
       equipGun(rig);
-    });
+    };
+    const savedCard = Number(localStorage.getItem(SELECTED_CARD_STORAGE_KEY));
+    const playerModel = CARD_MODELS[savedCard] ?? CARD_MODELS[0];
+    if (playerModel.kind === "bot") {
+      loadBotFighter(scene, playerModel.src, spawnPlayer);
+    } else {
+      loadFighter(scene, 0xffffff, spawnPlayer);
+    }
 
     // Six fighters total: five room guards (index 0-4, one patrolling each
     // of ROOM_POSITIONS) plus the Boss (index 5, stationed in Room 6) —
