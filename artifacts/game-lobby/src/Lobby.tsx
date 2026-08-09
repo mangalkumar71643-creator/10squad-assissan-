@@ -2932,7 +2932,7 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
       equipGun(rig);
     };
     const savedCard = Number(localStorage.getItem(SELECTED_CARD_STORAGE_KEY));
-    const playerModel = CARD_MODELS[savedCard] ?? CARD_MODELS[0];
+    const playerModel = CARD_MODELS[savedCard] && isCardUnlocked(savedCard) ? CARD_MODELS[savedCard] : CARD_MODELS[0];
     if (playerModel.kind === "bot") {
       loadBotFighter(scene, playerModel.src, spawnPlayer);
     } else {
@@ -4389,6 +4389,44 @@ const CARD_MODELS: Record<number, { src: string; kind: "source" | "bot" }> = {
 };
 const SELECTED_CARD_STORAGE_KEY = "10sa-selected-card";
 
+// 🏆 Trophies — the game's currency. Earned from match results (see
+// handleMatchEnd), spent to unlock roster characters that aren't free by
+// default (see UNLOCKED_CARDS_STORAGE_KEY/CARD_UNLOCK_COST below).
+const CURRENCY_STORAGE_KEY = "10sa-currency";
+const CURRENCY_PER_KILL = 5;
+const CURRENCY_WIN_BONUS = 30;
+
+function loadCurrency(): number {
+  const saved = Number(localStorage.getItem(CURRENCY_STORAGE_KEY));
+  return Number.isFinite(saved) && saved >= 0 ? saved : 0;
+}
+function saveCurrency(amount: number) {
+  localStorage.setItem(CURRENCY_STORAGE_KEY, String(amount));
+}
+
+// Card 0 (the player's own SWAT character) is always free. Every other
+// card with a real model behind it (currently just card 1, the bot/ninja)
+// has to be bought with Trophies before CharacterSelectionPanel will let
+// it be selected.
+const CARD_UNLOCK_COST: Record<number, number> = { 1: 250 };
+const UNLOCKED_CARDS_STORAGE_KEY = "10sa-unlocked-cards";
+
+function loadUnlockedCards(): Set<number> {
+  try {
+    const raw = localStorage.getItem(UNLOCKED_CARDS_STORAGE_KEY);
+    const arr: number[] = raw ? JSON.parse(raw) : [];
+    return new Set([0, ...arr]);
+  } catch {
+    return new Set([0]);
+  }
+}
+function saveUnlockedCards(unlocked: Set<number>) {
+  localStorage.setItem(UNLOCKED_CARDS_STORAGE_KEY, JSON.stringify([...unlocked]));
+}
+function isCardUnlocked(i: number): boolean {
+  return !CARD_UNLOCK_COST[i] || loadUnlockedCards().has(i);
+}
+
 // Renders a character model standing on the stage. "source" loads
 // char-1.glb directly and plays its own IdleBreathing clip. "bot" is for
 // bot-2.glb, which — same as in CombatArena — carries no baked animations
@@ -4491,19 +4529,186 @@ function CharacterViewer3D({ src, kind = "source" }: { src: string; kind?: "sour
   return <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />;
 }
 
+const CURRENCY_PACKS = [
+  { amount: 100, price: "₹49" },
+  { amount: 550, price: "₹199" },
+  { amount: 1200, price: "₹399" },
+  { amount: 3000, price: "₹799" },
+];
+
+// No real payment gateway or Play Billing product IDs are wired up yet —
+// that needs a developer/merchant account set up outside of this codebase
+// (see the conversation this shipped in). The packs are real prices/
+// amounts for when that lands; the buttons are honestly disabled rather
+// than pretending to charge money they can't actually process.
+function StorePanel({ balance, onClose }: { balance: number; onClose: () => void }) {
+  return (
+    <div
+      role="dialog"
+      aria-label="Store"
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgba(4, 6, 16, 0.75)",
+        backdropFilter: "blur(6px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 15,
+        padding: 12,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(380px, 90vw)",
+          background: "linear-gradient(180deg, rgba(20,14,42,0.97), rgba(8,6,20,0.97))",
+          border: "1px solid rgba(168,120,255,0.45)",
+          borderRadius: 14,
+          boxShadow: "0 0 60px rgba(120,60,255,0.35), inset 0 0 40px rgba(80,40,180,0.15)",
+          padding: "22px 26px 26px",
+          fontFamily: "'Barlow', sans-serif",
+          color: "#e8e2ff",
+          maxHeight: "86vh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2
+            style={{
+              margin: 0,
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 22,
+              letterSpacing: 2,
+              color: "#c9a8ff",
+              textShadow: "0 0 18px rgba(170,110,255,0.7)",
+            }}
+          >
+            STORE
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              border: "1px solid rgba(168,120,255,0.5)",
+              background: "rgba(255,255,255,0.05)",
+              color: "#e8e2ff",
+              fontSize: 18,
+              lineHeight: 1,
+              cursor: "pointer",
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: 14,
+            padding: "10px 16px",
+            borderRadius: 10,
+            background: "rgba(255,207,77,0.1)",
+            border: "1px solid rgba(255,207,77,0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: 18,
+            color: "#ffcf4d",
+          }}
+        >
+          <span>🏆</span>
+          <span>{balance.toLocaleString()}</span>
+        </div>
+
+        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          {CURRENCY_PACKS.map((pack) => (
+            <div
+              key={pack.amount}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "12px 16px",
+                borderRadius: 10,
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(168,120,255,0.25)",
+              }}
+            >
+              <span style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 15 }}>
+                🏆 {pack.amount.toLocaleString()}
+              </span>
+              <button
+                disabled
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(150,150,170,0.35)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "#75708f",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  letterSpacing: "0.04em",
+                  cursor: "not-allowed",
+                }}
+              >
+                {pack.price} · SOON
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 14, fontSize: 11, color: "#7a70a0", lineHeight: 1.5, textAlign: "center" }}>
+          In-app purchases aren't connected yet — for now, earn Trophies by playing matches.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
   const rosterRef = useRef<HTMLDivElement>(null);
+  const [unlockedCards, setUnlockedCards] = useState(loadUnlockedCards);
+  const [currency, setCurrency] = useState(loadCurrency);
+  const [storeOpen, setStoreOpen] = useState(false);
   // Which roster card's model shows in the 3D ring — persisted so the pick
   // survives closing the panel/leaving and re-entering the game, instead of
-  // always resetting back to the player's default character (card 1).
+  // always resetting back to the player's default character (card 1). Falls
+  // back to card 0 if the saved pick isn't actually unlocked (e.g. it was
+  // selected in an older build, before this card required buying).
   const [selectedCard, setSelectedCard] = useState(() => {
     const saved = Number(localStorage.getItem(SELECTED_CARD_STORAGE_KEY));
-    return CARD_MODELS[saved] ? saved : 0;
+    return CARD_MODELS[saved] && unlockedCards.has(saved) ? saved : 0;
   });
   useEffect(() => {
     localStorage.setItem(SELECTED_CARD_STORAGE_KEY, String(selectedCard));
   }, [selectedCard]);
   const activeModel = CARD_MODELS[selectedCard] ?? CARD_MODELS[0];
+
+  const unlockCard = (i: number) => {
+    const cost = CARD_UNLOCK_COST[i];
+    if (!cost || unlockedCards.has(i)) return;
+    if (currency < cost) {
+      window.alert(`Not enough Trophies — you need 🏆 ${cost}. Earn more by playing matches or visit the Store.`);
+      return;
+    }
+    if (!window.confirm(`Unlock this character for 🏆 ${cost}?`)) return;
+    const nextCurrency = currency - cost;
+    const nextUnlocked = new Set(unlockedCards).add(i);
+    setCurrency(nextCurrency);
+    setUnlockedCards(nextUnlocked);
+    saveCurrency(nextCurrency);
+    saveUnlockedCards(nextUnlocked);
+    setSelectedCard(i);
+  };
   // Enough cards to always overflow the row's actual width (plus 2 extra
   // past that) so it both reaches the right edge and stays scrollable on
   // any viewport — a fixed card count either left a gap or had nothing to
@@ -4571,13 +4776,16 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
       >
         {Array.from({ length: cardCount }).map((_, i) => {
           const portrait = CARD_PORTRAITS[i];
-          const selectable = Boolean(CARD_MODELS[i]);
+          const hasModel = Boolean(CARD_MODELS[i]);
+          const unlockCost = CARD_UNLOCK_COST[i];
+          const locked = hasModel && Boolean(unlockCost) && !unlockedCards.has(i);
+          const selectable = hasModel && !locked;
           const isSelected = selectable && i === selectedCard;
           return portrait ? (
             <button
               key={i}
-              onClick={() => selectable && setSelectedCard(i)}
-              aria-label={`Character slot ${i + 1}`}
+              onClick={() => (locked ? unlockCard(i) : selectable && setSelectedCard(i))}
+              aria-label={locked ? `Character slot ${i + 1} — locked, costs ${unlockCost} trophies` : `Character slot ${i + 1}`}
               style={{
                 position: "relative",
                 width: CHAR_CARD_SIZE,
@@ -4585,7 +4793,7 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
                 flexShrink: 0,
                 padding: 0,
                 border: "none",
-                cursor: selectable ? "pointer" : "default",
+                cursor: "pointer",
                 backgroundImage: "url(/character-select-card-single.jpg)",
                 backgroundSize: "100% 100%",
                 outline: isSelected ? "2px solid #ffcf4d" : "2px solid transparent",
@@ -4603,8 +4811,36 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
                   height: "calc(100% - 8px)",
                   objectFit: "cover",
                   objectPosition: "top",
+                  filter: locked ? "grayscale(1) brightness(0.45)" : "none",
                 }}
               />
+              {locked && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 4,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 2,
+                    background: "rgba(0,0,0,0.25)",
+                  }}
+                >
+                  <span style={{ fontSize: 18 }}>🔒</span>
+                  <span
+                    style={{
+                      fontFamily: "'Rajdhani', sans-serif",
+                      fontWeight: 700,
+                      fontSize: 11,
+                      color: "#ffcf4d",
+                      textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+                    }}
+                  >
+                    🏆{unlockCost}
+                  </span>
+                </div>
+              )}
             </button>
           ) : (
             <img
@@ -4639,6 +4875,35 @@ function CharacterSelectionPanel({ onClose }: { onClose: () => void }) {
       >
         ‹
       </button>
+
+      <button
+        onClick={() => setStoreOpen(true)}
+        aria-label="Store"
+        style={{
+          position: "absolute",
+          top: 14,
+          right: 14,
+          height: 38,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "0 12px",
+          borderRadius: 8,
+          border: "1.5px solid rgba(255,207,77,0.6)",
+          background: "rgba(10,10,20,0.55)",
+          color: "#ffcf4d",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 14,
+          cursor: "pointer",
+        }}
+      >
+        <span>🏆</span>
+        <span>{currency.toLocaleString()}</span>
+        <span style={{ marginLeft: 2, opacity: 0.8, fontSize: 16 }}>+</span>
+      </button>
+
+      {storeOpen && <StorePanel balance={currency} onClose={() => setStoreOpen(false)} />}
     </div>
   );
 }
@@ -6077,6 +6342,8 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [linkCopied, setLinkCopied] = useState(false);
   const [progress, setProgress] = useState<PlayerProgress>(loadPlayerProgress);
   const [language, setLanguage] = useState<AppLanguage>(() => loadGameSettings().language);
+  const [currency, setCurrency] = useState<number>(loadCurrency);
+  const [storeOpen, setStoreOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const shareGame = () => {
@@ -6117,6 +6384,12 @@ export default function Lobby({ visible }: { visible: boolean }) {
       localStorage.setItem(PLAYER_PROGRESS_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
+    const currencyGained = kills * CURRENCY_PER_KILL + (result === "win" ? CURRENCY_WIN_BONUS : 0);
+    if (currencyGained > 0) {
+      const next = loadCurrency() + currencyGained;
+      saveCurrency(next);
+      setCurrency(next);
+    }
   };
 
   return (
@@ -6167,6 +6440,34 @@ export default function Lobby({ visible }: { visible: boolean }) {
       />
 
       <PlayerProfileButton progress={progress} onClick={() => setProfileOpen(true)} />
+
+      <button
+        onClick={() => setStoreOpen(true)}
+        aria-label="Trophies — open Store"
+        style={{
+          position: "absolute",
+          top: "2.5%",
+          right: "3%",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "6px 12px",
+          borderRadius: 20,
+          border: "1.5px solid rgba(255,207,77,0.6)",
+          background: "rgba(10,10,20,0.6)",
+          color: "#ffcf4d",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: "clamp(12px, 3vw, 15px)",
+          cursor: "pointer",
+        }}
+      >
+        <span>🏆</span>
+        <span>{currency.toLocaleString()}</span>
+        <span style={{ marginLeft: 2, opacity: 0.8 }}>+</span>
+      </button>
+
+      {storeOpen && <StorePanel balance={currency} onClose={() => setStoreOpen(false)} />}
 
       <GiftBox
         missionPressed={deployPressed}
@@ -6240,7 +6541,14 @@ export default function Lobby({ visible }: { visible: boolean }) {
           onClose={() => setRankOpen(false)}
         />
       )}
-      {characterOpen && <CharacterSelectionPanel onClose={() => setCharacterOpen(false)} />}
+      {characterOpen && (
+        <CharacterSelectionPanel
+          onClose={() => {
+            setCharacterOpen(false);
+            setCurrency(loadCurrency());
+          }}
+        />
+      )}
       {mailOpen && (
         <ComingSoonPanel
           title="MAIL"
