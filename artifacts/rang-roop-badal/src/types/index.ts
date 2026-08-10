@@ -10,8 +10,6 @@ export type ColorName =
   | "Green"
   | "Orange";
 
-export type ShapeName = "Circle" | "Square" | "Triangle" | "Star" | "Hexagon";
-
 export type GameMode = "classic" | "endless" | "challenge";
 
 export type CurrencyType = "coins" | "stars";

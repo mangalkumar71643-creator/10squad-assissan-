@@ -25,15 +25,3 @@ export const COLOR_ORDER: ColorName[] = [
   "Green",
   "Orange",
 ];
-
-export function nextColor(current: ColorName): ColorName {
-  const idx = COLOR_ORDER.indexOf(current);
-  return COLOR_ORDER[(idx + 1) % COLOR_ORDER.length];
-}
-
-export function randomColor(exclude?: ColorName): ColorName {
-  const pool = exclude
-    ? COLOR_ORDER.filter((c) => c !== exclude)
-    : COLOR_ORDER;
-  return pool[Math.floor(Math.random() * pool.length)];
-}
