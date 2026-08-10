@@ -39,7 +39,9 @@ export function SplashScreen() {
         <View style={styles.iconRow}>
           {ICONS.map((icon) => (
             <View key={icon.key} style={styles.iconSlot}>
-              <Image source={icon.source} style={styles.iconImage} resizeMode="contain" />
+              <View style={styles.iconSlotBg}>
+                <Image source={icon.source} style={styles.iconImage} resizeMode="contain" />
+              </View>
             </View>
           ))}
         </View>
@@ -84,8 +86,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 4,
   },
+  iconSlotBg: {
+    width: "88%",
+    height: "88%",
+    borderRadius: 14,
+    backgroundColor: "#000000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   iconImage: {
-    width: "100%",
-    height: "100%",
+    width: "92%",
+    height: "92%",
   },
 });
