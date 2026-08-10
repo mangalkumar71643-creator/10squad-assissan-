@@ -417,7 +417,7 @@ const CAMERA_FAR = SKY_RADIUS + 50;
 // joystick is pushed (see PLAYER_MAX_SPEED below) rather than a fixed
 // constant — full tilt sustained past SPRINT_ENGAGE_MAG additionally ramps
 // in a sprint bonus.
-const PLAYER_MAX_SPEED = 3.4;
+const PLAYER_MAX_SPEED = 3.74; // 3.4 + 10%
 const PLAYER_SPRINT_BONUS = 0.4; // extra fraction of top speed once sprint is fully engaged
 const SPRINT_ENGAGE_MAG = 0.92; // joystick magnitude that starts building sprint
 const SPRINT_BLEND_RATE = 2.4; // per-second ease rate in/out of sprint
@@ -2532,17 +2532,23 @@ function CombatArena({
     getPlayerFacing: () => { x: number; z: number; axis: "x" | "z" } | null;
     addPreviewMesh: (wall: Map4Wall) => THREE.Object3D;
     removeMesh: (obj: THREE.Object3D) => void;
-    commitWall: (wall: Map4Wall) => void;
+    commitWall: (wall: Map4Wall) => THREE.Object3D;
+    removeObstacle: (wall: Map4Wall) => void;
   } | null>(null);
   // The wall currently staged by SELECT (world position + axis) and its
   // translucent preview mesh, cleared once WALL commits it or SELECT is
-  // pressed again to re-aim. customWallsRef is the full placed-so-far
-  // list (loaded from localStorage on mount, appended to by WALL, written
-  // back out by SAVE) — kept outside React state since it never needs to
-  // trigger a re-render, only persist.
+  // pressed again to re-aim. customWallsRef/customWallMeshesRef are the
+  // full placed-so-far list (loaded from localStorage on mount, appended
+  // to by WALL, popped from by REMOVE, written back out by SAVE) — kept
+  // outside React state since neither needs to trigger a re-render, only
+  // persist/stay in sync with the scene.
   const buildSelectionRef = useRef<{ wall: Map4Wall; mesh: THREE.Object3D } | null>(null);
   const customWallsRef = useRef<Map4Wall[]>([]);
+  const customWallMeshesRef = useRef<THREE.Object3D[]>([]);
   const [buildHasSelection, setBuildHasSelection] = useState(false);
+  // Mirrors customWallsRef.current.length purely so REMOVE's disabled
+  // state re-renders — the ref itself is intentionally not React state.
+  const [buildWallCount, setBuildWallCount] = useState(0);
   const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
   // The bird's heading (horizontal drag) and look pitch (vertical drag —
   // negative looks down at the ground, positive looks up toward the sky),
@@ -3237,10 +3243,11 @@ function CombatArena({
       });
       const addBuildWallMesh = (wall: Map4Wall) => addWallMesh(map4WallObstacle(wall), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
       customWallsRef.current = loadMap4Walls();
-      for (const wall of customWallsRef.current) {
+      customWallMeshesRef.current = customWallsRef.current.map((wall) => {
         ACTIVE_OBSTACLES.push(map4WallObstacle(wall));
-        addBuildWallMesh(wall);
-      }
+        return addBuildWallMesh(wall);
+      });
+      setBuildWallCount(customWallsRef.current.length);
       buildModeRef.current = {
         getPlayerFacing: () => {
           if (!player) return null;
@@ -3272,7 +3279,15 @@ function CombatArena({
         removeMesh: (obj) => scene.remove(obj),
         commitWall: (wall) => {
           ACTIVE_OBSTACLES.push(map4WallObstacle(wall));
-          addBuildWallMesh(wall);
+          return addBuildWallMesh(wall);
+        },
+        // Obstacle rects aren't individually tagged, so find-by-value the
+        // exact one this wall pushed — safe since every Map 4 obstacle is
+        // one of these walls and each commit pushes exactly one.
+        removeObstacle: (wall) => {
+          const ob = map4WallObstacle(wall);
+          const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === ob.x && o.z === ob.z && o.halfX === ob.halfX && o.halfZ === ob.halfZ);
+          if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
         },
       };
     } else {
@@ -3593,7 +3608,8 @@ function CombatArena({
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
       rig.root.rotation.y = Math.PI; // face into the facility at the start
       player = rig;
-      equipGun(rig);
+      // Build Mode is combat-free — no gun in hand, nothing to fire.
+      if (mapId !== 4) equipGun(rig);
     };
     const savedCard = Number(localStorage.getItem(SELECTED_CARD_STORAGE_KEY));
     const playerModel = CARD_MODELS[savedCard] && isCardUnlocked(savedCard) ? CARD_MODELS[savedCard] : CARD_MODELS[0];
@@ -4329,10 +4345,25 @@ function CombatArena({
     const selection = buildSelectionRef.current;
     if (!api || !selection) return;
     api.removeMesh(selection.mesh);
-    api.commitWall(selection.wall);
+    const mesh = api.commitWall(selection.wall);
     customWallsRef.current = [...customWallsRef.current, selection.wall];
+    customWallMeshesRef.current = [...customWallMeshesRef.current, mesh];
     buildSelectionRef.current = null;
     setBuildHasSelection(false);
+    setBuildWallCount(customWallsRef.current.length);
+  };
+  // Undoes the most recently committed wall (last in, first out) — simpler
+  // and more predictable than targeting/raycasting a specific one.
+  const handleBuildRemoveWall = () => {
+    const api = buildModeRef.current;
+    if (!api || customWallsRef.current.length === 0) return;
+    const lastWall = customWallsRef.current[customWallsRef.current.length - 1];
+    const lastMesh = customWallMeshesRef.current[customWallMeshesRef.current.length - 1];
+    api.removeMesh(lastMesh);
+    api.removeObstacle(lastWall);
+    customWallsRef.current = customWallsRef.current.slice(0, -1);
+    customWallMeshesRef.current = customWallMeshesRef.current.slice(0, -1);
+    setBuildWallCount(customWallsRef.current.length);
   };
   const handleBuildSave = () => {
     saveMap4Walls(customWallsRef.current);
@@ -4576,8 +4607,8 @@ function CombatArena({
               position: "absolute",
               left: "6%",
               bottom: "8%",
-              width: "clamp(90px, 16vw, 130px)",
-              height: "clamp(90px, 16vw, 130px)",
+              width: "clamp(45px, 8vw, 65px)",
+              height: "clamp(45px, 8vw, 65px)",
               borderRadius: "50%",
               background: "rgba(255,255,255,0.06)",
               border: "1.5px solid rgba(150,200,230,0.4)",
@@ -4752,6 +4783,9 @@ function CombatArena({
                 WALL
               </button>
 
+              {/* SAVE/REMOVE sit up with EXIT/Map View/gear instead of over
+                  the joystick — the health bar normally lives at top-left
+                  but is hidden in Build Mode, leaving that corner free. */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -4760,8 +4794,8 @@ function CombatArena({
                 aria-label="Save map"
                 style={{
                   position: "absolute",
-                  left: "6%",
-                  bottom: "26%",
+                  top: 16,
+                  left: 16,
                   padding: "8px 18px",
                   borderRadius: 6,
                   background: buildSaveLabel === "SAVED!" ? "rgba(107,216,255,0.35)" : "rgba(255,255,255,0.1)",
@@ -4775,6 +4809,32 @@ function CombatArena({
                 }}
               >
                 {buildSaveLabel}
+              </button>
+
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildRemoveWall();
+                }}
+                disabled={buildWallCount === 0}
+                aria-label="Remove last wall"
+                style={{
+                  position: "absolute",
+                  top: 16,
+                  left: 96,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: buildWallCount === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
+                  border: buildWallCount === 0 ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
+                  color: buildWallCount === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: buildWallCount === 0 ? "default" : "pointer",
+                }}
+              >
+                REMOVE
               </button>
             </>
           )}
@@ -6885,8 +6945,8 @@ function ControlsCustomizeOverlay({
           position: "absolute",
           left: "6%",
           bottom: "8%",
-          width: "clamp(90px, 16vw, 130px)",
-          height: "clamp(90px, 16vw, 130px)",
+          width: "clamp(45px, 8vw, 65px)",
+          height: "clamp(45px, 8vw, 65px)",
           borderRadius: "50%",
           background: "rgba(107,216,255,0.18)",
           border: "1.5px dashed rgba(150,200,230,0.6)",
