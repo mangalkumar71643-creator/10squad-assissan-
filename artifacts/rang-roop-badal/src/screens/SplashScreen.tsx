@@ -33,7 +33,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: -70,
+    bottom: -90,
     width: SCREEN_WIDTH,
     height: BUTTON_BG_HEIGHT,
   },
