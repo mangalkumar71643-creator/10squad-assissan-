@@ -996,6 +996,50 @@ function pickMap3ZoneTarget(guardIndex: number): { x: number; z: number } {
   };
 }
 
+// ============================================================================
+// MAP 4 — Build Mode: a blank canvas (no rooms, no bots) the player can
+// place walls in themselves via the SELECT/WALL/SAVE controls in
+// CombatArena, instead of a designed level. Placed walls persist in
+// localStorage (MAP4_STORAGE_KEY) and are rebuilt every time this map is
+// entered. Positioned in +Z, clear of every other map (all of which sit at
+// z<=~10 near their spawns and go further negative from there).
+// ============================================================================
+const MAP4_ORIGIN = { x: 0, z: 200 };
+const MAP4_PLAYER_SPAWN = { x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z };
+const MAP4_WALL_LENGTH = 6;
+const MAP4_STORAGE_KEY = "10sa-map4-walls";
+interface Map4Wall {
+  x: number;
+  z: number;
+  axis: "x" | "z"; // the wall's long axis — "x" blocks north/south movement, "z" blocks east/west
+}
+function loadMap4Walls(): Map4Wall[] {
+  try {
+    const raw = localStorage.getItem(MAP4_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (w): w is Map4Wall => w && typeof w.x === "number" && typeof w.z === "number" && (w.axis === "x" || w.axis === "z"),
+    );
+  } catch {
+    return [];
+  }
+}
+function saveMap4Walls(walls: Map4Wall[]) {
+  try {
+    localStorage.setItem(MAP4_STORAGE_KEY, JSON.stringify(walls));
+  } catch {
+    // Storage full/unavailable — the in-scene walls still stand for the
+    // rest of this session, they just won't persist to the next one.
+  }
+}
+function map4WallObstacle(w: Map4Wall): Obstacle {
+  return w.axis === "x"
+    ? { x: w.x, z: w.z, halfX: MAP4_WALL_LENGTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }
+    : { x: w.x, z: w.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: MAP4_WALL_LENGTH / 2, pad: ROOM_PAD };
+}
+
 // An underground tunnel actually running beneath the real path between
 // houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
 // unrelated empty arena. Since the collision system only checks X/Z (see
@@ -2386,7 +2430,7 @@ function CombatArena({
   onExit,
   onMatchEnd,
 }: {
-  mapId: 1 | 2 | 3;
+  mapId: 1 | 2 | 3 | 4;
   onExit: () => void;
   onMatchEnd: (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => void;
 }) {
@@ -2479,6 +2523,27 @@ function CombatArena({
   // Map 3's decorative key prop in the Boss Lair (set while building the
   // level, spun slowly each frame in the tick below — null on Map 1/2).
   const keyPropRef = useRef<THREE.Group | null>(null);
+  // Map 4 (Build Mode): a small API the scene-building effect wires up
+  // once (getPlayerPos/addPreviewMesh/removeMesh/commitWall all close over
+  // the effect's own scene/player/addWallMesh), so the SELECT/WALL/SAVE
+  // button handlers below — plain component functions, not part of that
+  // effect's closure — can still reach into the live scene.
+  const buildModeRef = useRef<{
+    getPlayerFacing: () => { x: number; z: number; axis: "x" | "z" } | null;
+    addPreviewMesh: (wall: Map4Wall) => THREE.Object3D;
+    removeMesh: (obj: THREE.Object3D) => void;
+    commitWall: (wall: Map4Wall) => void;
+  } | null>(null);
+  // The wall currently staged by SELECT (world position + axis) and its
+  // translucent preview mesh, cleared once WALL commits it or SELECT is
+  // pressed again to re-aim. customWallsRef is the full placed-so-far
+  // list (loaded from localStorage on mount, appended to by WALL, written
+  // back out by SAVE) — kept outside React state since it never needs to
+  // trigger a re-render, only persist.
+  const buildSelectionRef = useRef<{ wall: Map4Wall; mesh: THREE.Object3D } | null>(null);
+  const customWallsRef = useRef<Map4Wall[]>([]);
+  const [buildHasSelection, setBuildHasSelection] = useState(false);
+  const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
   // The bird's heading (horizontal drag) and look pitch (vertical drag —
   // negative looks down at the ground, positive looks up toward the sky),
   // both set in handleLookMove. Flight direction always follows yaw only;
@@ -2508,7 +2573,8 @@ function CombatArena({
     // (resolveObstacleCollisions/hasLineOfSight/probeClear) aren't
     // closures over this effect — reassigned once per match, before
     // anything can actually collide with it.
-    ACTIVE_OBSTACLES = mapId === 2 ? MAP2_OBSTACLES : mapId === 3 ? MAP3_OBSTACLES : MAP1_OBSTACLES;
+    ACTIVE_OBSTACLES =
+      mapId === 2 ? MAP2_OBSTACLES : mapId === 3 ? MAP3_OBSTACLES : mapId === 4 ? [] : MAP1_OBSTACLES;
 
     const scene = new THREE.Scene();
     // A sky sphere plus matching fog — without these the canvas has no
@@ -3155,6 +3221,60 @@ function CombatArena({
 
     // EXTRA_CRATES' own visuals are spawned in the loadCrateMaterial block
     // above, alongside the room crates.
+    } else if (mapId === 4) {
+      // Map 4 — Build Mode. No rooms/zones, no bots; just whatever walls
+      // were saved from a previous session, rebuilt here, plus the small
+      // API (buildModeRef) the SELECT/WALL/SAVE buttons below drive.
+      // Real committed walls use the same textured sci-fi wall material as
+      // every other map (addWallMesh) instead of a flat color, both for a
+      // consistent look and because a flat blue read as nearly invisible
+      // against the sky/fog, which are a similar blue-grey.
+      const buildPreviewMat = new THREE.MeshStandardMaterial({
+        color: 0x6be2ff,
+        transparent: true,
+        opacity: 0.4,
+        depthWrite: false,
+      });
+      const addBuildWallMesh = (wall: Map4Wall) => addWallMesh(map4WallObstacle(wall), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
+      customWallsRef.current = loadMap4Walls();
+      for (const wall of customWallsRef.current) {
+        ACTIVE_OBSTACLES.push(map4WallObstacle(wall));
+        addBuildWallMesh(wall);
+      }
+      buildModeRef.current = {
+        getPlayerFacing: () => {
+          if (!player) return null;
+          // Snap to the nearest cardinal direction so every placed wall
+          // stays axis-aligned (matching how every other wall in the game
+          // is collided against — a freely-rotated wall can't be
+          // expressed as the axis-aligned Obstacle rects everything else
+          // uses). North/south-facing gets a wall blocking that axis
+          // (long along X); east/west gets one long along Z.
+          const yaw = ((cameraYaw.current % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+          const facingNS = yaw < Math.PI / 4 || yaw >= (Math.PI * 7) / 4 || (yaw >= (Math.PI * 3) / 4 && yaw < (Math.PI * 5) / 4);
+          const axis: "x" | "z" = facingNS ? "x" : "z";
+          // The chase camera sits behind the player along
+          // (-sin(yaw), -cos(yaw)) (see camTargetPos below), so the
+          // direction the player is actually facing/walking toward is the
+          // opposite of that.
+          const forwardX = Math.sin(cameraYaw.current);
+          const forwardZ = Math.cos(cameraYaw.current);
+          const dist = MAP4_WALL_LENGTH / 2 + 2;
+          return { x: player.root.position.x + forwardX * dist, z: player.root.position.z + forwardZ * dist, axis };
+        },
+        addPreviewMesh: (wall) => {
+          const ob = map4WallObstacle(wall);
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), buildPreviewMat);
+          mesh.position.set(wall.x, ROOM_WALL_HEIGHT / 2, wall.z);
+          scene.add(mesh);
+          return mesh;
+        },
+        removeMesh: (obj) => scene.remove(obj),
+        commitWall: (wall) => {
+          ACTIVE_OBSTACLES.push(map4WallObstacle(wall));
+          addBuildWallMesh(wall);
+        },
+      };
     } else {
       // Map 2 / Map 3 — both built from the same generic Map2Zone system
       // (see MAP2_OBSTACLES/MAP2_CORRIDORS and MAP3_OBSTACLES/MAP3_CORRIDORS
@@ -3252,7 +3372,7 @@ function CombatArena({
     const GATE_THICKNESS = ROOM_WALL_THICKNESS * 0.9;
     const GATE_OPEN_RADIUS = 3.5;
     const GATE_SLIDE_RATE = 4;
-    const doorsForLevel = mapId === 2 ? MAP2_DOORS : mapId === 3 ? MAP3_DOORS : DOORS;
+    const doorsForLevel = mapId === 2 ? MAP2_DOORS : mapId === 3 ? MAP3_DOORS : mapId === 4 ? [] : DOORS;
     const gates = doorsForLevel.map((door) => {
       const doorGatePanelHeight = (door.wallHeight ?? ROOM_WALL_HEIGHT) - 0.4;
       const panelWidth = door.width / 2;
@@ -3466,7 +3586,8 @@ function CombatArena({
     // Selection (persisted under SELECTED_CARD_STORAGE_KEY) instead of
     // always being the SWAT model — CARD_MODELS/loadBotFighter are the same
     // lookup + retargeting pipeline the selection ring itself uses.
-    const playerSpawnPos = mapId === 2 ? MAP2_PLAYER_SPAWN : mapId === 3 ? MAP3_PLAYER_SPAWN : { x: 0, z: 3 };
+    const playerSpawnPos =
+      mapId === 2 ? MAP2_PLAYER_SPAWN : mapId === 3 ? MAP3_PLAYER_SPAWN : mapId === 4 ? MAP4_PLAYER_SPAWN : { x: 0, z: 3 };
     const spawnPlayer = (rig: FighterRig) => {
       if (disposed) return;
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
@@ -3488,7 +3609,10 @@ function CombatArena({
     // — all loaded from the same rig/model, just spawned at different
     // posts and the Boss additionally scaled up and tinted (see
     // tintBossFighter).
-    const botSpawns = mapId === 2 ? MAP2_BOT_SPAWNS : mapId === 3 ? MAP3_BOT_SPAWNS : BOT_SPAWNS;
+    // Map 4 (Build Mode) spawns no fighters at all — bots stays all null,
+    // which every per-bot loop elsewhere already skips safely (`if (rig)`)
+    // — so it's a peaceful, combat-free canvas to build in.
+    const botSpawns = mapId === 2 ? MAP2_BOT_SPAWNS : mapId === 3 ? MAP3_BOT_SPAWNS : mapId === 4 ? [] : BOT_SPAWNS;
     const bossSpawn = mapId === 2 ? MAP2_BOSS_SPAWN : mapId === 3 ? MAP3_BOSS_SPAWN : BOSS_SPAWN;
     const bots: (FighterRig | null)[] = [null, null, null, null, null, null];
     for (let i = 0; i < botSpawns.length; i++) {
@@ -3500,14 +3624,16 @@ function CombatArena({
         equipGun(rig);
       });
     }
-    loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
-      if (disposed) return;
-      rig.root.position.set(bossSpawn.x, 0, bossSpawn.z);
-      rig.root.scale.setScalar(BOSS_SCALE);
-      tintBossFighter(rig);
-      bots[5] = rig;
-      equipGun(rig);
-    });
+    if (mapId !== 4) {
+      loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
+        if (disposed) return;
+        rig.root.position.set(bossSpawn.x, 0, bossSpawn.z);
+        rig.root.scale.setScalar(BOSS_SCALE);
+        tintBossFighter(rig);
+        bots[5] = rig;
+        equipGun(rig);
+      });
+    }
     const resize = () => {
       const w = container.clientWidth;
       const h = container.clientHeight;
@@ -4180,6 +4306,40 @@ function CombatArena({
     lookTouchId.current = null;
   };
 
+  // Map 4 (Build Mode): SELECT stages a wall a few units ahead of wherever
+  // the player's currently facing (re-aiming just replaces the preview,
+  // no need to explicitly cancel first); WALL commits the staged spot into
+  // a real, permanent-for-this-session wall; SAVE writes everything placed
+  // so far out to localStorage so it's still there next time this map is
+  // opened.
+  const handleBuildSelect = () => {
+    const api = buildModeRef.current;
+    if (!api) return;
+    const facing = api.getPlayerFacing();
+    if (!facing) return;
+    const prev = buildSelectionRef.current;
+    if (prev) api.removeMesh(prev.mesh);
+    const wall: Map4Wall = { x: facing.x, z: facing.z, axis: facing.axis };
+    const mesh = api.addPreviewMesh(wall);
+    buildSelectionRef.current = { wall, mesh };
+    setBuildHasSelection(true);
+  };
+  const handleBuildPlaceWall = () => {
+    const api = buildModeRef.current;
+    const selection = buildSelectionRef.current;
+    if (!api || !selection) return;
+    api.removeMesh(selection.mesh);
+    api.commitWall(selection.wall);
+    customWallsRef.current = [...customWallsRef.current, selection.wall];
+    buildSelectionRef.current = null;
+    setBuildHasSelection(false);
+  };
+  const handleBuildSave = () => {
+    saveMap4Walls(customWallsRef.current);
+    setBuildSaveLabel("SAVED!");
+    setTimeout(() => setBuildSaveLabel("SAVE"), 1500);
+  };
+
   return (
     <div
       role="dialog"
@@ -4202,9 +4362,9 @@ function CombatArena({
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
       />
 
-      {/* Health bar — hidden in Map View, along with the rest of the
-          combat HUD, so nothing but the level itself is on screen. */}
-      {!topDownView && (
+      {/* Health bar — hidden in Map View (nothing but the level on screen)
+          and in Build Mode (no combat, nothing to show HP for). */}
+      {!topDownView && mapId !== 4 && (
         <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
           <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
             {t(settings.language, "you")}
@@ -4445,87 +4605,179 @@ function CombatArena({
             />
           </div>
 
-          {/* Fire button — auto-fires for as long as it's held down (see the
-              attackRequested consumption in the tick loop), not just once per
-              tap. setPointerCapture keeps the up/cancel events firing on this
-              button even if the finger slides off it while held, so a drag-off
-              reliably stops the fire instead of leaving it stuck on. */}
-          <button
-            onPointerDown={(e) => {
-              e.preventDefault();
-              if (settings.autoFire) {
-                autoFireToggled.current = !autoFireToggled.current;
-                attackRequested.current = autoFireToggled.current;
-                setAutoFireActive(autoFireToggled.current);
-                return;
-              }
-              (e.target as HTMLElement).setPointerCapture(e.pointerId);
-              attackRequested.current = true;
-            }}
-            onPointerUp={() => {
-              if (!settings.autoFire) attackRequested.current = false;
-            }}
-            onPointerCancel={() => {
-              if (!settings.autoFire) attackRequested.current = false;
-            }}
-            aria-label="Fire"
-            style={{
-              position: "absolute",
-              right: "7%",
-              bottom: "9%",
-              width: "clamp(72px, 13vw, 100px)",
-              height: "clamp(72px, 13vw, 100px)",
-              borderRadius: "50%",
-              background: autoFireActive
-                ? "radial-gradient(circle, #ffd2a6, #ff5a2c)"
-                : "radial-gradient(circle, #ff8a6b, #d8402c)",
-              border: "2px solid rgba(255,220,210,0.85)",
-              boxShadow: autoFireActive ? "0 0 28px rgba(255,120,40,0.9)" : "0 0 20px rgba(255,90,60,0.6)",
-              color: "#fff8f0",
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              letterSpacing: "0.05em",
-              fontSize: "clamp(13px, 2vw, 16px)",
-              cursor: "pointer",
-              opacity: settings.buttonOpacity,
-              transform: `translate(${settings.controlOffsets.fire.x}px, ${settings.controlOffsets.fire.y}px) scale(${settings.buttonSize})`,
-              transformOrigin: "right bottom",
-            }}
-          >
-            {t(settings.language, "fire")}
-          </button>
+          {mapId !== 4 && (
+            <>
+              {/* Fire button — auto-fires for as long as it's held down (see the
+                  attackRequested consumption in the tick loop), not just once per
+                  tap. setPointerCapture keeps the up/cancel events firing on this
+                  button even if the finger slides off it while held, so a drag-off
+                  reliably stops the fire instead of leaving it stuck on. */}
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  if (settings.autoFire) {
+                    autoFireToggled.current = !autoFireToggled.current;
+                    attackRequested.current = autoFireToggled.current;
+                    setAutoFireActive(autoFireToggled.current);
+                    return;
+                  }
+                  (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                  attackRequested.current = true;
+                }}
+                onPointerUp={() => {
+                  if (!settings.autoFire) attackRequested.current = false;
+                }}
+                onPointerCancel={() => {
+                  if (!settings.autoFire) attackRequested.current = false;
+                }}
+                aria-label="Fire"
+                style={{
+                  position: "absolute",
+                  right: "7%",
+                  bottom: "9%",
+                  width: "clamp(72px, 13vw, 100px)",
+                  height: "clamp(72px, 13vw, 100px)",
+                  borderRadius: "50%",
+                  background: autoFireActive
+                    ? "radial-gradient(circle, #ffd2a6, #ff5a2c)"
+                    : "radial-gradient(circle, #ff8a6b, #d8402c)",
+                  border: "2px solid rgba(255,220,210,0.85)",
+                  boxShadow: autoFireActive ? "0 0 28px rgba(255,120,40,0.9)" : "0 0 20px rgba(255,90,60,0.6)",
+                  color: "#fff8f0",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  fontSize: "clamp(13px, 2vw, 16px)",
+                  cursor: "pointer",
+                  opacity: settings.buttonOpacity,
+                  transform: `translate(${settings.controlOffsets.fire.x}px, ${settings.controlOffsets.fire.y}px) scale(${settings.buttonSize})`,
+                  transformOrigin: "right bottom",
+                }}
+              >
+                {t(settings.language, "fire")}
+              </button>
 
-          {/* Run toggle button */}
-          <button
-            onPointerDown={(e) => {
-              e.preventDefault();
-              runToggled.current = !runToggled.current;
-              setRunActive(runToggled.current);
-            }}
-            aria-label="Run"
-            style={{
-              position: "absolute",
-              right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-              bottom: "9%",
-              width: "clamp(56px, 10vw, 76px)",
-              height: "clamp(56px, 10vw, 76px)",
-              borderRadius: "50%",
-              background: runActive ? "radial-gradient(circle, #baffb0, #3fd85a)" : "radial-gradient(circle, #8fe89a, #2f8f45)",
-              border: runActive ? "2px solid rgba(220,255,220,0.95)" : "2px solid rgba(210,255,210,0.7)",
-              boxShadow: runActive ? "0 0 26px rgba(90,255,120,0.85)" : "0 0 14px rgba(90,255,120,0.4)",
-              color: "#f0fff2",
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              letterSpacing: "0.05em",
-              fontSize: "clamp(11px, 1.7vw, 14px)",
-              cursor: "pointer",
-              opacity: settings.buttonOpacity,
-              transform: `translate(${settings.controlOffsets.run.x}px, ${settings.controlOffsets.run.y}px) scale(${settings.buttonSize})`,
-              transformOrigin: "right bottom",
-            }}
-          >
-            {t(settings.language, "run")}
-          </button>
+              {/* Run toggle button */}
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  runToggled.current = !runToggled.current;
+                  setRunActive(runToggled.current);
+                }}
+                aria-label="Run"
+                style={{
+                  position: "absolute",
+                  right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+                  bottom: "9%",
+                  width: "clamp(56px, 10vw, 76px)",
+                  height: "clamp(56px, 10vw, 76px)",
+                  borderRadius: "50%",
+                  background: runActive ? "radial-gradient(circle, #baffb0, #3fd85a)" : "radial-gradient(circle, #8fe89a, #2f8f45)",
+                  border: runActive ? "2px solid rgba(220,255,220,0.95)" : "2px solid rgba(210,255,210,0.7)",
+                  boxShadow: runActive ? "0 0 26px rgba(90,255,120,0.85)" : "0 0 14px rgba(90,255,120,0.4)",
+                  color: "#f0fff2",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  fontSize: "clamp(11px, 1.7vw, 14px)",
+                  cursor: "pointer",
+                  opacity: settings.buttonOpacity,
+                  transform: `translate(${settings.controlOffsets.run.x}px, ${settings.controlOffsets.run.y}px) scale(${settings.buttonSize})`,
+                  transformOrigin: "right bottom",
+                }}
+              >
+                {t(settings.language, "run")}
+              </button>
+            </>
+          )}
+
+          {/* Build Mode (Map 4): SELECT stages a wall ahead of the player,
+              WALL commits it, SAVE persists everything placed so far. */}
+          {mapId === 4 && (
+            <>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildSelect();
+                }}
+                aria-label="Select area"
+                style={{
+                  position: "absolute",
+                  right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+                  bottom: "9%",
+                  width: "clamp(72px, 13vw, 100px)",
+                  height: "clamp(72px, 13vw, 100px)",
+                  borderRadius: "50%",
+                  background: "radial-gradient(circle, #baf0ff, #2f9fd8)",
+                  border: "2px solid rgba(210,245,255,0.85)",
+                  boxShadow: "0 0 20px rgba(80,190,255,0.6)",
+                  color: "#06212e",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  fontSize: "clamp(12px, 1.9vw, 15px)",
+                  cursor: "pointer",
+                  opacity: settings.buttonOpacity,
+                }}
+              >
+                SELECT
+              </button>
+
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildPlaceWall();
+                }}
+                disabled={!buildHasSelection}
+                aria-label="Place wall"
+                style={{
+                  position: "absolute",
+                  right: "7%",
+                  bottom: "9%",
+                  width: "clamp(72px, 13vw, 100px)",
+                  height: "clamp(72px, 13vw, 100px)",
+                  borderRadius: "50%",
+                  background: buildHasSelection ? "radial-gradient(circle, #ffe2a6, #d88a2c)" : "rgba(255,255,255,0.1)",
+                  border: buildHasSelection ? "2px solid rgba(255,235,210,0.85)" : "1px solid rgba(200,220,240,0.35)",
+                  boxShadow: buildHasSelection ? "0 0 20px rgba(255,170,40,0.6)" : "none",
+                  color: buildHasSelection ? "#2e1c06" : "rgba(220,230,240,0.5)",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  fontSize: "clamp(13px, 2vw, 16px)",
+                  cursor: buildHasSelection ? "pointer" : "default",
+                  opacity: settings.buttonOpacity,
+                }}
+              >
+                WALL
+              </button>
+
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildSave();
+                }}
+                aria-label="Save map"
+                style={{
+                  position: "absolute",
+                  left: "6%",
+                  bottom: "26%",
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: buildSaveLabel === "SAVED!" ? "rgba(107,216,255,0.35)" : "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {buildSaveLabel}
+              </button>
+            </>
+          )}
         </>
       )}
 
@@ -5392,13 +5644,14 @@ function StorePanel({
   );
 }
 
-const MAP_CARDS: { id: 1 | 2 | 3; title: string; subtitle: string }[] = [
+const MAP_CARDS: { id: 1 | 2 | 3 | 4; title: string; subtitle: string }[] = [
   { id: 1, title: "MAP 1", subtitle: "Outpost — the original 6-room facility" },
   { id: 2, title: "MAP 2", subtitle: "Central Hall — an 11-zone military complex" },
   { id: 3, title: "MAP 3", subtitle: "Safehouse — a big house, one way through" },
+  { id: 4, title: "MAP 4", subtitle: "Build Mode — place walls, design your own" },
 ];
 
-function MapSelectPanel({ onClose, onSelect }: { onClose: () => void; onSelect: (mapId: 1 | 2 | 3) => void }) {
+function MapSelectPanel({ onClose, onSelect }: { onClose: () => void; onSelect: (mapId: 1 | 2 | 3 | 4) => void }) {
   return (
     <div
       role="dialog"
@@ -7163,7 +7416,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployPressed, setDeployPressed] = useState(false);
   const [mapSelectOpen, setMapSelectOpen] = useState(false);
-  const [selectedMapId, setSelectedMapId] = useState<1 | 2 | 3>(1);
+  const [selectedMapId, setSelectedMapId] = useState<1 | 2 | 3 | 4>(1);
   const [rankOpen, setRankOpen] = useState(false);
   const [characterOpen, setCharacterOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
