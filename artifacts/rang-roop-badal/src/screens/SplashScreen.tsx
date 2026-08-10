@@ -10,8 +10,8 @@ const BUTTON_BG_BOTTOM = -90;
 const MENU_BUTTON_RATIO = 774 / 201;
 const MENU_BUTTON_WIDTH = SCREEN_WIDTH * 0.82;
 const MENU_BUTTON_HEIGHT = MENU_BUTTON_WIDTH / MENU_BUTTON_RATIO;
-const MENU_BUTTON_GAP = 14;
-const MENU_STACK_TOP = SCREEN_HEIGHT * 0.27;
+const MENU_BUTTON_GAP = 6;
+const MENU_STACK_TOP = SCREEN_HEIGHT * 0.27 - 10;
 
 const MENU_BUTTONS: { key: string; source: number }[] = [
   { key: "play", source: require("../../assets/btn_play.png") },
