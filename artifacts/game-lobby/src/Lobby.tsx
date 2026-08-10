@@ -1006,12 +1006,16 @@ function pickMap3ZoneTarget(guardIndex: number): { x: number; z: number } {
 // ============================================================================
 const MAP4_ORIGIN = { x: 0, z: 200 };
 const MAP4_PLAYER_SPAWN = { x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z };
-const MAP4_WALL_LENGTH = 6;
+// Legacy fallback for walls saved before per-wall length existed.
+const MAP4_WALL_LENGTH_DEFAULT = 6;
+const MAP4_WALL_LENGTH_MIN = 1;
+const MAP4_WALL_LENGTH_MAX = 5;
 const MAP4_STORAGE_KEY = "10sa-map4-walls";
 interface Map4Wall {
   x: number;
   z: number;
   axis: "x" | "z"; // the wall's long axis — "x" blocks north/south movement, "z" blocks east/west
+  length: number; // meters, chosen via the 1-5 selector before placing
 }
 function loadMap4Walls(): Map4Wall[] {
   try {
@@ -1019,9 +1023,9 @@ function loadMap4Walls(): Map4Wall[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (w): w is Map4Wall => w && typeof w.x === "number" && typeof w.z === "number" && (w.axis === "x" || w.axis === "z"),
-    );
+    return parsed
+      .filter((w) => w && typeof w.x === "number" && typeof w.z === "number" && (w.axis === "x" || w.axis === "z"))
+      .map((w): Map4Wall => ({ x: w.x, z: w.z, axis: w.axis, length: typeof w.length === "number" ? w.length : MAP4_WALL_LENGTH_DEFAULT }));
   } catch {
     return [];
   }
@@ -1036,8 +1040,8 @@ function saveMap4Walls(walls: Map4Wall[]) {
 }
 function map4WallObstacle(w: Map4Wall): Obstacle {
   return w.axis === "x"
-    ? { x: w.x, z: w.z, halfX: MAP4_WALL_LENGTH / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }
-    : { x: w.x, z: w.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: MAP4_WALL_LENGTH / 2, pad: ROOM_PAD };
+    ? { x: w.x, z: w.z, halfX: w.length / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }
+    : { x: w.x, z: w.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: w.length / 2, pad: ROOM_PAD };
 }
 
 // An underground tunnel actually running beneath the real path between
@@ -2529,7 +2533,7 @@ function CombatArena({
   // button handlers below — plain component functions, not part of that
   // effect's closure — can still reach into the live scene.
   const buildModeRef = useRef<{
-    getPlayerFacing: () => { x: number; z: number; axis: "x" | "z" } | null;
+    getPlayerFacing: (length: number) => { x: number; z: number; axis: "x" | "z" } | null;
     addPreviewMesh: (wall: Map4Wall) => THREE.Object3D;
     removeMesh: (obj: THREE.Object3D) => void;
     commitWall: (wall: Map4Wall) => THREE.Object3D;
@@ -2549,6 +2553,8 @@ function CombatArena({
   // Mirrors customWallsRef.current.length purely so REMOVE's disabled
   // state re-renders — the ref itself is intentionally not React state.
   const [buildWallCount, setBuildWallCount] = useState(0);
+  // Chosen via the 1-5 length selector before SELECT stages a wall.
+  const [buildWallLength, setBuildWallLength] = useState(3);
   const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
   // The bird's heading (horizontal drag) and look pitch (vertical drag —
   // negative looks down at the ground, positive looks up toward the sky),
@@ -3249,7 +3255,7 @@ function CombatArena({
       });
       setBuildWallCount(customWallsRef.current.length);
       buildModeRef.current = {
-        getPlayerFacing: () => {
+        getPlayerFacing: (length) => {
           if (!player) return null;
           // Snap to the nearest cardinal direction so every placed wall
           // stays axis-aligned (matching how every other wall in the game
@@ -3266,7 +3272,7 @@ function CombatArena({
           // opposite of that.
           const forwardX = Math.sin(cameraYaw.current);
           const forwardZ = Math.cos(cameraYaw.current);
-          const dist = MAP4_WALL_LENGTH / 2 + 2;
+          const dist = length / 2 + 2;
           return { x: player.root.position.x + forwardX * dist, z: player.root.position.z + forwardZ * dist, axis };
         },
         addPreviewMesh: (wall) => {
@@ -4331,11 +4337,11 @@ function CombatArena({
   const handleBuildSelect = () => {
     const api = buildModeRef.current;
     if (!api) return;
-    const facing = api.getPlayerFacing();
+    const facing = api.getPlayerFacing(buildWallLength);
     if (!facing) return;
     const prev = buildSelectionRef.current;
     if (prev) api.removeMesh(prev.mesh);
-    const wall: Map4Wall = { x: facing.x, z: facing.z, axis: facing.axis };
+    const wall: Map4Wall = { x: facing.x, z: facing.z, axis: facing.axis, length: buildWallLength };
     const mesh = api.addPreviewMesh(wall);
     buildSelectionRef.current = { wall, mesh };
     setBuildHasSelection(true);
@@ -4722,10 +4728,51 @@ function CombatArena({
             </>
           )}
 
-          {/* Build Mode (Map 4): SELECT stages a wall ahead of the player,
-              WALL commits it, SAVE persists everything placed so far. */}
+          {/* Build Mode (Map 4): the 1-5 row picks the length SELECT stages
+              its wall at (in meters); WALL commits it; SAVE persists
+              everything placed so far. */}
           {mapId === 4 && (
             <>
+              <div
+                style={{
+                  position: "absolute",
+                  top: 58,
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  display: "flex",
+                  gap: 6,
+                  background: "rgba(8,14,24,0.7)",
+                  border: "1px solid rgba(200,220,240,0.3)",
+                  borderRadius: 8,
+                  padding: 5,
+                }}
+              >
+                {Array.from({ length: MAP4_WALL_LENGTH_MAX - MAP4_WALL_LENGTH_MIN + 1 }, (_, i) => MAP4_WALL_LENGTH_MIN + i).map((n) => (
+                  <button
+                    key={n}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      setBuildWallLength(n);
+                    }}
+                    aria-label={`Wall length ${n}m`}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 6,
+                      background: buildWallLength === n ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                      border: buildWallLength === n ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                      color: "#dce8f5",
+                      fontFamily: "'Rajdhani', sans-serif",
+                      fontWeight: 700,
+                      fontSize: 14,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
