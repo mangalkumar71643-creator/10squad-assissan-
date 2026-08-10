@@ -1,5 +1,11 @@
-import React from "react";
-import { Dimensions, Image, StyleSheet, View } from "react-native";
+import React, { useRef } from "react";
+import { Animated, Dimensions, Image, Pressable, StyleSheet, View } from "react-native";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+
+import { RootStackParamList } from "@/types";
+import { vibrate } from "@/utils/haptics";
+
+type Props = NativeStackScreenProps<RootStackParamList, "Splash">;
 
 const BUTTON_BG_ASPECT_RATIO = 1536 / 1024;
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -12,14 +18,6 @@ const MENU_BUTTON_WIDTH = SCREEN_WIDTH * 0.82;
 const MENU_BUTTON_HEIGHT = MENU_BUTTON_WIDTH / MENU_BUTTON_RATIO;
 const MENU_BUTTON_GAP = 6;
 const MENU_STACK_TOP = SCREEN_HEIGHT * 0.27 - 10;
-
-const MENU_BUTTONS: { key: string; source: number }[] = [
-  { key: "play", source: require("../../assets/btn_play.png") },
-  { key: "game_modes", source: require("../../assets/btn_game_modes.png") },
-  { key: "balls", source: require("../../assets/btn_balls.png") },
-  { key: "rank", source: require("../../assets/btn_rank.png") },
-  { key: "settings", source: require("../../assets/btn_settings.png") },
-];
 
 // The pill artwork's solid band sits roughly between these two fractions of
 // its own height (measured from the source PNG) — icons are laid out there.
@@ -35,7 +33,59 @@ const ICONS: { key: string; source: number }[] = [
   { key: "achievements", source: require("../../assets/icon_achievements.png") },
 ];
 
-export function SplashScreen() {
+function MenuButtonImage({
+  source,
+  onPress,
+}: {
+  source: number;
+  onPress?: () => void;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  if (!onPress) {
+    return <Image source={source} style={styles.menuButton} resizeMode="contain" />;
+  }
+
+  const onPressIn = () =>
+    Animated.spring(scale, { toValue: 0.95, useNativeDriver: true, speed: 40 }).start();
+  const onPressOut = () =>
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 40 }).start();
+
+  return (
+    <Pressable
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      onPress={() => {
+        vibrate("light");
+        onPress();
+      }}
+    >
+      <Animated.Image
+        source={source}
+        style={[styles.menuButton, { transform: [{ scale }] }]}
+        resizeMode="contain"
+      />
+    </Pressable>
+  );
+}
+
+export function SplashScreen({ navigation }: Props) {
+  const menuButtons: { key: string; source: number; onPress?: () => void }[] = [
+    {
+      key: "play",
+      source: require("../../assets/btn_play.png"),
+      onPress: () => navigation.replace("Gameplay", { mode: "classic" }),
+    },
+    { key: "game_modes", source: require("../../assets/btn_game_modes.png") },
+    {
+      key: "balls",
+      source: require("../../assets/btn_balls.png"),
+      onPress: () => navigation.navigate("BallSelect"),
+    },
+    { key: "rank", source: require("../../assets/btn_rank.png") },
+    { key: "settings", source: require("../../assets/btn_settings.png") },
+  ];
+
   return (
     <View style={styles.flex}>
       <Image
@@ -45,8 +95,8 @@ export function SplashScreen() {
       />
 
       <View style={styles.menuStack}>
-        {MENU_BUTTONS.map((btn) => (
-          <Image key={btn.key} source={btn.source} style={styles.menuButton} resizeMode="contain" />
+        {menuButtons.map((btn) => (
+          <MenuButtonImage key={btn.key} source={btn.source} onPress={btn.onPress} />
         ))}
       </View>
 
