@@ -7182,12 +7182,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
         missionPressed={deployPressed}
         onMissionPress={() => setDeployPressed(true)}
         onMissionRelease={() => setDeployPressed(false)}
-        onMissionClick={() => {
-          // Map select is temporarily hidden — jump straight into Map 1
-          // until the user asks to bring the Map 2 picker back.
-          setSelectedMapId(1);
-          setDeployOpen(true);
-        }}
+        onMissionClick={() => setMapSelectOpen(true)}
       />
 
       {mapSelectOpen && (
