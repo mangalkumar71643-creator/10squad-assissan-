@@ -52,3 +52,6 @@ Thumbs.db
 
 # Temporary APK download-hosting files (not part of the repo)
 artifacts/game-lobby/public/*.apk
+
+# Locally downloaded Android SDK (used for on-demand local builds only)
+/android-sdk
