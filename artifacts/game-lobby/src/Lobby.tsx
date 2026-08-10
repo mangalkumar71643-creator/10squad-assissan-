@@ -901,6 +901,101 @@ function pickMap2ZoneTarget(guardIndex: number): { x: number; z: number } {
   };
 }
 
+// ============================================================================
+// MAP 3 — a bigger house blending Map 1's "chain of rooms" feel with Map 2's
+// reusable zone system (reuses Map2Zone/zoneWallObstacles/zoneDoorGaps/
+// corridorWalls/zoneDoorPoint directly — they're generic, not Map2-specific).
+// One straight main path (Entry -> Living Room -> Hallway -> Dining Area ->
+// Guard Post -> Foyer -> Boss Lair) the player always advances along, with
+// small single-door utility rooms (Kitchen/Bathroom/Bedroom/Study — bare
+// rooms, no furniture yet) branching off to alternating sides so they're
+// glimpsed in passing rather than sitting on the route itself. Walkways are
+// a wider 5m throughout (MAP3_CORRIDOR_WIDTH), and the Boss Lair — the
+// biggest room on the map — sits at the far end with a key prop in it.
+// Positioned in -X, clear of both Map 1 (~x0-100) and Map 2 (~x200-290).
+// ============================================================================
+const MAP3_ORIGIN = { x: -250, z: 0 };
+const MAP3_ROOM_HEIGHT = ROOM_WALL_HEIGHT;
+function m3(x: number, z: number) {
+  return { x: x + MAP3_ORIGIN.x, z: z + MAP3_ORIGIN.z };
+}
+
+const MAP3_ENTRY: Map2Zone = { name: "Entry Hall", ...m3(0, 0), width: 22, depth: 20, height: MAP3_ROOM_HEIGHT, doors: ["n"] };
+const MAP3_LIVING_ROOM: Map2Zone = { name: "Living Room", ...m3(0, -31), width: 26, depth: 22, height: MAP3_ROOM_HEIGHT, doors: ["s", "n", "w", "e"] };
+const MAP3_KITCHEN: Map2Zone = { name: "Kitchen", ...m3(-24, -31), width: 10, depth: 9, height: MAP3_ROOM_HEIGHT, doors: ["e"] };
+const MAP3_BATHROOM: Map2Zone = { name: "Bathroom", ...m3(23, -31), width: 8, depth: 8, height: MAP3_ROOM_HEIGHT, doors: ["w"] };
+const MAP3_HALLWAY: Map2Zone = { name: "Hallway", ...m3(0, -60), width: 30, depth: 16, height: MAP3_ROOM_HEIGHT, doors: ["s", "n", "w"] };
+const MAP3_BEDROOM: Map2Zone = { name: "Bedroom", ...m3(-27, -60), width: 12, depth: 11, height: MAP3_ROOM_HEIGHT, doors: ["e"] };
+const MAP3_DINING_AREA: Map2Zone = { name: "Dining Area", ...m3(0, -89), width: 24, depth: 22, height: MAP3_ROOM_HEIGHT, doors: ["s", "n", "e"] };
+const MAP3_STUDY: Map2Zone = { name: "Study", ...m3(23, -89), width: 10, depth: 9, height: MAP3_ROOM_HEIGHT, doors: ["w"] };
+const MAP3_GUARD_POST: Map2Zone = { name: "Guard Post", ...m3(0, -120), width: 22, depth: 20, height: MAP3_ROOM_HEIGHT, doors: ["s", "n"] };
+const MAP3_FOYER: Map2Zone = { name: "Foyer", ...m3(0, -149), width: 20, depth: 18, height: MAP3_ROOM_HEIGHT, doors: ["s", "n"] };
+const MAP3_BOSS_LAIR: Map2Zone = { name: "Boss Lair", ...m3(0, -191), width: 40, depth: 36, height: MAP3_ROOM_HEIGHT, doors: ["s"] };
+
+const MAP3_ZONES: Map2Zone[] = [
+  MAP3_ENTRY,
+  MAP3_LIVING_ROOM,
+  MAP3_KITCHEN,
+  MAP3_BATHROOM,
+  MAP3_HALLWAY,
+  MAP3_BEDROOM,
+  MAP3_DINING_AREA,
+  MAP3_STUDY,
+  MAP3_GUARD_POST,
+  MAP3_FOYER,
+  MAP3_BOSS_LAIR,
+];
+
+// Main path connections all use the wider 5m walkway; the short branches
+// out to the small utility rooms use the same width so their doorway (still
+// just MAP2_DOOR_WIDTH wide) doesn't feel like a sudden bottleneck.
+const MAP3_CORRIDOR_WIDTH = 5;
+const MAP3_CORRIDORS: { a: Map2Zone; sideA: ZoneSide; b: Map2Zone; sideB: ZoneSide; width: number }[] = [
+  { a: MAP3_ENTRY, sideA: "n", b: MAP3_LIVING_ROOM, sideB: "s", width: MAP3_CORRIDOR_WIDTH },
+  { a: MAP3_LIVING_ROOM, sideA: "w", b: MAP3_KITCHEN, sideB: "e", width: MAP3_CORRIDOR_WIDTH },
+  { a: MAP3_LIVING_ROOM, sideA: "e", b: MAP3_BATHROOM, sideB: "w", width: MAP3_CORRIDOR_WIDTH },
+  { a: MAP3_LIVING_ROOM, sideA: "n", b: MAP3_HALLWAY, sideB: "s", width: MAP3_CORRIDOR_WIDTH },
+  { a: MAP3_HALLWAY, sideA: "w", b: MAP3_BEDROOM, sideB: "e", width: MAP3_CORRIDOR_WIDTH },
+  { a: MAP3_HALLWAY, sideA: "n", b: MAP3_DINING_AREA, sideB: "s", width: MAP3_CORRIDOR_WIDTH },
+  { a: MAP3_DINING_AREA, sideA: "e", b: MAP3_STUDY, sideB: "w", width: MAP3_CORRIDOR_WIDTH },
+  { a: MAP3_DINING_AREA, sideA: "n", b: MAP3_GUARD_POST, sideB: "s", width: MAP3_CORRIDOR_WIDTH },
+  { a: MAP3_GUARD_POST, sideA: "n", b: MAP3_FOYER, sideB: "s", width: MAP3_CORRIDOR_WIDTH },
+  { a: MAP3_FOYER, sideA: "n", b: MAP3_BOSS_LAIR, sideB: "s", width: MAP3_CORRIDOR_WIDTH },
+];
+
+const MAP3_OBSTACLES: Obstacle[] = [
+  ...MAP3_ZONES.flatMap(zoneWallObstacles),
+  ...MAP3_CORRIDORS.flatMap((c) => {
+    const pa = zoneDoorPoint(c.a, c.sideA);
+    const pb = zoneDoorPoint(c.b, c.sideB);
+    return corridorWalls(pa.x, pa.z, pb.x, pb.z, c.width);
+  }),
+];
+
+const MAP3_DOORS: Door[] = MAP3_ZONES.flatMap(zoneDoorGaps);
+
+const MAP3_PLAYER_SPAWN = { x: MAP3_ENTRY.x, z: MAP3_ENTRY.z + 4 };
+
+// 5 guard posts along the main path (Living Room, Hallway, Dining Area,
+// Guard Post, Foyer) plus the Boss in the Boss Lair — Kitchen/Bathroom/
+// Bedroom/Study stay guard-free, just small rooms glimpsed in passing.
+const MAP3_GUARD_ZONES: Map2Zone[] = [MAP3_LIVING_ROOM, MAP3_HALLWAY, MAP3_DINING_AREA, MAP3_GUARD_POST, MAP3_FOYER];
+const MAP3_BOT_SPAWNS = MAP3_GUARD_ZONES.map((zone) => ({ x: zone.x, z: zone.z }));
+const MAP3_BOSS_SPAWN = { x: MAP3_BOSS_LAIR.x, z: MAP3_BOSS_LAIR.z };
+// The key prop sits a little in front of where the Boss spawns/stands.
+const MAP3_KEY_POS = { x: MAP3_BOSS_LAIR.x, z: MAP3_BOSS_LAIR.z + 8 };
+
+const MAP3_PATROL_MARGIN = 2.5;
+function pickMap3ZoneTarget(guardIndex: number): { x: number; z: number } {
+  const zone = MAP3_GUARD_ZONES[guardIndex];
+  const halfX = Math.max(0.5, zone.width / 2 - MAP3_PATROL_MARGIN);
+  const halfZ = Math.max(0.5, zone.depth / 2 - MAP3_PATROL_MARGIN);
+  return {
+    x: zone.x + (Math.random() * 2 - 1) * halfX,
+    z: zone.z + (Math.random() * 2 - 1) * halfZ,
+  };
+}
+
 // An underground tunnel actually running beneath the real path between
 // houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
 // unrelated empty arena. Since the collision system only checks X/Z (see
@@ -2291,7 +2386,7 @@ function CombatArena({
   onExit,
   onMatchEnd,
 }: {
-  mapId: 1 | 2;
+  mapId: 1 | 2 | 3;
   onExit: () => void;
   onMatchEnd: (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => void;
 }) {
@@ -2381,6 +2476,9 @@ function CombatArena({
   // looking straight down just shows the solid (double-sided) roof instead
   // of the room underneath.
   const ceilingMeshesRef = useRef<THREE.Mesh[]>([]);
+  // Map 3's decorative key prop in the Boss Lair (set while building the
+  // level, spun slowly each frame in the tick below — null on Map 1/2).
+  const keyPropRef = useRef<THREE.Group | null>(null);
   // The bird's heading (horizontal drag) and look pitch (vertical drag —
   // negative looks down at the ground, positive looks up toward the sky),
   // both set in handleLookMove. Flight direction always follows yaw only;
@@ -2410,7 +2508,7 @@ function CombatArena({
     // (resolveObstacleCollisions/hasLineOfSight/probeClear) aren't
     // closures over this effect — reassigned once per match, before
     // anything can actually collide with it.
-    ACTIVE_OBSTACLES = mapId === 2 ? MAP2_OBSTACLES : MAP1_OBSTACLES;
+    ACTIVE_OBSTACLES = mapId === 2 ? MAP2_OBSTACLES : mapId === 3 ? MAP3_OBSTACLES : MAP1_OBSTACLES;
 
     const scene = new THREE.Scene();
     // A sky sphere plus matching fog — without these the canvas has no
@@ -3058,12 +3156,14 @@ function CombatArena({
     // EXTRA_CRATES' own visuals are spawned in the loadCrateMaterial block
     // above, alongside the room crates.
     } else {
-      // Map 2 — the 11 zones from MAP2_ZONES plus the corridors connecting
-      // them (see MAP2_OBSTACLES/MAP2_CORRIDORS above for the collision
-      // side of this same geometry). Simpler than Map 1 on purpose: no
-      // underground tunnel, no crates/decals, just walls, door glows and
-      // ceilings at each zone's own height.
-      for (const zone of MAP2_ZONES) {
+      // Map 2 / Map 3 — both built from the same generic Map2Zone system
+      // (see MAP2_OBSTACLES/MAP2_CORRIDORS and MAP3_OBSTACLES/MAP3_CORRIDORS
+      // above for the collision side of this same geometry). Simpler than
+      // Map 1 on purpose: no underground tunnel, no crates/decals, just
+      // walls, door glows and ceilings at each zone's own height.
+      const zones = mapId === 3 ? MAP3_ZONES : MAP2_ZONES;
+      const corridors = mapId === 3 ? MAP3_CORRIDORS : MAP2_CORRIDORS;
+      for (const zone of zones) {
         for (const ob of zoneWallObstacles(zone)) {
           addWallMesh(ob, zone.height, zone.height / 2, 1);
         }
@@ -3086,7 +3186,7 @@ function CombatArena({
           scene.add(glow);
         }
       }
-      for (const corridor of MAP2_CORRIDORS) {
+      for (const corridor of corridors) {
         const pa = zoneDoorPoint(corridor.a, corridor.sideA);
         const pb = zoneDoorPoint(corridor.b, corridor.sideB);
         const height = Math.min(corridor.a.height, corridor.b.height);
@@ -3108,6 +3208,30 @@ function CombatArena({
         ceiling.position.set(centerX, height + ROOM_WALL_THICKNESS / 2, centerZ);
         scene.add(ceiling);
       }
+      if (mapId === 3) {
+        // A simple decorative key prop (ring + shaft + two teeth) marking
+        // the Boss Lair — a glowing gold pickup-style prop, not a
+        // functional lock (Map 2 skipped the key-lock system for the same
+        // reason: keeps the level itself the focus).
+        const keyMat = new THREE.MeshStandardMaterial({ color: 0xffcf4d, emissive: 0xffaa00, emissiveIntensity: 0.9, roughness: 0.3, metalness: 0.8 });
+        const keyGroup = new THREE.Group();
+        const keyRing = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.09, 12, 24), keyMat);
+        keyGroup.add(keyRing);
+        const keyShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.9, 10), keyMat);
+        keyShaft.rotation.z = Math.PI / 2;
+        keyShaft.position.x = 0.75;
+        keyGroup.add(keyShaft);
+        const keyTooth1 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 0.09), keyMat);
+        keyTooth1.position.set(1.05, -0.12, 0);
+        keyGroup.add(keyTooth1);
+        const keyTooth2 = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.13, 0.09), keyMat);
+        keyTooth2.position.set(1.22, -0.1, 0);
+        keyGroup.add(keyTooth2);
+        keyGroup.position.set(MAP3_KEY_POS.x, 1.3, MAP3_KEY_POS.z);
+        keyGroup.rotation.x = 0.3;
+        scene.add(keyGroup);
+        keyPropRef.current = keyGroup;
+      }
     }
 
     // Every ceiling slab built above shares a material created by
@@ -3128,7 +3252,7 @@ function CombatArena({
     const GATE_THICKNESS = ROOM_WALL_THICKNESS * 0.9;
     const GATE_OPEN_RADIUS = 3.5;
     const GATE_SLIDE_RATE = 4;
-    const doorsForLevel = mapId === 2 ? MAP2_DOORS : DOORS;
+    const doorsForLevel = mapId === 2 ? MAP2_DOORS : mapId === 3 ? MAP3_DOORS : DOORS;
     const gates = doorsForLevel.map((door) => {
       const doorGatePanelHeight = (door.wallHeight ?? ROOM_WALL_HEIGHT) - 0.4;
       const panelWidth = door.width / 2;
@@ -3342,7 +3466,7 @@ function CombatArena({
     // Selection (persisted under SELECTED_CARD_STORAGE_KEY) instead of
     // always being the SWAT model — CARD_MODELS/loadBotFighter are the same
     // lookup + retargeting pipeline the selection ring itself uses.
-    const playerSpawnPos = mapId === 2 ? MAP2_PLAYER_SPAWN : { x: 0, z: 3 };
+    const playerSpawnPos = mapId === 2 ? MAP2_PLAYER_SPAWN : mapId === 3 ? MAP3_PLAYER_SPAWN : { x: 0, z: 3 };
     const spawnPlayer = (rig: FighterRig) => {
       if (disposed) return;
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
@@ -3364,8 +3488,8 @@ function CombatArena({
     // — all loaded from the same rig/model, just spawned at different
     // posts and the Boss additionally scaled up and tinted (see
     // tintBossFighter).
-    const botSpawns = mapId === 2 ? MAP2_BOT_SPAWNS : BOT_SPAWNS;
-    const bossSpawn = mapId === 2 ? MAP2_BOSS_SPAWN : BOSS_SPAWN;
+    const botSpawns = mapId === 2 ? MAP2_BOT_SPAWNS : mapId === 3 ? MAP3_BOT_SPAWNS : BOT_SPAWNS;
+    const bossSpawn = mapId === 2 ? MAP2_BOSS_SPAWN : mapId === 3 ? MAP3_BOSS_SPAWN : BOSS_SPAWN;
     const bots: (FighterRig | null)[] = [null, null, null, null, null, null];
     for (let i = 0; i < botSpawns.length; i++) {
       const spawn = botSpawns[i];
@@ -3482,6 +3606,7 @@ function CombatArena({
       if (targetFrameMs > 0 && now - lastFrameAt < targetFrameMs) return;
       lastFrameAt = now;
       const dt = Math.min(clock.getDelta(), 0.05);
+      if (keyPropRef.current) keyPropRef.current.rotation.y += dt * 1.2;
       player?.mixer?.update(dt);
       for (const rig of bots) rig?.mixer?.update(dt);
       // Re-bend the off-hand toward the gun's foregrip after the mixer has
@@ -3744,7 +3869,12 @@ function CombatArena({
                 // one that may not be reachable from here.
                 st.stuckT > STUCK_AVOID_FLIP_DELAY * 2
               ) {
-                st.patrolTarget = mapId === 2 ? pickMap2ZoneTarget(st.roomIndex) : pickRoomPatrolTarget(st.roomIndex);
+                st.patrolTarget =
+                  mapId === 2
+                    ? pickMap2ZoneTarget(st.roomIndex)
+                    : mapId === 3
+                      ? pickMap3ZoneTarget(st.roomIndex)
+                      : pickRoomPatrolTarget(st.roomIndex);
                 st.stuckT = 0;
               }
               const pdx = st.patrolTarget.x - rig.root.position.x;
@@ -5262,12 +5392,13 @@ function StorePanel({
   );
 }
 
-const MAP_CARDS: { id: 1 | 2; title: string; subtitle: string }[] = [
+const MAP_CARDS: { id: 1 | 2 | 3; title: string; subtitle: string }[] = [
   { id: 1, title: "MAP 1", subtitle: "Outpost — the original 6-room facility" },
   { id: 2, title: "MAP 2", subtitle: "Central Hall — an 11-zone military complex" },
+  { id: 3, title: "MAP 3", subtitle: "Safehouse — a big house, one way through" },
 ];
 
-function MapSelectPanel({ onClose, onSelect }: { onClose: () => void; onSelect: (mapId: 1 | 2) => void }) {
+function MapSelectPanel({ onClose, onSelect }: { onClose: () => void; onSelect: (mapId: 1 | 2 | 3) => void }) {
   return (
     <div
       role="dialog"
@@ -7032,7 +7163,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployPressed, setDeployPressed] = useState(false);
   const [mapSelectOpen, setMapSelectOpen] = useState(false);
-  const [selectedMapId, setSelectedMapId] = useState<1 | 2>(1);
+  const [selectedMapId, setSelectedMapId] = useState<1 | 2 | 3>(1);
   const [rankOpen, setRankOpen] = useState(false);
   const [characterOpen, setCharacterOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
