@@ -26,13 +26,6 @@ const PILL_BOTTOM_RATIO = 654 / 1024;
 const ICON_ROW_TOP = PILL_TOP_RATIO * BUTTON_BG_HEIGHT;
 const ICON_ROW_HEIGHT = (PILL_BOTTOM_RATIO - PILL_TOP_RATIO) * BUTTON_BG_HEIGHT;
 
-const ICONS: { key: string; source: number }[] = [
-  { key: "home", source: require("../../assets/icon_home.png") },
-  { key: "shop", source: require("../../assets/icon_shop.png") },
-  { key: "daily_reward", source: require("../../assets/icon_daily_reward.png") },
-  { key: "achievements", source: require("../../assets/icon_achievements.png") },
-];
-
 function MenuButtonImage({
   source,
   onPress,
@@ -69,6 +62,30 @@ function MenuButtonImage({
   );
 }
 
+function IconButton({ source, onPress }: { source: number; onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const onPressIn = () =>
+    Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 40 }).start();
+  const onPressOut = () =>
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 40 }).start();
+
+  return (
+    <Pressable
+      style={styles.iconSlot}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      onPress={() => {
+        vibrate("light");
+        onPress();
+      }}
+    >
+      <Animated.View style={[styles.iconSlotBg, { transform: [{ scale }] }]}>
+        <Image source={source} style={styles.iconImage} resizeMode="contain" />
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 export function SplashScreen({ navigation }: Props) {
   const menuButtons: { key: string; source: number; onPress?: () => void }[] = [
     {
@@ -76,14 +93,41 @@ export function SplashScreen({ navigation }: Props) {
       source: require("../../assets/btn_play.png"),
       onPress: () => navigation.replace("Gameplay", { mode: "classic" }),
     },
-    { key: "game_modes", source: require("../../assets/btn_game_modes.png") },
+    {
+      key: "game_modes",
+      source: require("../../assets/btn_game_modes.png"),
+      onPress: () => navigation.navigate("GameModes"),
+    },
     {
       key: "balls",
       source: require("../../assets/btn_balls.png"),
       onPress: () => navigation.navigate("BallSelect"),
     },
-    { key: "rank", source: require("../../assets/btn_rank.png") },
-    { key: "settings", source: require("../../assets/btn_settings.png") },
+    {
+      key: "rank",
+      source: require("../../assets/btn_rank.png"),
+      onPress: () => navigation.navigate("RankProgress"),
+    },
+    {
+      key: "settings",
+      source: require("../../assets/btn_settings.png"),
+      onPress: () => navigation.navigate("Settings"),
+    },
+  ];
+
+  const icons: { key: string; source: number; onPress: () => void }[] = [
+    { key: "home", source: require("../../assets/icon_home.png"), onPress: () => navigation.navigate("Profile") },
+    { key: "shop", source: require("../../assets/icon_shop.png"), onPress: () => navigation.navigate("Shop") },
+    {
+      key: "daily_reward",
+      source: require("../../assets/icon_daily_reward.png"),
+      onPress: () => navigation.navigate("DailyReward"),
+    },
+    {
+      key: "achievements",
+      source: require("../../assets/icon_achievements.png"),
+      onPress: () => navigation.navigate("Achievements"),
+    },
   ];
 
   return (
@@ -108,12 +152,8 @@ export function SplashScreen({ navigation }: Props) {
         />
 
         <View style={styles.iconRow}>
-          {ICONS.map((icon) => (
-            <View key={icon.key} style={styles.iconSlot}>
-              <View style={styles.iconSlotBg}>
-                <Image source={icon.source} style={styles.iconImage} resizeMode="contain" />
-              </View>
-            </View>
+          {icons.map((icon) => (
+            <IconButton key={icon.key} source={icon.source} onPress={icon.onPress} />
           ))}
         </View>
       </View>
