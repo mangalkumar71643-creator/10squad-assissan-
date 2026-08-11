@@ -58,7 +58,7 @@ export function GameOverScreen({ route, navigation }: Props) {
                 <GameButton
                   label="Main Menu"
                   colors={[theme.accent.purple, "#6A2FCB"]}
-                  onPress={() => navigation.reset({ index: 0, routes: [{ name: "MainMenu" }] })}
+                  onPress={() => navigation.reset({ index: 0, routes: [{ name: "Splash" }] })}
                 />
                 <GameButton
                   label="Share Score"

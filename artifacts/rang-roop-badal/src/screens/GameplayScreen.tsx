@@ -264,7 +264,7 @@ export function GameplayScreen({ route, navigation }: Props) {
           />
           <GameButton
             label="Main Menu"
-            onPress={() => navigation.reset({ index: 0, routes: [{ name: "MainMenu" }] })}
+            onPress={() => navigation.reset({ index: 0, routes: [{ name: "Splash" }] })}
             colors={[theme.accent.red, "#B33240"]}
           />
         </View>

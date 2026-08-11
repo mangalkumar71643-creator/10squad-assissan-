@@ -4,7 +4,6 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { RootStackParamList } from "@/types";
 import { SplashScreen } from "@/screens/SplashScreen";
 import { GameplayScreen } from "@/screens/GameplayScreen";
-import { MainMenuScreen } from "@/screens/MainMenuScreen";
 import { GameModesScreen } from "@/screens/GameModesScreen";
 import { ChallengeSelectScreen } from "@/screens/ChallengeSelectScreen";
 import { BallSelectScreen } from "@/screens/BallSelectScreen";
@@ -30,7 +29,6 @@ export function RootNavigator() {
     >
       <Stack.Screen name="Splash" component={SplashScreen} />
       <Stack.Screen name="Gameplay" component={GameplayScreen} />
-      <Stack.Screen name="MainMenu" component={MainMenuScreen} />
       <Stack.Screen name="GameModes" component={GameModesScreen} />
       <Stack.Screen name="ChallengeSelect" component={ChallengeSelectScreen} />
       <Stack.Screen name="BallSelect" component={BallSelectScreen} />
