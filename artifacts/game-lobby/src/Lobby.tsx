@@ -997,50 +997,97 @@ function pickMap3ZoneTarget(guardIndex: number): { x: number; z: number } {
 }
 
 // ============================================================================
-// MAP 4 — Build Mode: a blank canvas (no rooms, no bots) the player can
-// place crate obstacles in themselves via the SELECT/OBSTACLE/SAVE controls
-// in CombatArena, instead of a designed level. Placed obstacles persist in
-// localStorage (MAP4_STORAGE_KEY) and are rebuilt every time this map is
-// entered. Positioned in +Z, clear of every other map (all of which sit at
-// z<=~10 near their spawns and go further negative from there).
+// MAP 4 — Build Mode: a blank canvas (no rooms, no bots) the player builds
+// up themselves, via the SELECT/PLACE/REMOVE/SAVE controls in CombatArena,
+// instead of a designed level. Two kinds of piece — walls (for the
+// house/rooms) and crate obstacles (for cover/decoration inside it) — both
+// placeable, saved together as one ordered list (MAP4_ITEMS_KEY) and
+// rebuilt every time this map is entered. Positioned in +Z, clear of every
+// other map (all of which sit at z<=~10 near their spawns and go further
+// negative from there).
 // ============================================================================
 const MAP4_ORIGIN = { x: 0, z: 200 };
 const MAP4_PLAYER_SPAWN = { x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z };
+const MAP4_WALL_LENGTH_DEFAULT = 6; // legacy fallback for pre-length-selector saves
+const MAP4_WALL_LENGTH_MIN = 1;
+const MAP4_WALL_LENGTH_MAX = 5;
 // The same two crate sizes already used elsewhere in the game — the small
 // EXTRA_CRATES ones (halfExtent 0.5) and the standard per-room crates
 // (CRATE_HALF_EXTENT, 0.9) — not new sizes invented for Build Mode.
 const MAP4_OBSTACLE_SMALL = 1; // 2 * 0.5
 const MAP4_OBSTACLE_BIG = CRATE_HALF_EXTENT * 2;
-const MAP4_STORAGE_KEY = "10sa-map4-obstacles";
-interface Map4Obstacle {
+interface Map4Wall {
+  kind: "wall";
+  x: number;
+  z: number;
+  axis: "x" | "z"; // the wall's long axis — "x" blocks north/south movement, "z" blocks east/west
+  length: number;
+}
+interface Map4Crate {
+  kind: "obstacle";
   x: number;
   z: number;
   size: number; // full cube width/depth (2 * half-extent)
   rotY: number;
 }
-function loadMap4Obstacles(): Map4Obstacle[] {
+type Map4Item = Map4Wall | Map4Crate;
+const MAP4_ITEMS_KEY = "10sa-map4-items";
+// Build Mode's very first version only placed walls, saved under this key —
+// kept only as a one-time recovery source for whatever was already built
+// under it, never written to again.
+const MAP4_LEGACY_WALLS_KEY = "10sa-map4-walls";
+function loadMap4Items(): Map4Item[] {
   try {
-    const raw = localStorage.getItem(MAP4_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((o) => o && typeof o.x === "number" && typeof o.z === "number" && typeof o.size === "number")
-      .map((o): Map4Obstacle => ({ x: o.x, z: o.z, size: o.size, rotY: typeof o.rotY === "number" ? o.rotY : 0 }));
+    const raw = localStorage.getItem(MAP4_ITEMS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (it): it is Map4Item =>
+            it &&
+            typeof it.x === "number" &&
+            typeof it.z === "number" &&
+            ((it.kind === "wall" && (it.axis === "x" || it.axis === "z") && typeof it.length === "number") ||
+              (it.kind === "obstacle" && typeof it.size === "number")),
+        );
+      }
+    }
+    // Nothing under the current key yet — recover anything saved by the
+    // original walls-only version instead of it just vanishing.
+    const legacyRaw = localStorage.getItem(MAP4_LEGACY_WALLS_KEY);
+    if (!legacyRaw) return [];
+    const legacyParsed = JSON.parse(legacyRaw);
+    if (!Array.isArray(legacyParsed)) return [];
+    return legacyParsed
+      .filter((w) => w && typeof w.x === "number" && typeof w.z === "number" && (w.axis === "x" || w.axis === "z"))
+      .map(
+        (w): Map4Wall => ({
+          kind: "wall",
+          x: w.x,
+          z: w.z,
+          axis: w.axis,
+          length: typeof w.length === "number" ? w.length : MAP4_WALL_LENGTH_DEFAULT,
+        }),
+      );
   } catch {
     return [];
   }
 }
-function saveMap4Obstacles(obstacles: Map4Obstacle[]) {
+function saveMap4Items(items: Map4Item[]) {
   try {
-    localStorage.setItem(MAP4_STORAGE_KEY, JSON.stringify(obstacles));
+    localStorage.setItem(MAP4_ITEMS_KEY, JSON.stringify(items));
   } catch {
-    // Storage full/unavailable — the in-scene obstacles still stand for
-    // the rest of this session, they just won't persist to the next one.
+    // Storage full/unavailable — the in-scene pieces still stand for the
+    // rest of this session, they just won't persist to the next one.
   }
 }
-function map4ObstacleRect(o: Map4Obstacle): Obstacle {
-  return { x: o.x, z: o.z, halfX: o.size / 2, halfZ: o.size / 2, pad: ROOM_PAD };
+function map4ItemRect(it: Map4Item): Obstacle {
+  if (it.kind === "wall") {
+    return it.axis === "x"
+      ? { x: it.x, z: it.z, halfX: it.length / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }
+      : { x: it.x, z: it.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: it.length / 2, pad: ROOM_PAD };
+  }
+  return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD };
 }
 
 // An underground tunnel actually running beneath the real path between
@@ -2527,34 +2574,37 @@ function CombatArena({
   // level, spun slowly each frame in the tick below — null on Map 1/2).
   const keyPropRef = useRef<THREE.Group | null>(null);
   // Map 4 (Build Mode): a small API the scene-building effect wires up
-  // once (getPlayerFacing/addPreviewMesh/removeMesh/commitObstacle all
-  // close over the effect's own scene/player/crate material), so the
-  // SELECT/OBSTACLE/SAVE button handlers below — plain component
-  // functions, not part of that effect's closure — can still reach into
-  // the live scene.
+  // once (getPlayerFacing/addPreviewMesh/removeMesh/commitItem all close
+  // over the effect's own scene/player/materials), so the SELECT/PLACE/
+  // SAVE button handlers below — plain component functions, not part of
+  // that effect's closure — can still reach into the live scene.
   const buildModeRef = useRef<{
-    getPlayerFacing: (size: number) => { x: number; z: number; rotY: number } | null;
-    addPreviewMesh: (obstacle: Map4Obstacle) => THREE.Object3D;
+    getPlayerFacing: () => { x: number; z: number; axis: "x" | "z"; rotY: number } | null;
+    addPreviewMesh: (item: Map4Item) => THREE.Object3D;
     removeMesh: (obj: THREE.Object3D) => void;
-    commitObstacle: (obstacle: Map4Obstacle) => THREE.Object3D;
-    removeCollisionRect: (obstacle: Map4Obstacle) => void;
+    commitItem: (item: Map4Item) => THREE.Object3D;
+    removeCollisionRect: (item: Map4Item) => void;
   } | null>(null);
-  // The obstacle currently staged by SELECT (world position + rotation)
-  // and its translucent preview mesh, cleared once OBSTACLE commits it or
-  // SELECT is pressed again to re-aim. customObstaclesRef/
-  // customObstacleMeshesRef are the full placed-so-far list (loaded from
-  // localStorage on mount, appended to by OBSTACLE, popped from by
-  // REMOVE, written back out by SAVE) — kept outside React state since
-  // neither needs to trigger a re-render, only persist/stay in sync with
-  // the scene.
-  const buildSelectionRef = useRef<{ obstacle: Map4Obstacle; mesh: THREE.Object3D } | null>(null);
-  const customObstaclesRef = useRef<Map4Obstacle[]>([]);
-  const customObstacleMeshesRef = useRef<THREE.Object3D[]>([]);
+  // The piece currently staged by SELECT (world position + orientation)
+  // and its translucent preview mesh, cleared once PLACE commits it or
+  // SELECT is pressed again to re-aim. customItemsRef/customItemMeshesRef
+  // are the full placed-so-far list — walls and obstacles together, in
+  // placement order — loaded from localStorage on mount (recovering the
+  // original walls-only save if this is the first time under the new
+  // combined format), appended to by PLACE, popped from by REMOVE,
+  // written back out by SAVE. Kept outside React state since neither
+  // needs to trigger a re-render, only persist/stay in sync with the
+  // scene.
+  const buildSelectionRef = useRef<{ item: Map4Item; mesh: THREE.Object3D } | null>(null);
+  const customItemsRef = useRef<Map4Item[]>([]);
+  const customItemMeshesRef = useRef<THREE.Object3D[]>([]);
   const [buildHasSelection, setBuildHasSelection] = useState(false);
-  // Mirrors customObstaclesRef.current.length purely so REMOVE's disabled
+  // Mirrors customItemsRef.current.length purely so REMOVE's disabled
   // state re-renders — the ref itself is intentionally not React state.
-  const [buildObstacleCount, setBuildObstacleCount] = useState(0);
-  // Chosen via the small/big selector before SELECT stages an obstacle.
+  const [buildItemCount, setBuildItemCount] = useState(0);
+  // Which kind SELECT stages next, and the size/length chosen for it.
+  const [buildPlaceKind, setBuildPlaceKind] = useState<"wall" | "obstacle">("wall");
+  const [buildWallLength, setBuildWallLength] = useState(3);
   const [buildObstacleSize, setBuildObstacleSize] = useState(MAP4_OBSTACLE_SMALL);
   const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
   // The bird's heading (horizontal drag) and look pitch (vertical drag —
@@ -3235,70 +3285,89 @@ function CombatArena({
     // EXTRA_CRATES' own visuals are spawned in the loadCrateMaterial block
     // above, alongside the room crates.
     } else if (mapId === 4) {
-      // Map 4 — Build Mode. No rooms/zones, no bots; just whatever crate
-      // obstacles were saved from a previous session, rebuilt here, plus
-      // the small API (buildModeRef) the SELECT/OBSTACLE/SAVE buttons
-      // below drive. Committed obstacles are plain crates — the same
-      // textured cube used everywhere else in the game (loadCrateMaterial/
-      // placeCrate), so this fully mirrors the wall version's approach
-      // (real sci-fi wall material there, real crate material here)
-      // rather than a flat placeholder color.
+      // Map 4 — Build Mode. No rooms/zones, no bots; just whatever pieces
+      // (walls and/or crate obstacles) were saved from a previous
+      // session, rebuilt here, plus the small API (buildModeRef) the
+      // SELECT/PLACE/REMOVE/SAVE buttons below drive. Committed walls use
+      // the same textured sci-fi wall material as every other map
+      // (addWallMesh); committed obstacles use the same crate material
+      // used everywhere else (loadCrateMaterial/placeCrate) — real
+      // materials, not a flat placeholder color.
       const buildPreviewMat = new THREE.MeshStandardMaterial({
         color: 0x6be2ff,
         transparent: true,
         opacity: 0.4,
         depthWrite: false,
       });
-      loadCrateMaterial().then((material) => {
+      loadCrateMaterial().then((crateMaterial) => {
         if (disposed) return;
-        const addBuildObstacleMesh = (obstacle: Map4Obstacle) => {
-          const mesh = new THREE.Mesh(new THREE.BoxGeometry(obstacle.size, obstacle.size, obstacle.size), material);
-          mesh.rotation.y = obstacle.rotY;
-          mesh.position.set(obstacle.x, obstacle.size / 2, obstacle.z);
+        const addBuildItemMesh = (item: Map4Item): THREE.Object3D => {
+          if (item.kind === "wall") return addWallMesh(map4ItemRect(item), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), crateMaterial);
+          mesh.rotation.y = item.rotY;
+          mesh.position.set(item.x, item.size / 2, item.z);
           mesh.receiveShadow = true;
           scene.add(mesh);
           return mesh;
         };
-        customObstaclesRef.current = loadMap4Obstacles();
-        customObstacleMeshesRef.current = customObstaclesRef.current.map((obstacle) => {
-          ACTIVE_OBSTACLES.push(map4ObstacleRect(obstacle));
-          return addBuildObstacleMesh(obstacle);
+        customItemsRef.current = loadMap4Items();
+        customItemMeshesRef.current = customItemsRef.current.map((item) => {
+          ACTIVE_OBSTACLES.push(map4ItemRect(item));
+          return addBuildItemMesh(item);
         });
-        setBuildObstacleCount(customObstaclesRef.current.length);
+        setBuildItemCount(customItemsRef.current.length);
         buildModeRef.current = {
-          getPlayerFacing: (size) => {
+          getPlayerFacing: () => {
             if (!player) return null;
-            // Crates are symmetric cubes, so — unlike walls — there's no
-            // axis-alignment requirement; rotation is purely cosmetic
-            // (matches the player's current facing) and doesn't affect
-            // the axis-aligned Obstacle rect used for collision.
+            // Snap to the nearest cardinal direction so a wall stays
+            // axis-aligned (matching how every other wall in the game is
+            // collided against — a freely-rotated wall can't be
+            // expressed as the axis-aligned Obstacle rects everything
+            // else uses). Crates are symmetric cubes so this axis is
+            // only relevant when placing a wall; rotY (the raw facing)
+            // is what a crate's cosmetic rotation actually uses.
+            const yaw = ((cameraYaw.current % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+            const facingNS = yaw < Math.PI / 4 || yaw >= (Math.PI * 7) / 4 || (yaw >= (Math.PI * 3) / 4 && yaw < (Math.PI * 5) / 4);
+            const axis: "x" | "z" = facingNS ? "x" : "z";
+            // The chase camera sits behind the player along
+            // (-sin(yaw), -cos(yaw)) (see camTargetPos below), so the
+            // direction the player is actually facing/walking toward is
+            // the opposite of that.
             const forwardX = Math.sin(cameraYaw.current);
             const forwardZ = Math.cos(cameraYaw.current);
-            const dist = size / 2 + 2;
+            const dist = 4;
             return {
               x: player.root.position.x + forwardX * dist,
               z: player.root.position.z + forwardZ * dist,
+              axis,
               rotY: cameraYaw.current,
             };
           },
-          addPreviewMesh: (obstacle) => {
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(obstacle.size, obstacle.size, obstacle.size), buildPreviewMat);
-            mesh.rotation.y = obstacle.rotY;
-            mesh.position.set(obstacle.x, obstacle.size / 2, obstacle.z);
+          addPreviewMesh: (item) => {
+            if (item.kind === "wall") {
+              const ob = map4ItemRect(item);
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), buildPreviewMat);
+              mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), buildPreviewMat);
+            mesh.rotation.y = item.rotY;
+            mesh.position.set(item.x, item.size / 2, item.z);
             scene.add(mesh);
             return mesh;
           },
           removeMesh: (obj) => scene.remove(obj),
-          commitObstacle: (obstacle) => {
-            ACTIVE_OBSTACLES.push(map4ObstacleRect(obstacle));
-            return addBuildObstacleMesh(obstacle);
+          commitItem: (item) => {
+            ACTIVE_OBSTACLES.push(map4ItemRect(item));
+            return addBuildItemMesh(item);
           },
-          // Obstacle rects aren't individually tagged, so find-by-value
-          // the exact one this obstacle pushed — safe since every Map 4
-          // collision rect is one of these and each commit pushes exactly
-          // one.
-          removeCollisionRect: (obstacle) => {
-            const rect = map4ObstacleRect(obstacle);
+          // Collision rects aren't individually tagged, so find-by-value
+          // the exact one this item pushed — safe since every Map 4
+          // collision rect is one of these and each commit pushes
+          // exactly one.
+          removeCollisionRect: (item) => {
+            const rect = map4ItemRect(item);
             const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === rect.x && o.z === rect.z && o.halfX === rect.halfX && o.halfZ === rect.halfZ);
             if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
           },
@@ -4345,42 +4414,46 @@ function CombatArena({
   const handleBuildSelect = () => {
     const api = buildModeRef.current;
     if (!api) return;
-    const facing = api.getPlayerFacing(buildObstacleSize);
+    const facing = api.getPlayerFacing();
     if (!facing) return;
     const prev = buildSelectionRef.current;
     if (prev) api.removeMesh(prev.mesh);
-    const obstacle: Map4Obstacle = { x: facing.x, z: facing.z, size: buildObstacleSize, rotY: facing.rotY };
-    const mesh = api.addPreviewMesh(obstacle);
-    buildSelectionRef.current = { obstacle, mesh };
+    const item: Map4Item =
+      buildPlaceKind === "wall"
+        ? { kind: "wall", x: facing.x, z: facing.z, axis: facing.axis, length: buildWallLength }
+        : { kind: "obstacle", x: facing.x, z: facing.z, size: buildObstacleSize, rotY: facing.rotY };
+    const mesh = api.addPreviewMesh(item);
+    buildSelectionRef.current = { item, mesh };
     setBuildHasSelection(true);
   };
-  const handleBuildPlaceObstacle = () => {
+  const handleBuildPlaceItem = () => {
     const api = buildModeRef.current;
     const selection = buildSelectionRef.current;
     if (!api || !selection) return;
     api.removeMesh(selection.mesh);
-    const mesh = api.commitObstacle(selection.obstacle);
-    customObstaclesRef.current = [...customObstaclesRef.current, selection.obstacle];
-    customObstacleMeshesRef.current = [...customObstacleMeshesRef.current, mesh];
+    const mesh = api.commitItem(selection.item);
+    customItemsRef.current = [...customItemsRef.current, selection.item];
+    customItemMeshesRef.current = [...customItemMeshesRef.current, mesh];
     buildSelectionRef.current = null;
     setBuildHasSelection(false);
-    setBuildObstacleCount(customObstaclesRef.current.length);
+    setBuildItemCount(customItemsRef.current.length);
   };
-  // Undoes the most recently committed obstacle (last in, first out) —
-  // simpler and more predictable than targeting/raycasting a specific one.
-  const handleBuildRemoveObstacle = () => {
+  // Undoes the most recently committed piece — wall or obstacle,
+  // whichever was placed last (last in, first out) — simpler and more
+  // predictable than targeting/raycasting a specific one.
+  const handleBuildRemoveItem = () => {
     const api = buildModeRef.current;
-    if (!api || customObstaclesRef.current.length === 0) return;
-    const lastObstacle = customObstaclesRef.current[customObstaclesRef.current.length - 1];
-    const lastMesh = customObstacleMeshesRef.current[customObstacleMeshesRef.current.length - 1];
+    if (!api || customItemsRef.current.length === 0) return;
+    const lastItem = customItemsRef.current[customItemsRef.current.length - 1];
+    const lastMesh = customItemMeshesRef.current[customItemMeshesRef.current.length - 1];
     api.removeMesh(lastMesh);
-    api.removeCollisionRect(lastObstacle);
-    customObstaclesRef.current = customObstaclesRef.current.slice(0, -1);
-    customObstacleMeshesRef.current = customObstacleMeshesRef.current.slice(0, -1);
-    setBuildObstacleCount(customObstaclesRef.current.length);
+    api.removeCollisionRect(lastItem);
+    customItemsRef.current = customItemsRef.current.slice(0, -1);
+    customItemMeshesRef.current = customItemMeshesRef.current.slice(0, -1);
+    setBuildItemCount(customItemsRef.current.length);
   };
   const handleBuildSave = () => {
-    saveMap4Obstacles(customObstaclesRef.current);
+    saveMap4Items(customItemsRef.current);
     setBuildSaveLabel("SAVED!");
     setTimeout(() => setBuildSaveLabel("SAVE"), 1500);
   };
@@ -4736,10 +4809,11 @@ function CombatArena({
             </>
           )}
 
-          {/* Build Mode (Map 4): the SMALL/BIG row picks the crate size
-              SELECT stages its obstacle at (the same two crate sizes used
-              elsewhere in the game); OBSTACLE commits it; SAVE persists
-              everything placed so far. */}
+          {/* Build Mode (Map 4): the WALL/OBSTACLE tabs pick what SELECT
+              stages next — a wall (house/rooms) or a crate obstacle
+              (cover/decoration) — each with its own size row below the
+              tabs. PLACE commits whichever is staged; SAVE persists
+              everything placed so far (both kinds together). */}
           {mapId === 4 && (
             <>
               <div
@@ -4749,40 +4823,123 @@ function CombatArena({
                   left: "50%",
                   transform: "translateX(-50%)",
                   display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
                   gap: 6,
-                  background: "rgba(8,14,24,0.7)",
-                  border: "1px solid rgba(200,220,240,0.3)",
-                  borderRadius: 8,
-                  padding: 5,
                 }}
               >
-                {[
-                  { size: MAP4_OBSTACLE_SMALL, label: "SMALL" },
-                  { size: MAP4_OBSTACLE_BIG, label: "BIG" },
-                ].map(({ size, label }) => (
-                  <button
-                    key={label}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      setBuildObstacleSize(size);
-                    }}
-                    aria-label={`Obstacle size ${label.toLowerCase()}`}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    background: "rgba(8,14,24,0.7)",
+                    border: "1px solid rgba(200,220,240,0.3)",
+                    borderRadius: 8,
+                    padding: 5,
+                  }}
+                >
+                  {(["wall", "obstacle"] as const).map((kind) => (
+                    <button
+                      key={kind}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        setBuildPlaceKind(kind);
+                      }}
+                      aria-label={`Place kind ${kind}`}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 6,
+                        background: buildPlaceKind === kind ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                        border: buildPlaceKind === kind ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                        color: "#dce8f5",
+                        fontFamily: "'Rajdhani', sans-serif",
+                        fontWeight: 700,
+                        fontSize: 13,
+                        letterSpacing: "0.05em",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {kind === "wall" ? "WALL" : "OBSTACLE"}
+                    </button>
+                  ))}
+                </div>
+
+                {buildPlaceKind === "wall" ? (
+                  <div
                     style={{
-                      padding: "6px 14px",
-                      borderRadius: 6,
-                      background: buildObstacleSize === size ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
-                      border: buildObstacleSize === size ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
-                      color: "#dce8f5",
-                      fontFamily: "'Rajdhani', sans-serif",
-                      fontWeight: 700,
-                      fontSize: 13,
-                      letterSpacing: "0.05em",
-                      cursor: "pointer",
+                      display: "flex",
+                      gap: 6,
+                      background: "rgba(8,14,24,0.7)",
+                      border: "1px solid rgba(200,220,240,0.3)",
+                      borderRadius: 8,
+                      padding: 5,
                     }}
                   >
-                    {label}
-                  </button>
-                ))}
+                    {Array.from({ length: MAP4_WALL_LENGTH_MAX - MAP4_WALL_LENGTH_MIN + 1 }, (_, i) => MAP4_WALL_LENGTH_MIN + i).map((n) => (
+                      <button
+                        key={n}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          setBuildWallLength(n);
+                        }}
+                        aria-label={`Wall length ${n}m`}
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 6,
+                          background: buildWallLength === n ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                          border: buildWallLength === n ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                          color: "#dce8f5",
+                          fontFamily: "'Rajdhani', sans-serif",
+                          fontWeight: 700,
+                          fontSize: 14,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 6,
+                      background: "rgba(8,14,24,0.7)",
+                      border: "1px solid rgba(200,220,240,0.3)",
+                      borderRadius: 8,
+                      padding: 5,
+                    }}
+                  >
+                    {[
+                      { size: MAP4_OBSTACLE_SMALL, label: "SMALL" },
+                      { size: MAP4_OBSTACLE_BIG, label: "BIG" },
+                    ].map(({ size, label }) => (
+                      <button
+                        key={label}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          setBuildObstacleSize(size);
+                        }}
+                        aria-label={`Obstacle size ${label.toLowerCase()}`}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 6,
+                          background: buildObstacleSize === size ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                          border: buildObstacleSize === size ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                          color: "#dce8f5",
+                          fontFamily: "'Rajdhani', sans-serif",
+                          fontWeight: 700,
+                          fontSize: 13,
+                          letterSpacing: "0.05em",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <button
@@ -4816,10 +4973,10 @@ function CombatArena({
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  handleBuildPlaceObstacle();
+                  handleBuildPlaceItem();
                 }}
                 disabled={!buildHasSelection}
-                aria-label="Place obstacle"
+                aria-label="Place item"
                 style={{
                   position: "absolute",
                   right: "7%",
@@ -4839,7 +4996,7 @@ function CombatArena({
                   opacity: settings.buttonOpacity,
                 }}
               >
-                OBSTACLE
+                {buildPlaceKind === "wall" ? "WALL" : "OBSTACLE"}
               </button>
 
               {/* SAVE/REMOVE sit up with EXIT/Map View/gear instead of over
@@ -4873,24 +5030,24 @@ function CombatArena({
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  handleBuildRemoveObstacle();
+                  handleBuildRemoveItem();
                 }}
-                disabled={buildObstacleCount === 0}
-                aria-label="Remove last obstacle"
+                disabled={buildItemCount === 0}
+                aria-label="Remove last item"
                 style={{
                   position: "absolute",
                   top: 16,
                   left: 96,
                   padding: "8px 18px",
                   borderRadius: 6,
-                  background: buildObstacleCount === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
-                  border: buildObstacleCount === 0 ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
-                  color: buildObstacleCount === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
+                  background: buildItemCount === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
+                  border: buildItemCount === 0 ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
+                  color: buildItemCount === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
                   fontFamily: "'Rajdhani', sans-serif",
                   fontWeight: 700,
                   letterSpacing: "0.06em",
                   fontSize: 13,
-                  cursor: buildObstacleCount === 0 ? "default" : "pointer",
+                  cursor: buildItemCount === 0 ? "default" : "pointer",
                 }}
               >
                 REMOVE
