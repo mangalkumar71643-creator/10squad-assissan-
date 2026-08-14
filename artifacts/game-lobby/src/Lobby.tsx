@@ -2913,6 +2913,14 @@ function CombatArena({
       addCeilingStrip(pos.x, pos.z + 2.5, 1.5, 0.3);
     };
 
+    // Map 4 only: the player always spawns at the center of whatever's
+    // already been built (see the mapId===4 branch below), not a fixed
+    // point — a fixed spawn would drift outside an irregularly-shaped
+    // house as soon as it's built off-center, leaving no way back in
+    // since Build Mode has no door/entrance concept. Falls back to
+    // MAP4_PLAYER_SPAWN itself only for a still-empty canvas.
+    let map4DynamicSpawn = MAP4_PLAYER_SPAWN;
+
     // Everything from here through the "EXTRA_CRATES' own visuals" comment
     // below is Map 1's own bespoke room/corridor/tunnel geometry, entirely
     // unchanged from before Map 2 existed — gated behind mapId so it's only
@@ -3299,6 +3307,15 @@ function CombatArena({
         opacity: 0.4,
         depthWrite: false,
       });
+      // Loaded synchronously (it's just a localStorage read) so
+      // map4DynamicSpawn is ready in time for playerSpawnPos below —
+      // only the mesh-building has to wait on the crate material.
+      customItemsRef.current = loadMap4Items();
+      if (customItemsRef.current.length > 0) {
+        const sumX = customItemsRef.current.reduce((s, it) => s + it.x, 0);
+        const sumZ = customItemsRef.current.reduce((s, it) => s + it.z, 0);
+        map4DynamicSpawn = { x: sumX / customItemsRef.current.length, z: sumZ / customItemsRef.current.length };
+      }
       loadCrateMaterial().then((crateMaterial) => {
         if (disposed) return;
         const addBuildItemMesh = (item: Map4Item): THREE.Object3D => {
@@ -3310,7 +3327,6 @@ function CombatArena({
           scene.add(mesh);
           return mesh;
         };
-        customItemsRef.current = loadMap4Items();
         customItemMeshesRef.current = customItemsRef.current.map((item) => {
           ACTIVE_OBSTACLES.push(map4ItemRect(item));
           return addBuildItemMesh(item);
@@ -3685,7 +3701,7 @@ function CombatArena({
     // always being the SWAT model — CARD_MODELS/loadBotFighter are the same
     // lookup + retargeting pipeline the selection ring itself uses.
     const playerSpawnPos =
-      mapId === 2 ? MAP2_PLAYER_SPAWN : mapId === 3 ? MAP3_PLAYER_SPAWN : mapId === 4 ? MAP4_PLAYER_SPAWN : { x: 0, z: 3 };
+      mapId === 2 ? MAP2_PLAYER_SPAWN : mapId === 3 ? MAP3_PLAYER_SPAWN : mapId === 4 ? map4DynamicSpawn : { x: 0, z: 3 };
     const spawnPlayer = (rig: FighterRig) => {
       if (disposed) return;
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
