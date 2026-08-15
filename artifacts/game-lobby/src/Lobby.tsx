@@ -1107,6 +1107,63 @@ function map4ItemRect(it: Map4Item): Obstacle {
   return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD };
 }
 
+// Map 4's own combat: 20 armed bots roaming whatever the player has built,
+// instead of the fixed 5-guards-plus-boss roster every other map uses.
+const MAP4_BOT_COUNT = 20;
+const MAP4_BOT_AREA_PAD = 8; // extra room around the built footprint so spawns aren't wedged against the outer walls
+const MAP4_BOT_AREA_MIN_HALF = 14; // default spread radius when the canvas is still empty
+function isClearOfMap4Items(x: number, z: number, rects: Obstacle[], clearance: number): boolean {
+  for (const ob of rects) {
+    if (Math.abs(x - ob.x) < ob.halfX + ob.pad + clearance && Math.abs(z - ob.z) < ob.halfZ + ob.pad + clearance) return false;
+  }
+  return true;
+}
+// Scatters bot spawn points across the whole built layout — a jittered
+// grid over the built footprint's bounding box (or a default open area
+// when the canvas is still empty) — instead of clustering them all in one
+// spot, skipping any cell that would land inside a wall/obstacle/drum.
+function pickMap4BotSpawns(items: Map4Item[]): { x: number; z: number }[] {
+  const rects = items.map(map4ItemRect);
+  let minX: number, maxX: number, minZ: number, maxZ: number;
+  if (items.length > 0) {
+    minX = Math.min(...items.map((it) => it.x)) - MAP4_BOT_AREA_PAD;
+    maxX = Math.max(...items.map((it) => it.x)) + MAP4_BOT_AREA_PAD;
+    minZ = Math.min(...items.map((it) => it.z)) - MAP4_BOT_AREA_PAD;
+    maxZ = Math.max(...items.map((it) => it.z)) + MAP4_BOT_AREA_PAD;
+  } else {
+    minX = MAP4_ORIGIN.x - MAP4_BOT_AREA_MIN_HALF;
+    maxX = MAP4_ORIGIN.x + MAP4_BOT_AREA_MIN_HALF;
+    minZ = MAP4_ORIGIN.z - MAP4_BOT_AREA_MIN_HALF;
+    maxZ = MAP4_ORIGIN.z + MAP4_BOT_AREA_MIN_HALF;
+  }
+  const width = Math.max(maxX - minX, MAP4_BOT_AREA_MIN_HALF * 2);
+  const depth = Math.max(maxZ - minZ, MAP4_BOT_AREA_MIN_HALF * 2);
+  const cols = Math.max(1, Math.ceil(Math.sqrt((MAP4_BOT_COUNT * width) / depth)));
+  const rows = Math.ceil(MAP4_BOT_COUNT / cols);
+  const cellW = width / cols;
+  const cellD = depth / rows;
+  const spawns: { x: number; z: number }[] = [];
+  outer: for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (spawns.length >= MAP4_BOT_COUNT) break outer;
+      const cx = minX + cellW * (c + 0.5);
+      const cz = minZ + cellD * (r + 0.5);
+      let placed = false;
+      for (let attempt = 0; attempt < 6 && !placed; attempt++) {
+        const jx = attempt === 0 ? cx : cx + (Math.random() * 2 - 1) * cellW * 0.35;
+        const jz = attempt === 0 ? cz : cz + (Math.random() * 2 - 1) * cellD * 0.35;
+        if (isClearOfMap4Items(jx, jz, rects, 0.6)) {
+          spawns.push({ x: jx, z: jz });
+          placed = true;
+        }
+      }
+      if (!placed) spawns.push({ x: cx, z: cz }); // best effort — still spread out even if snug against something
+    }
+  }
+  return spawns;
+}
+const MAP4_PATROL_RADIUS = 6;
+
 // An underground tunnel actually running beneath the real path between
 // houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
 // unrelated empty arena. Since the collision system only checks X/Z (see
@@ -2645,10 +2702,12 @@ function CombatArena({
   const lookLastY = useRef(0);
 
   const [playerHp, setPlayerHp] = useState(100);
-  // One HP percentage + floating bar ref per fighter — index 0-4 are the
-  // five room guards, index 5 is the Boss.
-  const [botHps, setBotHps] = useState<number[]>([100, 100, 100, 100, 100, 100]);
-  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null, null]);
+  // One HP percentage + floating bar ref per fighter — on Maps 1-3, index
+  // 0-4 are the five room guards and index 5 is the Boss; on Map 4 it's
+  // MAP4_BOT_COUNT plain guards and no boss (mapId is fixed for this
+  // component's whole mount, so sizing the initial state off it is safe).
+  const [botHps, setBotHps] = useState<number[]>(() => new Array(mapId === 4 ? MAP4_BOT_COUNT : 6).fill(100));
+  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>(new Array(mapId === 4 ? MAP4_BOT_COUNT : 6).fill(null));
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   // Counts bot deaths this match, for the profile progress system's XP
   // award — read once when `result` leaves "playing" (see the effect
@@ -3841,8 +3900,7 @@ function CombatArena({
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
       rig.root.rotation.y = Math.PI; // face into the facility at the start
       player = rig;
-      // Build Mode is combat-free — no gun in hand, nothing to fire.
-      if (mapId !== 4) equipGun(rig);
+      equipGun(rig);
     };
     const savedCard = Number(localStorage.getItem(SELECTED_CARD_STORAGE_KEY));
     const playerModel = CARD_MODELS[savedCard] && isCardUnlocked(savedCard) ? CARD_MODELS[savedCard] : CARD_MODELS[0];
@@ -3852,18 +3910,42 @@ function CombatArena({
       loadFighter(scene, 0xffffff, spawnPlayer);
     }
 
-    // Six fighters total: five guards (index 0-4, one patrolling its own
-    // post — Map 1's ROOM_POSITIONS or Map 2's MAP2_GUARD_ZONES depending
-    // on mapId) plus the Boss (index 5, stationed in the map's boss room)
-    // — all loaded from the same rig/model, just spawned at different
-    // posts and the Boss additionally scaled up and tinted (see
-    // tintBossFighter).
-    // Map 4 (Build Mode) spawns no fighters at all — bots stays all null,
-    // which every per-bot loop elsewhere already skips safely (`if (rig)`)
-    // — so it's a peaceful, combat-free canvas to build in.
-    const botSpawns = mapId === 2 ? MAP2_BOT_SPAWNS : mapId === 3 ? MAP3_BOT_SPAWNS : mapId === 4 ? [] : BOT_SPAWNS;
+    // Six fighters total on Maps 1-3: five guards (index 0-4, one
+    // patrolling its own post — Map 1's ROOM_POSITIONS or Map 2/3's guard
+    // zones depending on mapId) plus the Boss (index 5, stationed in the
+    // map's boss room) — all loaded from the same rig/model, just spawned
+    // at different posts and the Boss additionally scaled up and tinted
+    // (see tintBossFighter).
+    // Map 4 (Build Mode) instead spawns MAP4_BOT_COUNT armed guards (no
+    // boss), scattered across whatever the player has built via
+    // pickMap4BotSpawns — everything else about them (patrol/chase/fire,
+    // wired up below) reuses the exact same generic per-fighter logic as
+    // every other map.
+    const botSpawns =
+      mapId === 2
+        ? MAP2_BOT_SPAWNS
+        : mapId === 3
+          ? MAP3_BOT_SPAWNS
+          : mapId === 4
+            ? pickMap4BotSpawns(customItemsRef.current)
+            : BOT_SPAWNS;
     const bossSpawn = mapId === 2 ? MAP2_BOSS_SPAWN : mapId === 3 ? MAP3_BOSS_SPAWN : BOSS_SPAWN;
-    const bots: (FighterRig | null)[] = [null, null, null, null, null, null];
+    const bots: (FighterRig | null)[] = new Array(mapId === 4 ? MAP4_BOT_COUNT : 6).fill(null);
+    // A dormant guard's local wander point around its own spawn (see the
+    // patrol-target dispatcher below) — closes over botSpawns since Map
+    // 4's own spread is rebuilt fresh per match, not a fixed module-level
+    // array like the other maps' zone pickers.
+    const pickMap4PatrolTarget = (botIndex: number): { x: number; z: number } => {
+      const home = botSpawns[botIndex] ?? MAP4_PLAYER_SPAWN;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const x = home.x + (Math.random() * 2 - 1) * MAP4_PATROL_RADIUS;
+        const z = home.z + (Math.random() * 2 - 1) * MAP4_PATROL_RADIUS;
+        if (!ACTIVE_OBSTACLES.some((ob) => Math.abs(x - ob.x) < ob.halfX + ob.pad && Math.abs(z - ob.z) < ob.halfZ + ob.pad)) {
+          return { x, z };
+        }
+      }
+      return home;
+    };
     for (let i = 0; i < botSpawns.length; i++) {
       const spawn = botSpawns[i];
       loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
@@ -3909,6 +3991,10 @@ function CombatArena({
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
+    // Map 4 throws MAP4_BOT_COUNT armed bots at the player at once — a 40%
+    // cut to the player's own move speed (only here; every other map keeps
+    // the normal pace) makes that survivable instead of a speed-blitz.
+    const playerMaxSpeedForMatch = mapId === 4 ? PLAYER_MAX_SPEED * 0.6 : PLAYER_MAX_SPEED;
     // Short-lived tracer lines from a gun to its target, spawned per shot
     // and cleaned up once their life runs out (see spawnTracer/updateTracers).
     const tracers: Tracer[] = [];
@@ -3927,19 +4013,21 @@ function CombatArena({
     let birdZ = 0;
     let wasTopDownView = false;
 
-    // Index 0-4: the five room guards, one per ROOM_POSITIONS entry (see
-    // roomIndex). Index 5: the Boss — tougher, and isBoss skips the
-    // patrol/chase behavior entirely in favor of holding its ground.
-    const botMaxHps = [100, 100, 100, 100, 100, BOSS_HP];
+    // Maps 1-3: index 0-4 are the five room guards, one per ROOM_POSITIONS
+    // entry (see roomIndex); index 5 is the Boss — tougher, and isBoss
+    // skips the patrol/chase behavior entirely in favor of holding its
+    // ground. Map 4 has no boss — every one of its MAP4_BOT_COUNT bots is
+    // a plain guard, roomIndex doubling as its own spawn index.
+    const botMaxHps = mapId === 4 ? new Array(MAP4_BOT_COUNT).fill(100) : [100, 100, 100, 100, 100, BOSS_HP];
     const botStates = botMaxHps.map((hp, i) => ({
       hp,
       cooldown: 0,
       fireT: -1,
       deathT: -1,
       dead: false,
-      isBoss: i === 5,
-      roomIndex: i, // only meaningful for guards (0-4); Boss ignores it
-      awake: i === 5, // the Boss has no guard/patrol behavior to wait on
+      isBoss: mapId !== 4 && i === 5,
+      roomIndex: i, // only meaningful for guards; Boss ignores it
+      awake: mapId !== 4 && i === 5, // the Boss has no guard/patrol behavior to wait on
       alertT: -1,
       patrolTarget: null as { x: number; z: number } | null,
       stuckT: 0,
@@ -4080,7 +4168,7 @@ function CombatArena({
         // How far the stick is pushed sets the target speed continuously —
         // a light tap walks, a full push runs, and holding full tilt ramps
         // sprint in on top — so there's no discrete walk/jog/run jump.
-        const targetSpeed = effectiveMag * PLAYER_MAX_SPEED * (1 + PLAYER_SPRINT_BONUS * sprintBlend);
+        const targetSpeed = effectiveMag * playerMaxSpeedForMatch * (1 + PLAYER_SPRINT_BONUS * sprintBlend);
         const targetVelX = dirX * targetSpeed;
         const targetVelZ = dirZ * targetSpeed;
         const curVelLen = Math.hypot(playerVelX, playerVelZ);
@@ -4166,7 +4254,7 @@ function CombatArena({
 
         // How far into Idle -> Running the real mocap clips are blended,
         // continuously off actual speed so there's no hard on/off cut.
-        const speedFrac = clamp(playerSpeedNow / PLAYER_MAX_SPEED, 0, 1.15);
+        const speedFrac = clamp(playerSpeedNow / playerMaxSpeedForMatch, 0, 1.15);
         updateLocomotionAnim(player, speedFrac, playerSpeedNow);
 
         // While stationary, the player's body keeps whatever facing it had
@@ -4249,7 +4337,9 @@ function CombatArena({
                     ? pickMap2ZoneTarget(st.roomIndex)
                     : mapId === 3
                       ? pickMap3ZoneTarget(st.roomIndex)
-                      : pickRoomPatrolTarget(st.roomIndex);
+                      : mapId === 4
+                        ? pickMap4PatrolTarget(st.roomIndex)
+                        : pickRoomPatrolTarget(st.roomIndex);
                 st.stuckT = 0;
               }
               const pdx = st.patrolTarget.x - rig.root.position.x;
@@ -4632,9 +4722,9 @@ function CombatArena({
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
       />
 
-      {/* Health bar — hidden in Map View (nothing but the level on screen)
-          and in Build Mode (no combat, nothing to show HP for). */}
-      {!topDownView && mapId !== 4 && (
+      {/* Health bar — hidden in Map View (nothing but the level on screen).
+          Map 4 now has its own combat (20 armed bots), so it shows here too. */}
+      {!topDownView && (
         <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
           <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
             {t(settings.language, "you")}
@@ -4648,7 +4738,9 @@ function CombatArena({
       {/* Each fighter's own health bar floats directly above its head
           in-world (see the screen-projection block in the tick loop),
           not fixed to a screen corner, so it stays pinned to whichever
-          bot it belongs to. Index 5 is the Boss — wider bar, own label. */}
+          bot it belongs to. Index 5 is the Boss on Maps 1-3 (wider bar,
+          own label) — Map 4 has no boss, every one of its bots is a
+          plain guard regardless of index. */}
       {botHps.map((hp, i) => (
         <div
           key={i}
@@ -4657,8 +4749,8 @@ function CombatArena({
           }}
           style={{
             position: "absolute",
-            width: i === 5 ? 110 : 90,
-            marginLeft: i === 5 ? -55 : -45,
+            width: i === 5 && mapId !== 4 ? 110 : 90,
+            marginLeft: i === 5 && mapId !== 4 ? -55 : -45,
             marginTop: -30,
             display: "none",
             pointerEvents: "none",
@@ -4666,7 +4758,7 @@ function CombatArena({
         >
           <div
             style={{
-              color: i === 5 ? "#ff8a8a" : "#dce8f5",
+              color: i === 5 && mapId !== 4 ? "#ff8a8a" : "#dce8f5",
               fontFamily: "'Rajdhani', sans-serif",
               fontWeight: 700,
               fontSize: 10,
@@ -4676,14 +4768,14 @@ function CombatArena({
               textShadow: "0 0 4px rgba(0,0,0,0.9)",
             }}
           >
-            {i === 5 ? "BOSS" : `GUARD ${i + 1}`}
+            {i === 5 && mapId !== 4 ? "BOSS" : `GUARD ${i + 1}`}
           </div>
-          <div style={{ height: i === 5 ? 8 : 6, borderRadius: 3, background: "rgba(255,255,255,0.18)", overflow: "hidden" }}>
+          <div style={{ height: i === 5 && mapId !== 4 ? 8 : 6, borderRadius: 3, background: "rgba(255,255,255,0.18)", overflow: "hidden" }}>
             <div
               style={{
                 height: "100%",
                 width: `${hp}%`,
-                background: i === 5 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff6b5e,#ff9a4d)",
+                background: i === 5 && mapId !== 4 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff6b5e,#ff9a4d)",
                 transition: "width 150ms ease-out",
               }}
             />
@@ -4875,13 +4967,13 @@ function CombatArena({
             />
           </div>
 
-          {mapId !== 4 && (
-            <>
+          <>
               {/* Fire button — auto-fires for as long as it's held down (see the
                   attackRequested consumption in the tick loop), not just once per
                   tap. setPointerCapture keeps the up/cancel events firing on this
                   button even if the finger slides off it while held, so a drag-off
-                  reliably stops the fire instead of leaving it stuck on. */}
+                  reliably stops the fire instead of leaving it stuck on. Map 4 now
+                  has its own combat (20 armed bots), so this shows there too. */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -4959,7 +5051,6 @@ function CombatArena({
                 {t(settings.language, "run")}
               </button>
             </>
-          )}
 
           {/* Build Mode (Map 4): the WALL/OBSTACLE tabs pick what SELECT
               stages next — a wall (house/rooms) or a crate obstacle
@@ -5103,7 +5194,7 @@ function CombatArena({
                 style={{
                   position: "absolute",
                   right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-                  bottom: "9%",
+                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
                   width: "clamp(72px, 13vw, 100px)",
                   height: "clamp(72px, 13vw, 100px)",
                   borderRadius: "50%",
@@ -5132,7 +5223,7 @@ function CombatArena({
                 style={{
                   position: "absolute",
                   right: "7%",
-                  bottom: "9%",
+                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
                   width: "clamp(72px, 13vw, 100px)",
                   height: "clamp(72px, 13vw, 100px)",
                   borderRadius: "50%",
@@ -5151,9 +5242,9 @@ function CombatArena({
                 {buildPlaceKind === "wall" ? "WALL" : buildPlaceKind === "obstacle" ? "OBSTACLE" : "DRUM"}
               </button>
 
-              {/* SAVE/REMOVE sit up with EXIT/Map View/gear instead of over
-                  the joystick — the health bar normally lives at top-left
-                  but is hidden in Build Mode, leaving that corner free. */}
+              {/* SAVE/REMOVE sit below the WALL/OBSTACLE/DRUM tabs (and the
+                  HP bar, which now shows in Map 4 too since its 20 bots
+                  actually fight back) instead of over the joystick. */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -5162,7 +5253,7 @@ function CombatArena({
                 aria-label="Save map"
                 style={{
                   position: "absolute",
-                  top: 16,
+                  top: 140,
                   left: 16,
                   padding: "8px 18px",
                   borderRadius: 6,
@@ -5188,7 +5279,7 @@ function CombatArena({
                 aria-label="Remove last item"
                 style={{
                   position: "absolute",
-                  top: 16,
+                  top: 140,
                   left: 96,
                   padding: "8px 18px",
                   borderRadius: 6,
