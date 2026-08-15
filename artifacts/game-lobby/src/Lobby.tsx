@@ -1107,91 +1107,62 @@ function map4ItemRect(it: Map4Item): Obstacle {
   return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD };
 }
 
-// Map 4's own combat roster is entirely player-placed: no player spawn or
-// bot position is picked automatically — the player walks Setup Mode to
-// wherever they want each thing, taps a button to drop it there, and nothing
-// fights back until ACTIVATE locks the layout in (see Map4Setup below, and
-// the SET SPAWN/PLACE BOT/SET PATROL/REMOVE BOT/ACTIVATE controls in
-// CombatArena's JSX).
-interface Map4BotConfig {
-  x: number;
-  z: number;
-  // 0 (the default a freshly-placed bot gets) means "no patrol configured
-  // — just guard this spot"; a bot's per-fighter patrol dispatcher skips
-  // moving at all once this is 0 (see pickMap4PatrolTarget). Otherwise set
-  // via SET RANGE as the distance from the bot's spot to wherever the
-  // player was standing when they pressed it.
-  patrolRadius: number;
-}
-// A no-go circle a patrol target is never allowed to land inside — for
-// carving a hole out of a bot's patrol radius around, say, an obstacle the
-// player doesn't want it wandering up against. Applies to every bot's
-// patrol (not just the one that happened to be selected when it was
-// placed), since the physical obstacle it's protecting doesn't care which
-// bot is nearby.
-interface Map4ExcludeZone {
-  x: number;
-  z: number;
-  radius: number;
-}
-interface Map4Setup {
-  // False until ACTIVATE is pressed — while false, the map is a safe,
-  // combat-free canvas showing only placement markers (see CombatArena's
-  // mapId===4 branch); once true, real armed fighters spawn at every
-  // configured bot position and actually patrol/chase/fire. DEACTIVATE
-  // flips this back to false (without discarding anything placed) so the
-  // layout can be edited again instead of being fought over.
-  activated: boolean;
-  playerSpawn: { x: number; z: number } | null;
-  bots: Map4BotConfig[];
-  excludeZones: Map4ExcludeZone[];
-}
-const MAP4_SETUP_KEY = "10sa-map4-setup";
-const MAP4_DEFAULT_EXCLUDE_RADIUS = 2;
-function loadMap4Setup(): Map4Setup {
-  try {
-    const raw = localStorage.getItem(MAP4_SETUP_KEY);
-    if (!raw) return { activated: false, playerSpawn: null, bots: [], excludeZones: [] };
-    const parsed = JSON.parse(raw);
-    const bots: Map4BotConfig[] = Array.isArray(parsed.bots)
-      ? parsed.bots
-          .filter((b: unknown): b is { x: number; z: number; patrolRadius?: number } => {
-            const bb = b as { x?: unknown; z?: unknown } | null;
-            return !!bb && typeof bb.x === "number" && typeof bb.z === "number";
-          })
-          .map((b: { x: number; z: number; patrolRadius?: number }) => ({
-            x: b.x,
-            z: b.z,
-            patrolRadius: typeof b.patrolRadius === "number" ? b.patrolRadius : 0,
-          }))
-      : [];
-    const excludeZones: Map4ExcludeZone[] = Array.isArray(parsed.excludeZones)
-      ? parsed.excludeZones
-          .filter((e: unknown): e is { x: number; z: number; radius?: number } => {
-            const ee = e as { x?: unknown; z?: unknown } | null;
-            return !!ee && typeof ee.x === "number" && typeof ee.z === "number";
-          })
-          .map((e: { x: number; z: number; radius?: number }) => ({
-            x: e.x,
-            z: e.z,
-            radius: typeof e.radius === "number" ? e.radius : MAP4_DEFAULT_EXCLUDE_RADIUS,
-          }))
-      : [];
-    const rawSpawn = parsed.playerSpawn as { x?: unknown; z?: unknown } | null;
-    const playerSpawn = rawSpawn && typeof rawSpawn.x === "number" && typeof rawSpawn.z === "number" ? { x: rawSpawn.x, z: rawSpawn.z } : null;
-    return { activated: !!parsed.activated, playerSpawn, bots, excludeZones };
-  } catch {
-    return { activated: false, playerSpawn: null, bots: [], excludeZones: [] };
+// Map 4's own combat: 20 armed bots roaming whatever the player has built,
+// instead of the fixed 5-guards-plus-boss roster every other map uses.
+const MAP4_BOT_COUNT = 20;
+const MAP4_BOT_AREA_PAD = 8; // extra room around the built footprint so spawns aren't wedged against the outer walls
+const MAP4_BOT_AREA_MIN_HALF = 14; // default spread radius when the canvas is still empty
+function isClearOfMap4Items(x: number, z: number, rects: Obstacle[], clearance: number): boolean {
+  for (const ob of rects) {
+    if (Math.abs(x - ob.x) < ob.halfX + ob.pad + clearance && Math.abs(z - ob.z) < ob.halfZ + ob.pad + clearance) return false;
   }
+  return true;
 }
-function saveMap4Setup(setup: Map4Setup) {
-  try {
-    localStorage.setItem(MAP4_SETUP_KEY, JSON.stringify(setup));
-  } catch {
-    // Storage full/unavailable — the setup still stands for the rest of
-    // this session, it just won't persist to the next one.
+// Scatters bot spawn points across the whole built layout — a jittered
+// grid over the built footprint's bounding box (or a default open area
+// when the canvas is still empty) — instead of clustering them all in one
+// spot, skipping any cell that would land inside a wall/obstacle/drum.
+function pickMap4BotSpawns(items: Map4Item[]): { x: number; z: number }[] {
+  const rects = items.map(map4ItemRect);
+  let minX: number, maxX: number, minZ: number, maxZ: number;
+  if (items.length > 0) {
+    minX = Math.min(...items.map((it) => it.x)) - MAP4_BOT_AREA_PAD;
+    maxX = Math.max(...items.map((it) => it.x)) + MAP4_BOT_AREA_PAD;
+    minZ = Math.min(...items.map((it) => it.z)) - MAP4_BOT_AREA_PAD;
+    maxZ = Math.max(...items.map((it) => it.z)) + MAP4_BOT_AREA_PAD;
+  } else {
+    minX = MAP4_ORIGIN.x - MAP4_BOT_AREA_MIN_HALF;
+    maxX = MAP4_ORIGIN.x + MAP4_BOT_AREA_MIN_HALF;
+    minZ = MAP4_ORIGIN.z - MAP4_BOT_AREA_MIN_HALF;
+    maxZ = MAP4_ORIGIN.z + MAP4_BOT_AREA_MIN_HALF;
   }
+  const width = Math.max(maxX - minX, MAP4_BOT_AREA_MIN_HALF * 2);
+  const depth = Math.max(maxZ - minZ, MAP4_BOT_AREA_MIN_HALF * 2);
+  const cols = Math.max(1, Math.ceil(Math.sqrt((MAP4_BOT_COUNT * width) / depth)));
+  const rows = Math.ceil(MAP4_BOT_COUNT / cols);
+  const cellW = width / cols;
+  const cellD = depth / rows;
+  const spawns: { x: number; z: number }[] = [];
+  outer: for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (spawns.length >= MAP4_BOT_COUNT) break outer;
+      const cx = minX + cellW * (c + 0.5);
+      const cz = minZ + cellD * (r + 0.5);
+      let placed = false;
+      for (let attempt = 0; attempt < 6 && !placed; attempt++) {
+        const jx = attempt === 0 ? cx : cx + (Math.random() * 2 - 1) * cellW * 0.35;
+        const jz = attempt === 0 ? cz : cz + (Math.random() * 2 - 1) * cellD * 0.35;
+        if (isClearOfMap4Items(jx, jz, rects, 0.6)) {
+          spawns.push({ x: jx, z: jz });
+          placed = true;
+        }
+      }
+      if (!placed) spawns.push({ x: cx, z: cz }); // best effort — still spread out even if snug against something
+    }
+  }
+  return spawns;
 }
+const MAP4_PATROL_RADIUS = 6;
 
 // An underground tunnel actually running beneath the real path between
 // houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
@@ -2730,46 +2701,13 @@ function CombatArena({
   const lookLastX = useRef(0);
   const lookLastY = useRef(0);
 
-  // Map 4's placement setup — loaded once (mapId is fixed for this
-  // component's whole mount, so reading it here is safe). map4SetupMode
-  // stays whatever it was at mount even if handleActivate later flips
-  // map4SetupRef.current.activated, so Setup Mode's own UI doesn't vanish
-  // out from under the "ACTIVATED!" confirmation before onExit fires.
-  const map4SetupRef = useRef<Map4Setup>(loadMap4Setup());
-  const [map4SetupMode] = useState(() => mapId === 4 && !map4SetupRef.current.activated);
-  // How many real fighters this match actually spawns: the fixed 5-guards-
-  // plus-boss roster on Maps 1-3, whatever the player configured on an
-  // activated Map 4, or none at all while Map 4 is still in Setup Mode.
-  const map4LiveBotCount = mapId === 4 ? (map4SetupRef.current.activated ? map4SetupRef.current.bots.length : 0) : 6;
-  // Setup Mode's own small API (see the mapId===4 branch of the scene-
-  // building effect) that the SET SPAWN/PLACE/SET RANGE/REMOVE handlers
-  // below drive, plus the React state that keeps their labels/disabled-
-  // ness in sync with map4SetupRef.
-  const map4SetupApiRef = useRef<{
-    getPlayerPos: () => { x: number; z: number } | null;
-    setPlayerSpawnMarker: (pos: { x: number; z: number }) => void;
-    addBotMarker: (pos: { x: number; z: number }) => void;
-    updateLastBotPatrolRing: (radius: number) => void;
-    removeLastBotMarker: () => void;
-    addExcludeMarker: (pos: { x: number; z: number }, radius: number) => void;
-    updateLastExcludeRing: (radius: number) => void;
-    removeLastExcludeMarker: () => void;
-  } | null>(null);
-  const [map4SpawnSet, setMap4SpawnSet] = useState(!!map4SetupRef.current.playerSpawn);
-  const [map4BotCount, setMap4BotCount] = useState(map4SetupRef.current.bots.length);
-  const [map4ExcludeCount, setMap4ExcludeCount] = useState(map4SetupRef.current.excludeZones.length);
-  // Which kind PLACE/SET RANGE/REMOVE act on right now — mirrors the old
-  // Build Mode's WALL/OBSTACLE/DRUM tabs so the same three buttons cover
-  // both bots and no-patrol exclude zones instead of needing six.
-  const [map4SetupTab, setMap4SetupTab] = useState<"bot" | "exclude">("bot");
-  const [map4ActivateLabel, setMap4ActivateLabel] = useState<"ACTIVATE" | "ACTIVATED!">("ACTIVATE");
-
   const [playerHp, setPlayerHp] = useState(100);
   // One HP percentage + floating bar ref per fighter — on Maps 1-3, index
-  // 0-4 are the five room guards and index 5 is the Boss; on an activated
-  // Map 4 it's however many bots the player placed, and no boss.
-  const [botHps, setBotHps] = useState<number[]>(() => new Array(map4LiveBotCount).fill(100));
-  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>(new Array(map4LiveBotCount).fill(null));
+  // 0-4 are the five room guards and index 5 is the Boss; on Map 4 it's
+  // MAP4_BOT_COUNT plain guards and no boss (mapId is fixed for this
+  // component's whole mount, so sizing the initial state off it is safe).
+  const [botHps, setBotHps] = useState<number[]>(() => new Array(mapId === 4 ? MAP4_BOT_COUNT : 6).fill(100));
+  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>(new Array(mapId === 4 ? MAP4_BOT_COUNT : 6).fill(null));
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   // Counts bot deaths this match, for the profile progress system's XP
   // award — read once when `result` leaves "playing" (see the effect
@@ -2810,17 +2748,11 @@ function CombatArena({
   // Map 3's decorative key prop in the Boss Lair (set while building the
   // level, spun slowly each frame in the tick below — null on Map 1/2).
   const keyPropRef = useRef<THREE.Group | null>(null);
-  // Map 4 Setup Mode has two tabs of its own concern: STRUCTURE (walls/
-  // obstacles/drums — the house itself) and BOTS (spawn point + placed
-  // fighters). Both only editable pre-activation; only one shows at a
-  // time so they can safely share the same on-screen button positions.
-  const [map4TopMode, setMap4TopMode] = useState<"structure" | "bots">("structure");
-  // Build Mode (STRUCTURE tab): a small API the scene-building effect
-  // wires up once (getPlayerFacing/addPreviewMesh/removeMesh/commitItem
-  // all close over the effect's own scene/player/materials), so the
-  // SELECT/PLACE/SAVE button handlers below — plain component functions,
-  // not part of that effect's closure — can still reach into the live
-  // scene.
+  // Map 4 (Build Mode): a small API the scene-building effect wires up
+  // once (getPlayerFacing/addPreviewMesh/removeMesh/commitItem all close
+  // over the effect's own scene/player/materials), so the SELECT/PLACE/
+  // SAVE button handlers below — plain component functions, not part of
+  // that effect's closure — can still reach into the live scene.
   const buildModeRef = useRef<{
     getPlayerFacing: () => { x: number; z: number; axis: "x" | "z"; rotY: number } | null;
     addPreviewMesh: (item: Map4Item) => THREE.Object3D;
@@ -2831,11 +2763,13 @@ function CombatArena({
   // The piece currently staged by SELECT (world position + orientation)
   // and its translucent preview mesh, cleared once PLACE commits it or
   // SELECT is pressed again to re-aim. customItemsRef/customItemMeshesRef
-  // are the full placed-so-far list — walls, obstacles and drums together,
-  // in placement order — loaded from localStorage on mount, appended to
-  // by PLACE, popped from by REMOVE, written back out by SAVE. Kept
-  // outside React state since neither needs to trigger a re-render, only
-  // persist/stay in sync with the scene.
+  // are the full placed-so-far list — walls and obstacles together, in
+  // placement order — loaded from localStorage on mount (recovering the
+  // original walls-only save if this is the first time under the new
+  // combined format), appended to by PLACE, popped from by REMOVE,
+  // written back out by SAVE. Kept outside React state since neither
+  // needs to trigger a re-render, only persist/stay in sync with the
+  // scene.
   const buildSelectionRef = useRef<{ item: Map4Item; mesh: THREE.Object3D } | null>(null);
   const customItemsRef = useRef<Map4Item[]>([]);
   const customItemMeshesRef = useRef<THREE.Object3D[]>([]);
@@ -3534,160 +3468,29 @@ function CombatArena({
     // EXTRA_CRATES' own visuals are spawned in the loadCrateMaterial block
     // above, alongside the room crates.
     } else if (mapId === 4) {
-      // Map 4 — whatever pieces (walls, crate obstacles, drums) were saved
-      // from Build Mode in an earlier session, rebuilt here read-only —
-      // placing/editing is retired now that the map's built; this is now
-      // purely the arena those pieces are fought over in (see the
-      // player-spawn/bot-placement Setup Mode below, and the live-fighter
-      // spawn/spawnPlayer setup further down). Committed walls use the
-      // same textured sci-fi wall material as every other map
-      // (addWallMesh); committed obstacles/drums use the same materials
-      // used everywhere else (loadCrateMaterial/loadDrumMaterial) — real
+      // Map 4 — Build Mode. No rooms/zones, no bots; just whatever pieces
+      // (walls and/or crate obstacles) were saved from a previous
+      // session, rebuilt here, plus the small API (buildModeRef) the
+      // SELECT/PLACE/REMOVE/SAVE buttons below drive. Committed walls use
+      // the same textured sci-fi wall material as every other map
+      // (addWallMesh); committed obstacles use the same crate material
+      // used everywhere else (loadCrateMaterial/placeCrate) — real
       // materials, not a flat placeholder color.
-      // Loaded synchronously (it's just a localStorage read) so
-      // map4DynamicSpawn is ready in time for playerSpawnPos below —
-      // only the mesh-building has to wait on the crate/drum materials.
-      customItemsRef.current = loadMap4Items();
-      if (customItemsRef.current.length > 0) {
-        const items = customItemsRef.current;
-        const sumX = items.reduce((s, it) => s + it.x, 0);
-        const sumZ = items.reduce((s, it) => s + it.z, 0);
-        const centroid = { x: sumX / items.length, z: sumZ / items.length };
-        // The raw average of every piece's position can land outside the
-        // actual structure for a sprawling or L-shaped/zigzag build (the
-        // centroid of a staircase-shaped house isn't necessarily inside
-        // any room of it) — snap to whichever placed piece is actually
-        // closest to that average instead, which is guaranteed to be
-        // right at the built structure rather than floating in open
-        // space between distant parts of it.
-        let nearest = items[0];
-        let nearestDist = Infinity;
-        for (const it of items) {
-          const d = Math.hypot(it.x - centroid.x, it.z - centroid.z);
-          if (d < nearestDist) {
-            nearestDist = d;
-            nearest = it;
-          }
-        }
-        map4DynamicSpawn = { x: nearest.x, z: nearest.z };
-      }
-      // Setup Mode: the player hasn't hit ACTIVATE yet, so there's nothing
-      // to fight — just simple, cheap placeholder markers (no GLTF loads,
-      // no combat state) showing wherever SET SPAWN/PLACE BOT/SET PATROL
-      // have been pressed so far, plus the small API those handlers (component
-      // functions, not part of this effect's closure) drive to add/move/
-      // remove them. Reads `player` by closure the same way the old Build
-      // Mode's getPlayerFacing did — safe even though `player` itself is
-      // declared later below, since this API is only ever called after
-      // spawnPlayer has already run.
-      if (map4SetupMode) {
-        const spawnBeaconMat = new THREE.MeshBasicMaterial({ color: 0x6be2ff, transparent: true, opacity: 0.55 });
-        const botMarkerMat = new THREE.MeshBasicMaterial({ color: 0xff8a4d, transparent: true, opacity: 0.55 });
-        const patrolRingMat = new THREE.MeshBasicMaterial({ color: 0xff8a4d, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
-        // Exclude zones render in red/warning colors — visually distinct
-        // from a bot's own orange patrol ring, since they mean the
-        // opposite thing (never go here, not wander freely here).
-        const excludeMarkerMat = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.6 });
-        const excludeRingMat = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
-        let spawnMarkerMesh: THREE.Object3D | null = null;
-        const botMarkerMeshes: THREE.Object3D[] = [];
-        const botRingMeshes: (THREE.Object3D | null)[] = [];
-        const excludeMarkerMeshes: THREE.Object3D[] = [];
-        const excludeRingMeshes: THREE.Object3D[] = [];
-        const makeSpawnMarker = (pos: { x: number; z: number }): THREE.Object3D => {
-          const group = new THREE.Group();
-          const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3, 10), spawnBeaconMat);
-          pole.position.y = 1.5;
-          const cap = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.6, 10), spawnBeaconMat);
-          cap.position.y = 3.3;
-          group.add(pole, cap);
-          group.position.set(pos.x, 0, pos.z);
-          scene.add(group);
-          return group;
-        };
-        const makeBotMarker = (pos: { x: number; z: number }): THREE.Object3D => {
-          const mesh = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.8, 10), botMarkerMat);
-          mesh.position.set(pos.x, 0.9, pos.z);
-          scene.add(mesh);
-          return mesh;
-        };
-        // A flat ground ring showing a radius around a point — used for
-        // both a bot's own patrol range (orange) and an exclude zone's
-        // no-go circle (red, via excludeRingMat).
-        const makeRing = (pos: { x: number; z: number }, radius: number, mat: THREE.Material): THREE.Object3D => {
-          const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(0.1, radius - 0.08), radius, 40), mat);
-          ring.rotation.x = -Math.PI / 2;
-          ring.position.set(pos.x, 0.05, pos.z);
-          scene.add(ring);
-          return ring;
-        };
-        const makeExcludeMarker = (pos: { x: number; z: number }): THREE.Object3D => {
-          const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 12), excludeMarkerMat);
-          mesh.position.set(pos.x, 0.6, pos.z);
-          scene.add(mesh);
-          return mesh;
-        };
-        if (map4SetupRef.current.playerSpawn) spawnMarkerMesh = makeSpawnMarker(map4SetupRef.current.playerSpawn);
-        for (const bot of map4SetupRef.current.bots) {
-          botMarkerMeshes.push(makeBotMarker(bot));
-          botRingMeshes.push(bot.patrolRadius > 0 ? makeRing(bot, bot.patrolRadius, patrolRingMat) : null);
-        }
-        for (const zone of map4SetupRef.current.excludeZones) {
-          excludeMarkerMeshes.push(makeExcludeMarker(zone));
-          excludeRingMeshes.push(makeRing(zone, zone.radius, excludeRingMat));
-        }
-        map4SetupApiRef.current = {
-          getPlayerPos: () => (player ? { x: player.root.position.x, z: player.root.position.z } : null),
-          setPlayerSpawnMarker: (pos) => {
-            if (spawnMarkerMesh) scene.remove(spawnMarkerMesh);
-            spawnMarkerMesh = makeSpawnMarker(pos);
-          },
-          addBotMarker: (pos) => {
-            botMarkerMeshes.push(makeBotMarker(pos));
-            // A fresh bot has no patrol configured yet (patrolRadius 0 —
-            // see handlePlaceBot) — no ring to show until SET RANGE gives
-            // it one.
-            botRingMeshes.push(null);
-          },
-          updateLastBotPatrolRing: (radius) => {
-            const idx = botRingMeshes.length - 1;
-            if (idx < 0) return;
-            const old = botRingMeshes[idx];
-            if (old) scene.remove(old);
-            const bot = map4SetupRef.current.bots[idx];
-            botRingMeshes[idx] = bot ? makeRing(bot, radius, patrolRingMat) : null;
-          },
-          removeLastBotMarker: () => {
-            const mesh = botMarkerMeshes.pop();
-            if (mesh) scene.remove(mesh);
-            const ring = botRingMeshes.pop();
-            if (ring) scene.remove(ring);
-          },
-          addExcludeMarker: (pos, radius) => {
-            excludeMarkerMeshes.push(makeExcludeMarker(pos));
-            excludeRingMeshes.push(makeRing(pos, radius, excludeRingMat));
-          },
-          updateLastExcludeRing: (radius) => {
-            const idx = excludeRingMeshes.length - 1;
-            if (idx < 0) return;
-            scene.remove(excludeRingMeshes[idx]);
-            const zone = map4SetupRef.current.excludeZones[idx];
-            if (zone) excludeRingMeshes[idx] = makeRing(zone, radius, excludeRingMat);
-          },
-          removeLastExcludeMarker: () => {
-            const mesh = excludeMarkerMeshes.pop();
-            if (mesh) scene.remove(mesh);
-            const ring = excludeRingMeshes.pop();
-            if (ring) scene.remove(ring);
-          },
-        };
-      }
       const buildPreviewMat = new THREE.MeshStandardMaterial({
         color: 0x6be2ff,
         transparent: true,
         opacity: 0.4,
         depthWrite: false,
       });
+      // Loaded synchronously (it's just a localStorage read) so
+      // map4DynamicSpawn is ready in time for playerSpawnPos below —
+      // only the mesh-building has to wait on the crate/drum materials.
+      customItemsRef.current = loadMap4Items();
+      if (customItemsRef.current.length > 0) {
+        const sumX = customItemsRef.current.reduce((s, it) => s + it.x, 0);
+        const sumZ = customItemsRef.current.reduce((s, it) => s + it.z, 0);
+        map4DynamicSpawn = { x: sumX / customItemsRef.current.length, z: sumZ / customItemsRef.current.length };
+      }
       Promise.all([loadCrateMaterial(), loadDrumMaterial()]).then(([crateMaterial, drumMaterial]) => {
         if (disposed) return;
         const drumCapMat = getDrumCapMaterial();
@@ -3714,75 +3517,70 @@ function CombatArena({
           return addBuildItemMesh(item);
         });
         setBuildItemCount(customItemsRef.current.length);
-        // Build Mode (STRUCTURE tab): only editable pre-activation, same as
-        // the bot/spawn Setup Mode API above — the house is done being
-        // built once ACTIVATE is pressed, same moment the bots come alive.
-        if (map4SetupMode) {
-          buildModeRef.current = {
-            getPlayerFacing: () => {
-              if (!player) return null;
-              // Snap to the nearest cardinal direction so a wall stays
-              // axis-aligned (matching how every other wall in the game is
-              // collided against — a freely-rotated wall can't be
-              // expressed as the axis-aligned Obstacle rects everything
-              // else uses). Crates are symmetric cubes so this axis is
-              // only relevant when placing a wall; rotY (the raw facing)
-              // is what a crate's cosmetic rotation actually uses.
-              const yaw = ((cameraYaw.current % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-              const facingNS = yaw < Math.PI / 4 || yaw >= (Math.PI * 7) / 4 || (yaw >= (Math.PI * 3) / 4 && yaw < (Math.PI * 5) / 4);
-              const axis: "x" | "z" = facingNS ? "x" : "z";
-              // The chase camera sits behind the player along
-              // (-sin(yaw), -cos(yaw)) (see camTargetPos below), so the
-              // direction the player is actually facing/walking toward is
-              // the opposite of that.
-              const forwardX = Math.sin(cameraYaw.current);
-              const forwardZ = Math.cos(cameraYaw.current);
-              const dist = 4;
-              return {
-                x: player.root.position.x + forwardX * dist,
-                z: player.root.position.z + forwardZ * dist,
-                axis,
-                rotY: cameraYaw.current,
-              };
-            },
-            addPreviewMesh: (item) => {
-              if (item.kind === "wall") {
-                const ob = map4ItemRect(item);
-                const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), buildPreviewMat);
-                mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
-                scene.add(mesh);
-                return mesh;
-              }
-              if (item.kind === "drum") {
-                const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
-                const mesh = new THREE.Mesh(geo, buildPreviewMat);
-                mesh.rotation.y = item.rotY;
-                mesh.position.set(item.x, MAP4_DRUM_HEIGHT / 2, item.z);
-                scene.add(mesh);
-                return mesh;
-              }
-              const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), buildPreviewMat);
-              mesh.rotation.y = item.rotY;
-              mesh.position.set(item.x, item.size / 2, item.z);
+        buildModeRef.current = {
+          getPlayerFacing: () => {
+            if (!player) return null;
+            // Snap to the nearest cardinal direction so a wall stays
+            // axis-aligned (matching how every other wall in the game is
+            // collided against — a freely-rotated wall can't be
+            // expressed as the axis-aligned Obstacle rects everything
+            // else uses). Crates are symmetric cubes so this axis is
+            // only relevant when placing a wall; rotY (the raw facing)
+            // is what a crate's cosmetic rotation actually uses.
+            const yaw = ((cameraYaw.current % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+            const facingNS = yaw < Math.PI / 4 || yaw >= (Math.PI * 7) / 4 || (yaw >= (Math.PI * 3) / 4 && yaw < (Math.PI * 5) / 4);
+            const axis: "x" | "z" = facingNS ? "x" : "z";
+            // The chase camera sits behind the player along
+            // (-sin(yaw), -cos(yaw)) (see camTargetPos below), so the
+            // direction the player is actually facing/walking toward is
+            // the opposite of that.
+            const forwardX = Math.sin(cameraYaw.current);
+            const forwardZ = Math.cos(cameraYaw.current);
+            const dist = 4;
+            return {
+              x: player.root.position.x + forwardX * dist,
+              z: player.root.position.z + forwardZ * dist,
+              axis,
+              rotY: cameraYaw.current,
+            };
+          },
+          addPreviewMesh: (item) => {
+            if (item.kind === "wall") {
+              const ob = map4ItemRect(item);
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), buildPreviewMat);
+              mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
               scene.add(mesh);
               return mesh;
-            },
-            removeMesh: (obj) => scene.remove(obj),
-            commitItem: (item) => {
-              ACTIVE_OBSTACLES.push(map4ItemRect(item));
-              return addBuildItemMesh(item);
-            },
-            // Collision rects aren't individually tagged, so find-by-value
-            // the exact one this item pushed — safe since every Map 4
-            // collision rect is one of these and each commit pushes
-            // exactly one.
-            removeCollisionRect: (item) => {
-              const rect = map4ItemRect(item);
-              const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === rect.x && o.z === rect.z && o.halfX === rect.halfX && o.halfZ === rect.halfZ);
-              if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
-            },
-          };
-        }
+            }
+            if (item.kind === "drum") {
+              const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
+              const mesh = new THREE.Mesh(geo, buildPreviewMat);
+              mesh.rotation.y = item.rotY;
+              mesh.position.set(item.x, MAP4_DRUM_HEIGHT / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), buildPreviewMat);
+            mesh.rotation.y = item.rotY;
+            mesh.position.set(item.x, item.size / 2, item.z);
+            scene.add(mesh);
+            return mesh;
+          },
+          removeMesh: (obj) => scene.remove(obj),
+          commitItem: (item) => {
+            ACTIVE_OBSTACLES.push(map4ItemRect(item));
+            return addBuildItemMesh(item);
+          },
+          // Collision rects aren't individually tagged, so find-by-value
+          // the exact one this item pushed — safe since every Map 4
+          // collision rect is one of these and each commit pushes
+          // exactly one.
+          removeCollisionRect: (item) => {
+            const rect = map4ItemRect(item);
+            const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === rect.x && o.z === rect.z && o.halfX === rect.halfX && o.halfZ === rect.halfZ);
+            if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
+          },
+        };
       });
     } else {
       // Map 2 / Map 3 — both built from the same generic Map2Zone system
@@ -4095,25 +3893,14 @@ function CombatArena({
     // Selection (persisted under SELECTED_CARD_STORAGE_KEY) instead of
     // always being the SWAT model — CARD_MODELS/loadBotFighter are the same
     // lookup + retargeting pipeline the selection ring itself uses.
-    // On Map 4, an explicit SET SPAWN point (if the player placed one)
-    // always wins over the built-structure fallback (map4DynamicSpawn).
     const playerSpawnPos =
-      mapId === 2
-        ? MAP2_PLAYER_SPAWN
-        : mapId === 3
-          ? MAP3_PLAYER_SPAWN
-          : mapId === 4
-            ? (map4SetupRef.current.playerSpawn ?? map4DynamicSpawn)
-            : { x: 0, z: 3 };
+      mapId === 2 ? MAP2_PLAYER_SPAWN : mapId === 3 ? MAP3_PLAYER_SPAWN : mapId === 4 ? map4DynamicSpawn : { x: 0, z: 3 };
     const spawnPlayer = (rig: FighterRig) => {
       if (disposed) return;
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
       rig.root.rotation.y = Math.PI; // face into the facility at the start
       player = rig;
-      // Setup Mode is combat-free (nothing's activated yet, and there's
-      // nothing to shoot) — every other map, and an activated Map 4, arms
-      // the player as usual.
-      if (!map4SetupMode) equipGun(rig);
+      equipGun(rig);
     };
     const savedCard = Number(localStorage.getItem(SELECTED_CARD_STORAGE_KEY));
     const playerModel = CARD_MODELS[savedCard] && isCardUnlocked(savedCard) ? CARD_MODELS[savedCard] : CARD_MODELS[0];
@@ -4129,42 +3916,31 @@ function CombatArena({
     // map's boss room) — all loaded from the same rig/model, just spawned
     // at different posts and the Boss additionally scaled up and tinted
     // (see tintBossFighter).
-    // An activated Map 4 instead spawns exactly the bots the player placed
-    // in Setup Mode (no boss) — everything else about them (patrol/chase/
-    // fire, wired up below) reuses the exact same generic per-fighter
-    // logic as every other map. A not-yet-activated Map 4 spawns none at
-    // all (Setup Mode's markers aren't real fighters).
+    // Map 4 (Build Mode) instead spawns MAP4_BOT_COUNT armed guards (no
+    // boss), scattered across whatever the player has built via
+    // pickMap4BotSpawns — everything else about them (patrol/chase/fire,
+    // wired up below) reuses the exact same generic per-fighter logic as
+    // every other map.
     const botSpawns =
       mapId === 2
         ? MAP2_BOT_SPAWNS
         : mapId === 3
           ? MAP3_BOT_SPAWNS
           : mapId === 4
-            ? map4SetupRef.current.activated
-              ? map4SetupRef.current.bots.map((b) => ({ x: b.x, z: b.z }))
-              : []
+            ? pickMap4BotSpawns(customItemsRef.current)
             : BOT_SPAWNS;
     const bossSpawn = mapId === 2 ? MAP2_BOSS_SPAWN : mapId === 3 ? MAP3_BOSS_SPAWN : BOSS_SPAWN;
-    const bots: (FighterRig | null)[] = new Array(map4LiveBotCount).fill(null);
+    const bots: (FighterRig | null)[] = new Array(mapId === 4 ? MAP4_BOT_COUNT : 6).fill(null);
     // A dormant guard's local wander point around its own spawn (see the
-    // patrol-target dispatcher below), using that specific bot's own
-    // SET-RANGE radius (0 — stand guard right at its spawn — if it was
-    // never set) and rejecting any candidate inside an exclude zone the
-    // same way it already rejects one inside a wall/obstacle — closes over
-    // botSpawns/map4SetupRef since Map 4's own roster is rebuilt fresh per
-    // match, not a fixed module-level array like the other maps' zone
-    // pickers.
+    // patrol-target dispatcher below) — closes over botSpawns since Map
+    // 4's own spread is rebuilt fresh per match, not a fixed module-level
+    // array like the other maps' zone pickers.
     const pickMap4PatrolTarget = (botIndex: number): { x: number; z: number } => {
       const home = botSpawns[botIndex] ?? MAP4_PLAYER_SPAWN;
-      const radius = map4SetupRef.current.bots[botIndex]?.patrolRadius ?? 0;
-      if (radius <= 0) return home;
-      const excludeZones = map4SetupRef.current.excludeZones;
       for (let attempt = 0; attempt < 8; attempt++) {
-        const x = home.x + (Math.random() * 2 - 1) * radius;
-        const z = home.z + (Math.random() * 2 - 1) * radius;
-        const inObstacle = ACTIVE_OBSTACLES.some((ob) => Math.abs(x - ob.x) < ob.halfX + ob.pad && Math.abs(z - ob.z) < ob.halfZ + ob.pad);
-        const inExcludeZone = excludeZones.some((zone) => Math.hypot(x - zone.x, z - zone.z) < zone.radius);
-        if (!inObstacle && !inExcludeZone) {
+        const x = home.x + (Math.random() * 2 - 1) * MAP4_PATROL_RADIUS;
+        const z = home.z + (Math.random() * 2 - 1) * MAP4_PATROL_RADIUS;
+        if (!ACTIVE_OBSTACLES.some((ob) => Math.abs(x - ob.x) < ob.halfX + ob.pad && Math.abs(z - ob.z) < ob.halfZ + ob.pad)) {
           return { x, z };
         }
       }
@@ -4215,12 +3991,10 @@ function CombatArena({
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
-    // Map 4's own combat (only here; every other map keeps the normal
-    // pace): the player moves 40% faster, and its player-placed bots
-    // 40% slower, than the baseline.
-    const playerMaxSpeedForMatch = mapId === 4 ? PLAYER_MAX_SPEED * 1.4 : PLAYER_MAX_SPEED;
-    const botSpeedForMatch = mapId === 4 ? BOT_SPEED * 0.6 : BOT_SPEED;
-    const patrolSpeedForMatch = mapId === 4 ? PATROL_SPEED * 0.6 : PATROL_SPEED;
+    // Map 4 throws MAP4_BOT_COUNT armed bots at the player at once — a 40%
+    // cut to the player's own move speed (only here; every other map keeps
+    // the normal pace) makes that survivable instead of a speed-blitz.
+    const playerMaxSpeedForMatch = mapId === 4 ? PLAYER_MAX_SPEED * 0.6 : PLAYER_MAX_SPEED;
     // Short-lived tracer lines from a gun to its target, spawned per shot
     // and cleaned up once their life runs out (see spawnTracer/updateTracers).
     const tracers: Tracer[] = [];
@@ -4242,9 +4016,9 @@ function CombatArena({
     // Maps 1-3: index 0-4 are the five room guards, one per ROOM_POSITIONS
     // entry (see roomIndex); index 5 is the Boss — tougher, and isBoss
     // skips the patrol/chase behavior entirely in favor of holding its
-    // ground. Map 4 has no boss — every one of its player-placed bots is
+    // ground. Map 4 has no boss — every one of its MAP4_BOT_COUNT bots is
     // a plain guard, roomIndex doubling as its own spawn index.
-    const botMaxHps = mapId === 4 ? new Array(map4LiveBotCount).fill(100) : [100, 100, 100, 100, 100, BOSS_HP];
+    const botMaxHps = mapId === 4 ? new Array(MAP4_BOT_COUNT).fill(100) : [100, 100, 100, 100, 100, BOSS_HP];
     const botStates = botMaxHps.map((hp, i) => ({
       hp,
       cooldown: 0,
@@ -4254,12 +4028,6 @@ function CombatArena({
       isBoss: mapId !== 4 && i === 5,
       roomIndex: i, // only meaningful for guards; Boss ignores it
       awake: mapId !== 4 && i === 5, // the Boss has no guard/patrol behavior to wait on
-      // A Map 4 bot the player never gave a patrol range (SET RANGE) stays
-      // purely decorative forever, even once activated — it never detects,
-      // wakes, chases or fires, only stands exactly where it was placed
-      // (see the tick loop's per-bot dispatch below). Maps 1-3 and any
-      // Map 4 bot that does have a range are never inert.
-      inert: mapId === 4 && (map4SetupRef.current.bots[i]?.patrolRadius ?? 0) <= 0,
       alertT: -1,
       patrolTarget: null as { x: number; z: number } | null,
       stuckT: 0,
@@ -4521,13 +4289,7 @@ function CombatArena({
             botDist = Math.hypot(botDx, botDz);
           }
 
-          if (st.inert) {
-            // A Map 4 bot placed without a patrol range — purely
-            // decorative, forever: no detection, no waking, no chasing, no
-            // firing, just standing exactly where it was placed (still a
-            // valid target the player can shoot, same as any obstacle).
-            updateLocomotionAnim(rig, 0, 0);
-          } else if (st.isBoss) {
+          if (st.isBoss) {
             // The Boss holds its ground in Room 6 — it never patrols or
             // chases, but opens fire the instant the player comes within
             // range and line of sight.
@@ -4584,9 +4346,9 @@ function CombatArena({
               const pdz = st.patrolTarget.z - rig.root.position.z;
               const pdist = Math.hypot(pdx, pdz);
               if (pdist > 0.0001) {
-                moveWithAvoidance(rig, st, pdx / pdist, pdz / pdist, patrolSpeedForMatch, dt);
+                moveWithAvoidance(rig, st, pdx / pdist, pdz / pdist, PATROL_SPEED, dt);
                 rig.root.rotation.y = Math.atan2(pdx, pdz);
-                updateLocomotionAnim(rig, PATROL_RUN_WEIGHT, patrolSpeedForMatch);
+                updateLocomotionAnim(rig, PATROL_RUN_WEIGHT, PATROL_SPEED);
               }
               if (
                 botDist <= DETECTION_RANGE &&
@@ -4626,8 +4388,8 @@ function CombatArena({
             }
             if (st.awake) {
               if (botDist > GUN_RANGE * 0.85 || !canSeePlayer) {
-                moveWithAvoidance(rig, st, botDx / botDist, botDz / botDist, botSpeedForMatch, dt);
-                updateLocomotionAnim(rig, 1, botSpeedForMatch);
+                moveWithAvoidance(rig, st, botDx / botDist, botDz / botDist, BOT_SPEED, dt);
+                updateLocomotionAnim(rig, 1, BOT_SPEED);
               } else {
                 updateLocomotionAnim(rig, 0, 0);
               }
@@ -4883,12 +4645,12 @@ function CombatArena({
     lookTouchId.current = null;
   };
 
-  // Map 4 Setup Mode, STRUCTURE tab: SELECT stages a piece a few units
-  // ahead of wherever the player's currently facing (re-aiming just
-  // replaces the preview, no need to explicitly cancel first); PLACE
-  // commits the staged spot into a real, permanent-for-this-session
-  // piece; SAVE writes everything placed so far out to localStorage so
-  // it's still there next time this map is opened.
+  // Map 4 (Build Mode): SELECT stages a wall a few units ahead of wherever
+  // the player's currently facing (re-aiming just replaces the preview,
+  // no need to explicitly cancel first); WALL commits the staged spot into
+  // a real, permanent-for-this-session wall; SAVE writes everything placed
+  // so far out to localStorage so it's still there next time this map is
+  // opened.
   const handleBuildSelect = () => {
     const api = buildModeRef.current;
     if (!api) return;
@@ -4918,7 +4680,7 @@ function CombatArena({
     setBuildHasSelection(false);
     setBuildItemCount(customItemsRef.current.length);
   };
-  // Undoes the most recently committed piece — wall, obstacle or drum,
+  // Undoes the most recently committed piece — wall or obstacle,
   // whichever was placed last (last in, first out) — simpler and more
   // predictable than targeting/raycasting a specific one.
   const handleBuildRemoveItem = () => {
@@ -4936,111 +4698,6 @@ function CombatArena({
     saveMap4Items(customItemsRef.current);
     setBuildSaveLabel("SAVED!");
     setTimeout(() => setBuildSaveLabel("SAVE"), 1500);
-  };
-
-  // Map 4 Setup Mode: SET SPAWN/PLACE/SET RANGE all act on wherever the
-  // player is currently standing — no separate aim/preview step needed
-  // the way wall placement used, since a marker is just a point. PLACE/
-  // SET RANGE/REMOVE act on a bot or an exclude zone depending on
-  // map4SetupTab, and always target the most-recently-placed one of that
-  // kind (last in, first out), same convention Build Mode's old REMOVE
-  // used.
-  const handleSetSpawn = () => {
-    const api = map4SetupApiRef.current;
-    const pos = api?.getPlayerPos();
-    if (!api || !pos) return;
-    map4SetupRef.current.playerSpawn = pos;
-    api.setPlayerSpawnMarker(pos);
-    saveMap4Setup(map4SetupRef.current);
-    setMap4SpawnSet(true);
-  };
-  const handlePlaceBot = () => {
-    const api = map4SetupApiRef.current;
-    const pos = api?.getPlayerPos();
-    if (!api || !pos) return;
-    // patrolRadius starts at 0 — a freshly-placed bot just guards its
-    // spot until SET RANGE gives it somewhere to wander.
-    map4SetupRef.current.bots = [...map4SetupRef.current.bots, { x: pos.x, z: pos.z, patrolRadius: 0 }];
-    api.addBotMarker(pos);
-    saveMap4Setup(map4SetupRef.current);
-    setMap4BotCount(map4SetupRef.current.bots.length);
-  };
-  const handleSetPatrol = () => {
-    const api = map4SetupApiRef.current;
-    const pos = api?.getPlayerPos();
-    const bots = map4SetupRef.current.bots;
-    if (!api || !pos || bots.length === 0) return;
-    const last = bots[bots.length - 1];
-    const radius = Math.max(1, Math.hypot(pos.x - last.x, pos.z - last.z));
-    last.patrolRadius = radius;
-    api.updateLastBotPatrolRing(radius);
-    saveMap4Setup(map4SetupRef.current);
-  };
-  const handleRemoveBot = () => {
-    const api = map4SetupApiRef.current;
-    if (!api || map4SetupRef.current.bots.length === 0) return;
-    map4SetupRef.current.bots = map4SetupRef.current.bots.slice(0, -1);
-    api.removeLastBotMarker();
-    saveMap4Setup(map4SetupRef.current);
-    setMap4BotCount(map4SetupRef.current.bots.length);
-  };
-  // A no-go circle no bot's patrol will ever wander into (see
-  // pickMap4PatrolTarget) — for carving a hole out around, say, an
-  // obstacle sitting inside a bot's patrol range. Applies to every bot,
-  // not just whichever one happened to be selected when it was placed.
-  const handleMarkExclude = () => {
-    const api = map4SetupApiRef.current;
-    const pos = api?.getPlayerPos();
-    if (!api || !pos) return;
-    map4SetupRef.current.excludeZones = [...map4SetupRef.current.excludeZones, { x: pos.x, z: pos.z, radius: MAP4_DEFAULT_EXCLUDE_RADIUS }];
-    api.addExcludeMarker(pos, MAP4_DEFAULT_EXCLUDE_RADIUS);
-    saveMap4Setup(map4SetupRef.current);
-    setMap4ExcludeCount(map4SetupRef.current.excludeZones.length);
-  };
-  const handleSetExcludeRadius = () => {
-    const api = map4SetupApiRef.current;
-    const pos = api?.getPlayerPos();
-    const zones = map4SetupRef.current.excludeZones;
-    if (!api || !pos || zones.length === 0) return;
-    const last = zones[zones.length - 1];
-    const radius = Math.max(0.5, Math.hypot(pos.x - last.x, pos.z - last.z));
-    last.radius = radius;
-    api.updateLastExcludeRing(radius);
-    saveMap4Setup(map4SetupRef.current);
-  };
-  const handleRemoveExclude = () => {
-    const api = map4SetupApiRef.current;
-    if (!api || map4SetupRef.current.excludeZones.length === 0) return;
-    map4SetupRef.current.excludeZones = map4SetupRef.current.excludeZones.slice(0, -1);
-    api.removeLastExcludeMarker();
-    saveMap4Setup(map4SetupRef.current);
-    setMap4ExcludeCount(map4SetupRef.current.excludeZones.length);
-  };
-  // Dispatchers PLACE/SET RANGE/REMOVE actually call — which handler runs
-  // depends on which tab (BOT or EXCLUDE) is currently selected.
-  const handleSetupPlace = () => (map4SetupTab === "bot" ? handlePlaceBot() : handleMarkExclude());
-  const handleSetupRange = () => (map4SetupTab === "bot" ? handleSetPatrol() : handleSetExcludeRadius());
-  const handleSetupRemove = () => (map4SetupTab === "bot" ? handleRemoveBot() : handleRemoveExclude());
-  // Locks the layout in and hands control back to the lobby — the bots
-  // the player just placed only actually come alive (patrol/chase/fire)
-  // the next time this map is entered (see map4LiveBotCount/botSpawns
-  // above), same as how a saved wall only really "exists" on the next
-  // load. Flashing the label first makes that handoff legible instead of
-  // just vanishing back to the lobby with no confirmation.
-  const handleActivate = () => {
-    map4SetupRef.current.activated = true;
-    saveMap4Setup(map4SetupRef.current);
-    setMap4ActivateLabel("ACTIVATED!");
-    setTimeout(() => onExit(), 1200);
-  };
-  // The reverse of ACTIVATE: goes back to a safe, combat-free Setup Mode
-  // on the next visit without discarding anything already placed — for
-  // when the player actually wanted to keep configuring, not fight the
-  // bots they just set up.
-  const handleDeactivate = () => {
-    map4SetupRef.current.activated = false;
-    saveMap4Setup(map4SetupRef.current);
-    onExit();
   };
 
   return (
@@ -5065,11 +4722,9 @@ function CombatArena({
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
       />
 
-      {/* Health bar — hidden in Map View (nothing but the level on screen)
-          and in Map 4's Setup Mode (nothing's activated yet, so nothing
-          can hurt the player). Shows for an activated Map 4 same as any
-          other map, since its bots actually fight back. */}
-      {!topDownView && !map4SetupMode && (
+      {/* Health bar — hidden in Map View (nothing but the level on screen).
+          Map 4 now has its own combat (20 armed bots), so it shows here too. */}
+      {!topDownView && (
         <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
           <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
             {t(settings.language, "you")}
@@ -5312,14 +4967,13 @@ function CombatArena({
             />
           </div>
 
-          {!map4SetupMode && (
-            <>
+          <>
               {/* Fire button — auto-fires for as long as it's held down (see the
                   attackRequested consumption in the tick loop), not just once per
                   tap. setPointerCapture keeps the up/cancel events firing on this
                   button even if the finger slides off it while held, so a drag-off
-                  reliably stops the fire instead of leaving it stuck on. An activated
-                  Map 4 has its own combat too, so this shows there same as anywhere else. */}
+                  reliably stops the fire instead of leaving it stuck on. Map 4 now
+                  has its own combat (20 armed bots), so this shows there too. */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -5397,71 +5051,26 @@ function CombatArena({
                 {t(settings.language, "run")}
               </button>
             </>
-          )}
-        </>
-      )}
 
-      {/* Map 4 Setup Mode: two top-level tabs, STRUCTURE (walls/obstacles/
-          drums — the house itself, exactly the old Build Mode) and BOTS
-          (player spawn + placed fighters), sharing the same on-screen
-          button positions since only one shows at a time. Nothing fights
-          back and the house can't be re-shuffled once ACTIVATE locks the
-          layout in — see map4LiveBotCount/botSpawns in the setup effect
-          above. Hidden in Map View same as every other ground-movement
-          control, since every action here acts on wherever the player is
-          actually standing (or facing, for STRUCTURE's SELECT). */}
-      {map4SetupMode && !topDownView && (
-        <>
-          <div
-            style={{
-              position: "absolute",
-              top: 58,
-              left: "50%",
-              transform: "translateX(-50%)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                gap: 6,
-                background: "rgba(8,14,24,0.7)",
-                border: "1px solid rgba(200,220,240,0.3)",
-                borderRadius: 8,
-                padding: 5,
-              }}
-            >
-              {(["structure", "bots"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    setMap4TopMode(mode);
-                  }}
-                  aria-label={`Setup mode ${mode}`}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: 6,
-                    background: map4TopMode === mode ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
-                    border: map4TopMode === mode ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
-                    color: "#dce8f5",
-                    fontFamily: "'Rajdhani', sans-serif",
-                    fontWeight: 700,
-                    fontSize: 13,
-                    letterSpacing: "0.05em",
-                    cursor: "pointer",
-                  }}
-                >
-                  {mode === "structure" ? "STRUCTURE" : "BOTS"}
-                </button>
-              ))}
-            </div>
-
-            {map4TopMode === "structure" ? (
-              <>
+          {/* Build Mode (Map 4): the WALL/OBSTACLE tabs pick what SELECT
+              stages next — a wall (house/rooms) or a crate obstacle
+              (cover/decoration) — each with its own size row below the
+              tabs. PLACE commits whichever is staged; SAVE persists
+              everything placed so far (both kinds together). */}
+          {mapId === 4 && (
+            <>
+              <div
+                style={{
+                  position: "absolute",
+                  top: 58,
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
                 <div
                   style={{
                     display: "flex",
@@ -5574,70 +5183,8 @@ function CombatArena({
                     ))}
                   </div>
                 ) : null}
-              </>
-            ) : (
-              <>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    background: "rgba(8,14,24,0.7)",
-                    border: "1px solid rgba(200,220,240,0.3)",
-                    borderRadius: 8,
-                    padding: "6px 14px",
-                    color: "#dce8f5",
-                    fontFamily: "'Rajdhani', sans-serif",
-                    fontWeight: 700,
-                    fontSize: 12,
-                    letterSpacing: "0.06em",
-                  }}
-                >
-                  <span>SPAWN {map4SpawnSet ? "✓" : "✗"}</span>
-                  <span>BOTS: {map4BotCount}</span>
-                  <span>EXCLUDE: {map4ExcludeCount}</span>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 6,
-                    background: "rgba(8,14,24,0.7)",
-                    border: "1px solid rgba(200,220,240,0.3)",
-                    borderRadius: 8,
-                    padding: 5,
-                  }}
-                >
-                  {(["bot", "exclude"] as const).map((tab) => (
-                    <button
-                      key={tab}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        setMap4SetupTab(tab);
-                      }}
-                      aria-label={`Setup tab ${tab}`}
-                      style={{
-                        padding: "6px 14px",
-                        borderRadius: 6,
-                        background: map4SetupTab === tab ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
-                        border: map4SetupTab === tab ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
-                        color: "#dce8f5",
-                        fontFamily: "'Rajdhani', sans-serif",
-                        fontWeight: 700,
-                        fontSize: 13,
-                        letterSpacing: "0.05em",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {tab === "bot" ? "BOT" : "EXCLUDE"}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+              </div>
 
-          {map4TopMode === "structure" ? (
-            <>
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -5647,7 +5194,7 @@ function CombatArena({
                 style={{
                   position: "absolute",
                   right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-                  bottom: "9%",
+                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
                   width: "clamp(72px, 13vw, 100px)",
                   height: "clamp(72px, 13vw, 100px)",
                   borderRadius: "50%",
@@ -5676,7 +5223,7 @@ function CombatArena({
                 style={{
                   position: "absolute",
                   right: "7%",
-                  bottom: "9%",
+                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
                   width: "clamp(72px, 13vw, 100px)",
                   height: "clamp(72px, 13vw, 100px)",
                   borderRadius: "50%",
@@ -5695,6 +5242,9 @@ function CombatArena({
                 {buildPlaceKind === "wall" ? "WALL" : buildPlaceKind === "obstacle" ? "OBSTACLE" : "DRUM"}
               </button>
 
+              {/* SAVE/REMOVE sit below the WALL/OBSTACLE/DRUM tabs (and the
+                  HP bar, which now shows in Map 4 too since its 20 bots
+                  actually fight back) instead of over the joystick. */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -5703,7 +5253,7 @@ function CombatArena({
                 aria-label="Save map"
                 style={{
                   position: "absolute",
-                  top: 16,
+                  top: 140,
                   left: 16,
                   padding: "8px 18px",
                   borderRadius: 6,
@@ -5729,7 +5279,7 @@ function CombatArena({
                 aria-label="Remove last item"
                 style={{
                   position: "absolute",
-                  top: 16,
+                  top: 140,
                   left: 96,
                   padding: "8px 18px",
                   borderRadius: 6,
@@ -5746,191 +5296,8 @@ function CombatArena({
                 REMOVE
               </button>
             </>
-          ) : (
-            <>
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleSetSpawn();
-                }}
-                aria-label="Set player spawn"
-                style={{
-                  position: "absolute",
-                  right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
-                  width: "clamp(72px, 13vw, 100px)",
-                  height: "clamp(72px, 13vw, 100px)",
-                  borderRadius: "50%",
-                  background: "radial-gradient(circle, #baf0ff, #2f9fd8)",
-                  border: "2px solid rgba(210,245,255,0.85)",
-                  boxShadow: "0 0 20px rgba(80,190,255,0.6)",
-                  color: "#06212e",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.03em",
-                  fontSize: "clamp(11px, 1.7vw, 14px)",
-                  cursor: "pointer",
-                  opacity: settings.buttonOpacity,
-                }}
-              >
-                SET SPAWN
-              </button>
-
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleSetupPlace();
-                }}
-                aria-label="Place"
-                style={{
-                  position: "absolute",
-                  right: "7%",
-                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
-                  width: "clamp(72px, 13vw, 100px)",
-                  height: "clamp(72px, 13vw, 100px)",
-                  borderRadius: "50%",
-                  background: "radial-gradient(circle, #ffe2a6, #d88a2c)",
-                  border: "2px solid rgba(255,235,210,0.85)",
-                  boxShadow: "0 0 20px rgba(255,170,40,0.6)",
-                  color: "#2e1c06",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.03em",
-                  fontSize: "clamp(11px, 1.7vw, 14px)",
-                  cursor: "pointer",
-                  opacity: settings.buttonOpacity,
-                }}
-              >
-                {map4SetupTab === "bot" ? "PLACE BOT" : "MARK EXCLUDE"}
-              </button>
-
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleSetupRange();
-                }}
-                disabled={(map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0}
-                aria-label="Set range"
-                style={{
-                  position: "absolute",
-                  right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-                  bottom: "9%",
-                  width: "clamp(72px, 13vw, 100px)",
-                  height: "clamp(72px, 13vw, 100px)",
-                  borderRadius: "50%",
-                  background:
-                    (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
-                      ? "rgba(255,255,255,0.1)"
-                      : "radial-gradient(circle, #ffb0e8, #b83fa0)",
-                  border:
-                    (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
-                      ? "1px solid rgba(200,220,240,0.35)"
-                      : "2px solid rgba(255,220,245,0.85)",
-                  boxShadow: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "none" : "0 0 20px rgba(220,80,190,0.6)",
-                  color: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(220,230,240,0.5)" : "#2e0620",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.03em",
-                  fontSize: "clamp(11px, 1.7vw, 14px)",
-                  cursor: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "default" : "pointer",
-                  opacity: settings.buttonOpacity,
-                }}
-              >
-                {map4SetupTab === "bot" ? "SET PATROL" : "SET RADIUS"}
-              </button>
-
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleActivate();
-                }}
-                aria-label="Activate bots"
-                style={{
-                  position: "absolute",
-                  right: "7%",
-                  bottom: "9%",
-                  width: "clamp(72px, 13vw, 100px)",
-                  height: "clamp(72px, 13vw, 100px)",
-                  borderRadius: "50%",
-                  background:
-                    map4ActivateLabel === "ACTIVATED!" ? "radial-gradient(circle, #baffb0, #3fd85a)" : "radial-gradient(circle, #8fe89a, #2f8f45)",
-                  border: "2px solid rgba(220,255,220,0.95)",
-                  boxShadow: "0 0 20px rgba(90,255,120,0.6)",
-                  color: "#0c2e10",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.03em",
-                  fontSize: "clamp(11px, 1.7vw, 14px)",
-                  cursor: "pointer",
-                  opacity: settings.buttonOpacity,
-                }}
-              >
-                {map4ActivateLabel}
-              </button>
-
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleSetupRemove();
-                }}
-                disabled={(map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0}
-                aria-label="Remove last"
-                style={{
-                  position: "absolute",
-                  top: 16,
-                  left: 16,
-                  padding: "8px 18px",
-                  borderRadius: 6,
-                  background:
-                    (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
-                  border:
-                    (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
-                      ? "1px solid rgba(200,220,240,0.25)"
-                      : "1px solid rgba(255,140,130,0.4)",
-                  color: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.06em",
-                  fontSize: 13,
-                  cursor: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "default" : "pointer",
-                }}
-              >
-                {map4SetupTab === "bot" ? "REMOVE BOT" : "REMOVE EXCLUDE"}
-              </button>
-            </>
           )}
         </>
-      )}
-
-      {/* Once activated, Map 4 is normal combat — but with a way back to
-          Setup Mode instead of being permanently locked in, since the
-          player might still want to move a bot or add an exclude zone
-          rather than fight what they just placed. */}
-      {mapId === 4 && !map4SetupMode && (
-        <button
-          onPointerDown={(e) => {
-            e.preventDefault();
-            handleDeactivate();
-          }}
-          aria-label="Edit setup"
-          style={{
-            position: "absolute",
-            top: 16,
-            right: 16,
-            padding: "6px 14px",
-            borderRadius: 6,
-            background: "rgba(255,255,255,0.08)",
-            border: "1px solid rgba(200,220,240,0.4)",
-            color: "#dce8f5",
-            fontFamily: "'Rajdhani', sans-serif",
-            fontWeight: 700,
-            letterSpacing: "0.06em",
-            fontSize: 12,
-            cursor: "pointer",
-          }}
-        >
-          EDIT SETUP
-        </button>
       )}
 
       {showTutorial && (
