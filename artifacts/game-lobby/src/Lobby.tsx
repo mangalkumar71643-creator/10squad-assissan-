@@ -1101,26 +1101,42 @@ function map4ItemRect(it: Map4Item): Obstacle {
 interface Map4BotConfig {
   x: number;
   z: number;
-  // How far this bot wanders from its own spawn once patrolling — set via
-  // SET PATROL as the distance from the bot's spot to wherever the player
-  // was standing when they pressed it.
+  // 0 (the default a freshly-placed bot gets) means "no patrol configured
+  // — just guard this spot"; a bot's per-fighter patrol dispatcher skips
+  // moving at all once this is 0 (see pickMap4PatrolTarget). Otherwise set
+  // via SET RANGE as the distance from the bot's spot to wherever the
+  // player was standing when they pressed it.
   patrolRadius: number;
+}
+// A no-go circle a patrol target is never allowed to land inside — for
+// carving a hole out of a bot's patrol radius around, say, an obstacle the
+// player doesn't want it wandering up against. Applies to every bot's
+// patrol (not just the one that happened to be selected when it was
+// placed), since the physical obstacle it's protecting doesn't care which
+// bot is nearby.
+interface Map4ExcludeZone {
+  x: number;
+  z: number;
+  radius: number;
 }
 interface Map4Setup {
   // False until ACTIVATE is pressed — while false, the map is a safe,
   // combat-free canvas showing only placement markers (see CombatArena's
   // mapId===4 branch); once true, real armed fighters spawn at every
-  // configured bot position and actually patrol/chase/fire.
+  // configured bot position and actually patrol/chase/fire. DEACTIVATE
+  // flips this back to false (without discarding anything placed) so the
+  // layout can be edited again instead of being fought over.
   activated: boolean;
   playerSpawn: { x: number; z: number } | null;
   bots: Map4BotConfig[];
+  excludeZones: Map4ExcludeZone[];
 }
 const MAP4_SETUP_KEY = "10sa-map4-setup";
-const MAP4_DEFAULT_PATROL_RADIUS = 6;
+const MAP4_DEFAULT_EXCLUDE_RADIUS = 2;
 function loadMap4Setup(): Map4Setup {
   try {
     const raw = localStorage.getItem(MAP4_SETUP_KEY);
-    if (!raw) return { activated: false, playerSpawn: null, bots: [] };
+    if (!raw) return { activated: false, playerSpawn: null, bots: [], excludeZones: [] };
     const parsed = JSON.parse(raw);
     const bots: Map4BotConfig[] = Array.isArray(parsed.bots)
       ? parsed.bots
@@ -1131,14 +1147,26 @@ function loadMap4Setup(): Map4Setup {
           .map((b: { x: number; z: number; patrolRadius?: number }) => ({
             x: b.x,
             z: b.z,
-            patrolRadius: typeof b.patrolRadius === "number" ? b.patrolRadius : MAP4_DEFAULT_PATROL_RADIUS,
+            patrolRadius: typeof b.patrolRadius === "number" ? b.patrolRadius : 0,
+          }))
+      : [];
+    const excludeZones: Map4ExcludeZone[] = Array.isArray(parsed.excludeZones)
+      ? parsed.excludeZones
+          .filter((e: unknown): e is { x: number; z: number; radius?: number } => {
+            const ee = e as { x?: unknown; z?: unknown } | null;
+            return !!ee && typeof ee.x === "number" && typeof ee.z === "number";
+          })
+          .map((e: { x: number; z: number; radius?: number }) => ({
+            x: e.x,
+            z: e.z,
+            radius: typeof e.radius === "number" ? e.radius : MAP4_DEFAULT_EXCLUDE_RADIUS,
           }))
       : [];
     const rawSpawn = parsed.playerSpawn as { x?: unknown; z?: unknown } | null;
     const playerSpawn = rawSpawn && typeof rawSpawn.x === "number" && typeof rawSpawn.z === "number" ? { x: rawSpawn.x, z: rawSpawn.z } : null;
-    return { activated: !!parsed.activated, playerSpawn, bots };
+    return { activated: !!parsed.activated, playerSpawn, bots, excludeZones };
   } catch {
-    return { activated: false, playerSpawn: null, bots: [] };
+    return { activated: false, playerSpawn: null, bots: [], excludeZones: [] };
   }
 }
 function saveMap4Setup(setup: Map4Setup) {
@@ -2699,18 +2727,26 @@ function CombatArena({
   // activated Map 4, or none at all while Map 4 is still in Setup Mode.
   const map4LiveBotCount = mapId === 4 ? (map4SetupRef.current.activated ? map4SetupRef.current.bots.length : 0) : 6;
   // Setup Mode's own small API (see the mapId===4 branch of the scene-
-  // building effect) that the SET SPAWN/PLACE BOT/SET PATROL/REMOVE BOT
-  // handlers below drive, plus the React state that keeps their labels/
-  // disabled-ness in sync with map4SetupRef.
+  // building effect) that the SET SPAWN/PLACE/SET RANGE/REMOVE handlers
+  // below drive, plus the React state that keeps their labels/disabled-
+  // ness in sync with map4SetupRef.
   const map4SetupApiRef = useRef<{
     getPlayerPos: () => { x: number; z: number } | null;
     setPlayerSpawnMarker: (pos: { x: number; z: number }) => void;
     addBotMarker: (pos: { x: number; z: number }) => void;
     updateLastBotPatrolRing: (radius: number) => void;
     removeLastBotMarker: () => void;
+    addExcludeMarker: (pos: { x: number; z: number }, radius: number) => void;
+    updateLastExcludeRing: (radius: number) => void;
+    removeLastExcludeMarker: () => void;
   } | null>(null);
   const [map4SpawnSet, setMap4SpawnSet] = useState(!!map4SetupRef.current.playerSpawn);
   const [map4BotCount, setMap4BotCount] = useState(map4SetupRef.current.bots.length);
+  const [map4ExcludeCount, setMap4ExcludeCount] = useState(map4SetupRef.current.excludeZones.length);
+  // Which kind PLACE/SET RANGE/REMOVE act on right now — mirrors the old
+  // Build Mode's WALL/OBSTACLE/DRUM tabs so the same three buttons cover
+  // both bots and no-patrol exclude zones instead of needing six.
+  const [map4SetupTab, setMap4SetupTab] = useState<"bot" | "exclude">("bot");
   const [map4ActivateLabel, setMap4ActivateLabel] = useState<"ACTIVATE" | "ACTIVATED!">("ACTIVATE");
 
   const [playerHp, setPlayerHp] = useState(100);
@@ -3500,10 +3536,17 @@ function CombatArena({
       if (map4SetupMode) {
         const spawnBeaconMat = new THREE.MeshBasicMaterial({ color: 0x6be2ff, transparent: true, opacity: 0.55 });
         const botMarkerMat = new THREE.MeshBasicMaterial({ color: 0xff8a4d, transparent: true, opacity: 0.55 });
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0xff8a4d, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+        const patrolRingMat = new THREE.MeshBasicMaterial({ color: 0xff8a4d, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+        // Exclude zones render in red/warning colors — visually distinct
+        // from a bot's own orange patrol ring, since they mean the
+        // opposite thing (never go here, not wander freely here).
+        const excludeMarkerMat = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.6 });
+        const excludeRingMat = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
         let spawnMarkerMesh: THREE.Object3D | null = null;
         const botMarkerMeshes: THREE.Object3D[] = [];
         const botRingMeshes: (THREE.Object3D | null)[] = [];
+        const excludeMarkerMeshes: THREE.Object3D[] = [];
+        const excludeRingMeshes: THREE.Object3D[] = [];
         const makeSpawnMarker = (pos: { x: number; z: number }): THREE.Object3D => {
           const group = new THREE.Group();
           const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3, 10), spawnBeaconMat);
@@ -3521,17 +3564,30 @@ function CombatArena({
           scene.add(mesh);
           return mesh;
         };
-        const makeRing = (pos: { x: number; z: number }, radius: number): THREE.Object3D => {
-          const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(0.1, radius - 0.08), radius, 40), ringMat);
+        // A flat ground ring showing a radius around a point — used for
+        // both a bot's own patrol range (orange) and an exclude zone's
+        // no-go circle (red, via excludeRingMat).
+        const makeRing = (pos: { x: number; z: number }, radius: number, mat: THREE.Material): THREE.Object3D => {
+          const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(0.1, radius - 0.08), radius, 40), mat);
           ring.rotation.x = -Math.PI / 2;
           ring.position.set(pos.x, 0.05, pos.z);
           scene.add(ring);
           return ring;
         };
+        const makeExcludeMarker = (pos: { x: number; z: number }): THREE.Object3D => {
+          const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 12), excludeMarkerMat);
+          mesh.position.set(pos.x, 0.6, pos.z);
+          scene.add(mesh);
+          return mesh;
+        };
         if (map4SetupRef.current.playerSpawn) spawnMarkerMesh = makeSpawnMarker(map4SetupRef.current.playerSpawn);
         for (const bot of map4SetupRef.current.bots) {
           botMarkerMeshes.push(makeBotMarker(bot));
-          botRingMeshes.push(makeRing(bot, bot.patrolRadius));
+          botRingMeshes.push(bot.patrolRadius > 0 ? makeRing(bot, bot.patrolRadius, patrolRingMat) : null);
+        }
+        for (const zone of map4SetupRef.current.excludeZones) {
+          excludeMarkerMeshes.push(makeExcludeMarker(zone));
+          excludeRingMeshes.push(makeRing(zone, zone.radius, excludeRingMat));
         }
         map4SetupApiRef.current = {
           getPlayerPos: () => (player ? { x: player.root.position.x, z: player.root.position.z } : null),
@@ -3541,7 +3597,10 @@ function CombatArena({
           },
           addBotMarker: (pos) => {
             botMarkerMeshes.push(makeBotMarker(pos));
-            botRingMeshes.push(makeRing(pos, MAP4_DEFAULT_PATROL_RADIUS));
+            // A fresh bot has no patrol configured yet (patrolRadius 0 —
+            // see handlePlaceBot) — no ring to show until SET RANGE gives
+            // it one.
+            botRingMeshes.push(null);
           },
           updateLastBotPatrolRing: (radius) => {
             const idx = botRingMeshes.length - 1;
@@ -3549,12 +3608,29 @@ function CombatArena({
             const old = botRingMeshes[idx];
             if (old) scene.remove(old);
             const bot = map4SetupRef.current.bots[idx];
-            botRingMeshes[idx] = bot ? makeRing(bot, radius) : null;
+            botRingMeshes[idx] = bot ? makeRing(bot, radius, patrolRingMat) : null;
           },
           removeLastBotMarker: () => {
             const mesh = botMarkerMeshes.pop();
             if (mesh) scene.remove(mesh);
             const ring = botRingMeshes.pop();
+            if (ring) scene.remove(ring);
+          },
+          addExcludeMarker: (pos, radius) => {
+            excludeMarkerMeshes.push(makeExcludeMarker(pos));
+            excludeRingMeshes.push(makeRing(pos, radius, excludeRingMat));
+          },
+          updateLastExcludeRing: (radius) => {
+            const idx = excludeRingMeshes.length - 1;
+            if (idx < 0) return;
+            scene.remove(excludeRingMeshes[idx]);
+            const zone = map4SetupRef.current.excludeZones[idx];
+            if (zone) excludeRingMeshes[idx] = makeRing(zone, radius, excludeRingMat);
+          },
+          removeLastExcludeMarker: () => {
+            const mesh = excludeMarkerMeshes.pop();
+            if (mesh) scene.remove(mesh);
+            const ring = excludeRingMeshes.pop();
             if (ring) scene.remove(ring);
           },
         };
@@ -3946,17 +4022,23 @@ function CombatArena({
     const bots: (FighterRig | null)[] = new Array(map4LiveBotCount).fill(null);
     // A dormant guard's local wander point around its own spawn (see the
     // patrol-target dispatcher below), using that specific bot's own
-    // SET-PATROL radius (MAP4_DEFAULT_PATROL_RADIUS if it was never set) —
-    // closes over botSpawns/map4SetupRef since Map 4's own roster is
-    // rebuilt fresh per match, not a fixed module-level array like the
-    // other maps' zone pickers.
+    // SET-RANGE radius (0 — stand guard right at its spawn — if it was
+    // never set) and rejecting any candidate inside an exclude zone the
+    // same way it already rejects one inside a wall/obstacle — closes over
+    // botSpawns/map4SetupRef since Map 4's own roster is rebuilt fresh per
+    // match, not a fixed module-level array like the other maps' zone
+    // pickers.
     const pickMap4PatrolTarget = (botIndex: number): { x: number; z: number } => {
       const home = botSpawns[botIndex] ?? MAP4_PLAYER_SPAWN;
-      const radius = map4SetupRef.current.bots[botIndex]?.patrolRadius ?? MAP4_DEFAULT_PATROL_RADIUS;
+      const radius = map4SetupRef.current.bots[botIndex]?.patrolRadius ?? 0;
+      if (radius <= 0) return home;
+      const excludeZones = map4SetupRef.current.excludeZones;
       for (let attempt = 0; attempt < 8; attempt++) {
         const x = home.x + (Math.random() * 2 - 1) * radius;
         const z = home.z + (Math.random() * 2 - 1) * radius;
-        if (!ACTIVE_OBSTACLES.some((ob) => Math.abs(x - ob.x) < ob.halfX + ob.pad && Math.abs(z - ob.z) < ob.halfZ + ob.pad)) {
+        const inObstacle = ACTIVE_OBSTACLES.some((ob) => Math.abs(x - ob.x) < ob.halfX + ob.pad && Math.abs(z - ob.z) < ob.halfZ + ob.pad);
+        const inExcludeZone = excludeZones.some((zone) => Math.hypot(x - zone.x, z - zone.z) < zone.radius);
+        if (!inObstacle && !inExcludeZone) {
           return { x, z };
         }
       }
@@ -4663,11 +4745,13 @@ function CombatArena({
     lookTouchId.current = null;
   };
 
-  // Map 4 Setup Mode: SET SPAWN/PLACE BOT/SET PATROL all act on wherever
-  // the player is currently standing — no separate aim/preview step
-  // needed the way wall placement used, since a marker is just a point.
-  // SET PATROL and REMOVE BOT always target the most-recently-placed bot
-  // (last in, first out), same convention Build Mode's old REMOVE used.
+  // Map 4 Setup Mode: SET SPAWN/PLACE/SET RANGE all act on wherever the
+  // player is currently standing — no separate aim/preview step needed
+  // the way wall placement used, since a marker is just a point. PLACE/
+  // SET RANGE/REMOVE act on a bot or an exclude zone depending on
+  // map4SetupTab, and always target the most-recently-placed one of that
+  // kind (last in, first out), same convention Build Mode's old REMOVE
+  // used.
   const handleSetSpawn = () => {
     const api = map4SetupApiRef.current;
     const pos = api?.getPlayerPos();
@@ -4681,7 +4765,9 @@ function CombatArena({
     const api = map4SetupApiRef.current;
     const pos = api?.getPlayerPos();
     if (!api || !pos) return;
-    map4SetupRef.current.bots = [...map4SetupRef.current.bots, { x: pos.x, z: pos.z, patrolRadius: MAP4_DEFAULT_PATROL_RADIUS }];
+    // patrolRadius starts at 0 — a freshly-placed bot just guards its
+    // spot until SET RANGE gives it somewhere to wander.
+    map4SetupRef.current.bots = [...map4SetupRef.current.bots, { x: pos.x, z: pos.z, patrolRadius: 0 }];
     api.addBotMarker(pos);
     saveMap4Setup(map4SetupRef.current);
     setMap4BotCount(map4SetupRef.current.bots.length);
@@ -4705,6 +4791,43 @@ function CombatArena({
     saveMap4Setup(map4SetupRef.current);
     setMap4BotCount(map4SetupRef.current.bots.length);
   };
+  // A no-go circle no bot's patrol will ever wander into (see
+  // pickMap4PatrolTarget) — for carving a hole out around, say, an
+  // obstacle sitting inside a bot's patrol range. Applies to every bot,
+  // not just whichever one happened to be selected when it was placed.
+  const handleMarkExclude = () => {
+    const api = map4SetupApiRef.current;
+    const pos = api?.getPlayerPos();
+    if (!api || !pos) return;
+    map4SetupRef.current.excludeZones = [...map4SetupRef.current.excludeZones, { x: pos.x, z: pos.z, radius: MAP4_DEFAULT_EXCLUDE_RADIUS }];
+    api.addExcludeMarker(pos, MAP4_DEFAULT_EXCLUDE_RADIUS);
+    saveMap4Setup(map4SetupRef.current);
+    setMap4ExcludeCount(map4SetupRef.current.excludeZones.length);
+  };
+  const handleSetExcludeRadius = () => {
+    const api = map4SetupApiRef.current;
+    const pos = api?.getPlayerPos();
+    const zones = map4SetupRef.current.excludeZones;
+    if (!api || !pos || zones.length === 0) return;
+    const last = zones[zones.length - 1];
+    const radius = Math.max(0.5, Math.hypot(pos.x - last.x, pos.z - last.z));
+    last.radius = radius;
+    api.updateLastExcludeRing(radius);
+    saveMap4Setup(map4SetupRef.current);
+  };
+  const handleRemoveExclude = () => {
+    const api = map4SetupApiRef.current;
+    if (!api || map4SetupRef.current.excludeZones.length === 0) return;
+    map4SetupRef.current.excludeZones = map4SetupRef.current.excludeZones.slice(0, -1);
+    api.removeLastExcludeMarker();
+    saveMap4Setup(map4SetupRef.current);
+    setMap4ExcludeCount(map4SetupRef.current.excludeZones.length);
+  };
+  // Dispatchers PLACE/SET RANGE/REMOVE actually call — which handler runs
+  // depends on which tab (BOT or EXCLUDE) is currently selected.
+  const handleSetupPlace = () => (map4SetupTab === "bot" ? handlePlaceBot() : handleMarkExclude());
+  const handleSetupRange = () => (map4SetupTab === "bot" ? handleSetPatrol() : handleSetExcludeRadius());
+  const handleSetupRemove = () => (map4SetupTab === "bot" ? handleRemoveBot() : handleRemoveExclude());
   // Locks the layout in and hands control back to the lobby — the bots
   // the player just placed only actually come alive (patrol/chase/fire)
   // the next time this map is entered (see map4LiveBotCount/botSpawns
@@ -4716,6 +4839,15 @@ function CombatArena({
     saveMap4Setup(map4SetupRef.current);
     setMap4ActivateLabel("ACTIVATED!");
     setTimeout(() => onExit(), 1200);
+  };
+  // The reverse of ACTIVATE: goes back to a safe, combat-free Setup Mode
+  // on the next visit without discarding anything already placed — for
+  // when the player actually wanted to keep configuring, not fight the
+  // bots they just set up.
+  const handleDeactivate = () => {
+    map4SetupRef.current.activated = false;
+    saveMap4Setup(map4SetupRef.current);
+    onExit();
   };
 
   return (
@@ -5076,13 +5208,18 @@ function CombatArena({
         </>
       )}
 
-      {/* Map 4 Setup Mode: SET SPAWN/PLACE BOT/SET PATROL/REMOVE BOT let the
-          player walk the built structure and decide exactly where the
-          character and every bot start (and how far each bot patrols)
-          before ACTIVATE locks the layout in — nothing fights back until
-          then (see map4LiveBotCount/botSpawns in the setup effect above).
-          Hidden in Map View same as every other ground-movement control,
-          since it acts on wherever the player is actually standing. */}
+      {/* Map 4 Setup Mode: SET SPAWN/PLACE/SET RANGE/REMOVE let the player
+          walk the built structure and decide exactly where the character
+          and every bot start (and how far each bot patrols) before
+          ACTIVATE locks the layout in — nothing fights back until then
+          (see map4LiveBotCount/botSpawns in the setup effect above). The
+          BOT/EXCLUDE tabs pick what PLACE/SET RANGE/REMOVE act on — a bot
+          (which stands guard right at its spot until given a patrol
+          range) or a no-go circle no bot's patrol will ever wander into,
+          for carving an obstacle out of a patrol range that would
+          otherwise cross it. Hidden in Map View same as every other
+          ground-movement control, since it acts on wherever the player is
+          actually standing. */}
       {map4SetupMode && !topDownView && (
         <>
           <div
@@ -5092,21 +5229,66 @@ function CombatArena({
               left: "50%",
               transform: "translateX(-50%)",
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
-              gap: 10,
-              background: "rgba(8,14,24,0.7)",
-              border: "1px solid rgba(200,220,240,0.3)",
-              borderRadius: 8,
-              padding: "6px 14px",
-              color: "#dce8f5",
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              fontSize: 12,
-              letterSpacing: "0.06em",
+              gap: 6,
             }}
           >
-            <span>SPAWN {map4SpawnSet ? "✓" : "✗"}</span>
-            <span>BOTS: {map4BotCount}</span>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                background: "rgba(8,14,24,0.7)",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 8,
+                padding: "6px 14px",
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                fontSize: 12,
+                letterSpacing: "0.06em",
+              }}
+            >
+              <span>SPAWN {map4SpawnSet ? "✓" : "✗"}</span>
+              <span>BOTS: {map4BotCount}</span>
+              <span>EXCLUDE: {map4ExcludeCount}</span>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: 6,
+                background: "rgba(8,14,24,0.7)",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 8,
+                padding: 5,
+              }}
+            >
+              {(["bot", "exclude"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    setMap4SetupTab(tab);
+                  }}
+                  aria-label={`Setup tab ${tab}`}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 6,
+                    background: map4SetupTab === tab ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                    border: map4SetupTab === tab ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                    color: "#dce8f5",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 13,
+                    letterSpacing: "0.05em",
+                    cursor: "pointer",
+                  }}
+                >
+                  {tab === "bot" ? "BOT" : "EXCLUDE"}
+                </button>
+              ))}
+            </div>
           </div>
 
           <button
@@ -5140,9 +5322,9 @@ function CombatArena({
           <button
             onPointerDown={(e) => {
               e.preventDefault();
-              handlePlaceBot();
+              handleSetupPlace();
             }}
-            aria-label="Place bot"
+            aria-label="Place"
             style={{
               position: "absolute",
               right: "7%",
@@ -5162,16 +5344,16 @@ function CombatArena({
               opacity: settings.buttonOpacity,
             }}
           >
-            PLACE BOT
+            {map4SetupTab === "bot" ? "PLACE BOT" : "MARK EXCLUDE"}
           </button>
 
           <button
             onPointerDown={(e) => {
               e.preventDefault();
-              handleSetPatrol();
+              handleSetupRange();
             }}
-            disabled={map4BotCount === 0}
-            aria-label="Set patrol range"
+            disabled={(map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0}
+            aria-label="Set range"
             style={{
               position: "absolute",
               right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
@@ -5179,19 +5361,25 @@ function CombatArena({
               width: "clamp(72px, 13vw, 100px)",
               height: "clamp(72px, 13vw, 100px)",
               borderRadius: "50%",
-              background: map4BotCount === 0 ? "rgba(255,255,255,0.1)" : "radial-gradient(circle, #ffb0e8, #b83fa0)",
-              border: map4BotCount === 0 ? "1px solid rgba(200,220,240,0.35)" : "2px solid rgba(255,220,245,0.85)",
-              boxShadow: map4BotCount === 0 ? "none" : "0 0 20px rgba(220,80,190,0.6)",
-              color: map4BotCount === 0 ? "rgba(220,230,240,0.5)" : "#2e0620",
+              background:
+                (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
+                  ? "rgba(255,255,255,0.1)"
+                  : "radial-gradient(circle, #ffb0e8, #b83fa0)",
+              border:
+                (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
+                  ? "1px solid rgba(200,220,240,0.35)"
+                  : "2px solid rgba(255,220,245,0.85)",
+              boxShadow: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "none" : "0 0 20px rgba(220,80,190,0.6)",
+              color: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(220,230,240,0.5)" : "#2e0620",
               fontFamily: "'Rajdhani', sans-serif",
               fontWeight: 700,
               letterSpacing: "0.03em",
               fontSize: "clamp(11px, 1.7vw, 14px)",
-              cursor: map4BotCount === 0 ? "default" : "pointer",
+              cursor: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "default" : "pointer",
               opacity: settings.buttonOpacity,
             }}
           >
-            SET PATROL
+            {map4SetupTab === "bot" ? "SET PATROL" : "SET RADIUS"}
           </button>
 
           <button
@@ -5226,29 +5414,63 @@ function CombatArena({
           <button
             onPointerDown={(e) => {
               e.preventDefault();
-              handleRemoveBot();
+              handleSetupRemove();
             }}
-            disabled={map4BotCount === 0}
-            aria-label="Remove last bot"
+            disabled={(map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0}
+            aria-label="Remove last"
             style={{
               position: "absolute",
               top: 16,
               left: 16,
               padding: "8px 18px",
               borderRadius: 6,
-              background: map4BotCount === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
-              border: map4BotCount === 0 ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
-              color: map4BotCount === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
+              background: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
+              border:
+                (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
+                  ? "1px solid rgba(200,220,240,0.25)"
+                  : "1px solid rgba(255,140,130,0.4)",
+              color: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
               fontFamily: "'Rajdhani', sans-serif",
               fontWeight: 700,
               letterSpacing: "0.06em",
               fontSize: 13,
-              cursor: map4BotCount === 0 ? "default" : "pointer",
+              cursor: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "default" : "pointer",
             }}
           >
-            REMOVE BOT
+            {map4SetupTab === "bot" ? "REMOVE BOT" : "REMOVE EXCLUDE"}
           </button>
         </>
+      )}
+
+      {/* Once activated, Map 4 is normal combat — but with a way back to
+          Setup Mode instead of being permanently locked in, since the
+          player might still want to move a bot or add an exclude zone
+          rather than fight what they just placed. */}
+      {mapId === 4 && !map4SetupMode && (
+        <button
+          onPointerDown={(e) => {
+            e.preventDefault();
+            handleDeactivate();
+          }}
+          aria-label="Edit setup"
+          style={{
+            position: "absolute",
+            top: 16,
+            right: 16,
+            padding: "6px 14px",
+            borderRadius: 6,
+            background: "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(200,220,240,0.4)",
+            color: "#dce8f5",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          EDIT SETUP
+        </button>
       )}
 
       {showTutorial && (
