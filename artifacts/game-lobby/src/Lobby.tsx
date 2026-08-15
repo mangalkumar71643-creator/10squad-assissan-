@@ -1080,21 +1080,24 @@ const DEFAULT_MAP4_HOUSE: Map4Item[] = [
   { kind: "drum", x: MAP4_ORIGIN.x + 3, z: MAP4_ORIGIN.z + 3, rotY: 0 },
   { kind: "drum", x: MAP4_ORIGIN.x - 6, z: MAP4_ORIGIN.z, rotY: 0 },
 ];
+function isValidMap4Item(it: unknown): it is Map4Item {
+  const i = it as { kind?: unknown; x?: unknown; z?: unknown; axis?: unknown; length?: unknown; size?: unknown } | null;
+  return (
+    !!i &&
+    typeof i.x === "number" &&
+    typeof i.z === "number" &&
+    ((i.kind === "wall" && (i.axis === "x" || i.axis === "z") && typeof i.length === "number") ||
+      (i.kind === "obstacle" && typeof i.size === "number") ||
+      i.kind === "drum")
+  );
+}
 function loadMap4Items(): Map4Item[] {
   try {
     const raw = localStorage.getItem(MAP4_ITEMS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed.filter(
-          (it): it is Map4Item =>
-            it &&
-            typeof it.x === "number" &&
-            typeof it.z === "number" &&
-            ((it.kind === "wall" && (it.axis === "x" || it.axis === "z") && typeof it.length === "number") ||
-              (it.kind === "obstacle" && typeof it.size === "number") ||
-              it.kind === "drum"),
-        );
+        return parsed.filter(isValidMap4Item);
       }
     }
     // Nothing under the current key yet — recover anything saved by the
@@ -2816,6 +2819,15 @@ function CombatArena({
   const [buildWallLength, setBuildWallLength] = useState(3);
   const [buildObstacleSize, setBuildObstacleSize] = useState(MAP4_OBSTACLE_SMALL);
   const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
+  // A text "house code" (just the saved items, JSON-stringified) the
+  // player can copy out to their own notes/WhatsApp/wherever and paste
+  // back in later via IMPORT — recoverable even across an uninstall,
+  // since it never depends on this app's own local storage surviving.
+  const [map4ExportText, setMap4ExportText] = useState<string | null>(null);
+  const [map4ExportCopied, setMap4ExportCopied] = useState(false);
+  const [map4ImportOpen, setMap4ImportOpen] = useState(false);
+  const [map4ImportText, setMap4ImportText] = useState("");
+  const [map4ImportError, setMap4ImportError] = useState<string | null>(null);
   // The bird's heading (horizontal drag) and look pitch (vertical drag —
   // negative looks down at the ground, positive looks up toward the sky),
   // both set in handleLookMove. Flight direction always follows yaw only;
@@ -4733,6 +4745,40 @@ function CombatArena({
     setBuildSaveLabel("SAVED!");
     setTimeout(() => setBuildSaveLabel("SAVE"), 1500);
   };
+  // EXPORT/IMPORT: a plain-text "house code" the player copies out
+  // somewhere of their own (WhatsApp to self, Notes, wherever) and pastes
+  // back in later — the only way a build survives something like an
+  // uninstall, since that wipes this app's own local storage entirely.
+  const handleBuildExport = () => {
+    setMap4ExportText(JSON.stringify(customItemsRef.current));
+    setMap4ExportCopied(false);
+  };
+  const handleBuildExportCopy = () => {
+    if (!map4ExportText) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(map4ExportText)
+        .then(() => setMap4ExportCopied(true))
+        .catch(() => {});
+    }
+  };
+  const handleBuildImportLoad = () => {
+    try {
+      const parsed = JSON.parse(map4ImportText);
+      if (!Array.isArray(parsed)) throw new Error("not an array");
+      const valid = parsed.filter(isValidMap4Item);
+      if (valid.length === 0) throw new Error("no valid pieces");
+      saveMap4Items(valid);
+      setMap4ImportOpen(false);
+      setMap4ImportText("");
+      setMap4ImportError(null);
+      // The scene only loads items once at mount — re-entering is what
+      // actually rebuilds it with the newly-imported layout.
+      onExit();
+    } catch {
+      setMap4ImportError("Code sahi nahi hai — dobara check karke paste karo.");
+    }
+  };
 
   return (
     <div
@@ -5329,9 +5375,254 @@ function CombatArena({
               >
                 REMOVE
               </button>
+
+              {/* EXPORT/IMPORT: a plain-text backup that lives wherever the
+                  player pastes it, not in this app's own storage — the
+                  only way a build survives something like an uninstall. */}
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildExport();
+                }}
+                aria-label="Export house code"
+                style={{
+                  position: "absolute",
+                  top: 180,
+                  left: 16,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                EXPORT
+              </button>
+
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  setMap4ImportOpen(true);
+                  setMap4ImportError(null);
+                }}
+                aria-label="Import house code"
+                style={{
+                  position: "absolute",
+                  top: 180,
+                  left: 96,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                IMPORT
+              </button>
             </>
           )}
         </>
+      )}
+
+      {map4ExportText !== null && (
+        <div
+          role="dialog"
+          aria-label="Export house code"
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(4,6,16,0.7)",
+            zIndex: 30,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0 6%",
+          }}
+        >
+          <div
+            style={{
+              width: "min(340px, 90vw)",
+              background: "rgba(12,16,30,0.96)",
+              border: "1px solid rgba(107,216,255,0.45)",
+              borderRadius: 12,
+              padding: "16px 18px",
+              color: "#e8e2ff",
+              fontFamily: "'Barlow', sans-serif",
+            }}
+          >
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", marginBottom: 6 }}>
+              HOUSE CODE
+            </div>
+            <div style={{ fontSize: 11, color: "#9d8ac2", marginBottom: 8, lineHeight: 1.5 }}>
+              Isko copy karke kahi surakshit save kar lo (WhatsApp, Notes, wherever) — app uninstall ho jaaye tab bhi IMPORT se ye wapas load ho
+              jaayega.
+            </div>
+            <textarea
+              readOnly
+              value={map4ExportText}
+              onFocus={(e) => e.currentTarget.select()}
+              style={{
+                width: "100%",
+                height: 90,
+                fontSize: 10,
+                fontFamily: "monospace",
+                background: "rgba(255,255,255,0.06)",
+                color: "#dce8f5",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 6,
+                padding: 8,
+                resize: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button
+                onClick={handleBuildExportCopy}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: map4ExportCopied ? "rgba(107,216,255,0.35)" : "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {map4ExportCopied ? "COPIED!" : "COPY"}
+              </button>
+              <button
+                onClick={() => setMap4ExportText(null)}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                CLOSE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {map4ImportOpen && (
+        <div
+          role="dialog"
+          aria-label="Import house code"
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(4,6,16,0.7)",
+            zIndex: 30,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0 6%",
+          }}
+        >
+          <div
+            style={{
+              width: "min(340px, 90vw)",
+              background: "rgba(12,16,30,0.96)",
+              border: "1px solid rgba(107,216,255,0.45)",
+              borderRadius: 12,
+              padding: "16px 18px",
+              color: "#e8e2ff",
+              fontFamily: "'Barlow', sans-serif",
+            }}
+          >
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", marginBottom: 6 }}>
+              IMPORT HOUSE CODE
+            </div>
+            <div style={{ fontSize: 11, color: "#9d8ac2", marginBottom: 8, lineHeight: 1.5 }}>
+              Pehle jo house code save karke rakha tha, wo yahan paste karo. Ye current house ki jagah le lega.
+            </div>
+            <textarea
+              value={map4ImportText}
+              onChange={(e) => setMap4ImportText(e.target.value)}
+              placeholder="Paste house code here"
+              style={{
+                width: "100%",
+                height: 90,
+                fontSize: 10,
+                fontFamily: "monospace",
+                background: "rgba(255,255,255,0.06)",
+                color: "#dce8f5",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 6,
+                padding: 8,
+                resize: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            {map4ImportError && <div style={{ color: "#ff9c9c", fontSize: 11, marginTop: 6 }}>{map4ImportError}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button
+                onClick={handleBuildImportLoad}
+                disabled={map4ImportText.trim().length === 0}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: map4ImportText.trim().length === 0 ? "rgba(255,255,255,0.08)" : "rgba(107,216,255,0.3)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: map4ImportText.trim().length === 0 ? "rgba(220,230,240,0.4)" : "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: map4ImportText.trim().length === 0 ? "default" : "pointer",
+                }}
+              >
+                LOAD
+              </button>
+              <button
+                onClick={() => {
+                  setMap4ImportOpen(false);
+                  setMap4ImportText("");
+                  setMap4ImportError(null);
+                }}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showTutorial && (
