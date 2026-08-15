@@ -999,12 +999,12 @@ function pickMap3ZoneTarget(guardIndex: number): { x: number; z: number } {
 // ============================================================================
 // MAP 4 — Build Mode: a blank canvas (no rooms, no bots) the player builds
 // up themselves, via the SELECT/PLACE/REMOVE/SAVE controls in CombatArena,
-// instead of a designed level. Two kinds of piece — walls (for the
-// house/rooms) and crate obstacles (for cover/decoration inside it) — both
-// placeable, saved together as one ordered list (MAP4_ITEMS_KEY) and
-// rebuilt every time this map is entered. Positioned in +Z, clear of every
-// other map (all of which sit at z<=~10 near their spawns and go further
-// negative from there).
+// instead of a designed level. Three kinds of piece — walls (for the
+// house/rooms), crate obstacles and drum obstacles (for cover/decoration
+// inside it) — all placeable, saved together as one ordered list
+// (MAP4_ITEMS_KEY) and rebuilt every time this map is entered. Positioned
+// in +Z, clear of every other map (all of which sit at z<=~10 near their
+// spawns and go further negative from there).
 // ============================================================================
 const MAP4_ORIGIN = { x: 0, z: 200 };
 const MAP4_PLAYER_SPAWN = { x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z };
@@ -1016,6 +1016,10 @@ const MAP4_WALL_LENGTH_MAX = 5;
 // (CRATE_HALF_EXTENT, 0.9) — not new sizes invented for Build Mode.
 const MAP4_OBSTACLE_SMALL = 1; // 2 * 0.5
 const MAP4_OBSTACLE_BIG = CRATE_HALF_EXTENT * 2;
+// The fuel-drum obstacle — one fixed size, proportioned like a real barrel
+// (taller than it is wide) rather than a small/big pair.
+const MAP4_DRUM_RADIUS = 0.55;
+const MAP4_DRUM_HEIGHT = 1.5;
 interface Map4Wall {
   kind: "wall";
   x: number;
@@ -1030,7 +1034,13 @@ interface Map4Crate {
   size: number; // full cube width/depth (2 * half-extent)
   rotY: number;
 }
-type Map4Item = Map4Wall | Map4Crate;
+interface Map4Drum {
+  kind: "drum";
+  x: number;
+  z: number;
+  rotY: number;
+}
+type Map4Item = Map4Wall | Map4Crate | Map4Drum;
 const MAP4_ITEMS_KEY = "10sa-map4-items";
 // Build Mode's very first version only placed walls, saved under this key —
 // kept only as a one-time recovery source for whatever was already built
@@ -1048,7 +1058,8 @@ function loadMap4Items(): Map4Item[] {
             typeof it.x === "number" &&
             typeof it.z === "number" &&
             ((it.kind === "wall" && (it.axis === "x" || it.axis === "z") && typeof it.length === "number") ||
-              (it.kind === "obstacle" && typeof it.size === "number")),
+              (it.kind === "obstacle" && typeof it.size === "number") ||
+              it.kind === "drum"),
         );
       }
     }
@@ -1086,6 +1097,12 @@ function map4ItemRect(it: Map4Item): Obstacle {
     return it.axis === "x"
       ? { x: it.x, z: it.z, halfX: it.length / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }
       : { x: it.x, z: it.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: it.length / 2, pad: ROOM_PAD };
+  }
+  if (it.kind === "drum") {
+    // Collision is still an axis-aligned rect (like every other Obstacle
+    // in the game) — a square bounding box around the round footprint,
+    // same approximation the crates already use for their own cubes.
+    return { x: it.x, z: it.z, halfX: MAP4_DRUM_RADIUS, halfZ: MAP4_DRUM_RADIUS, pad: ROOM_PAD };
   }
   return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD };
 }
@@ -1603,6 +1620,105 @@ function placeCrate(scene: THREE.Scene, material: THREE.MeshStandardMaterial, x:
   crate.position.set(x, targetHalfExtent, z);
   crate.receiveShadow = true;
   scene.add(crate);
+}
+
+// Build Mode's fuel-drum obstacle — like createHazardStripeTexture/
+// createSciFiWallTexture above, drawn entirely on a canvas rather than
+// loaded from an image file (no drum texture asset exists in the project).
+// Two canvases share the same layout: one is the visible color/metal
+// surface, the other is black everywhere except the accent-light strips
+// (used as emissiveMap so only those strips actually glow, instead of the
+// whole drum picking up an emissive tint).
+let drumMaterialPromise: Promise<THREE.MeshStandardMaterial> | null = null;
+function loadDrumMaterial(): Promise<THREE.MeshStandardMaterial> {
+  if (!drumMaterialPromise) {
+    drumMaterialPromise = Promise.resolve().then(() => {
+      const w = 512;
+      const h = 512;
+      const colorCanvas = document.createElement("canvas");
+      colorCanvas.width = w;
+      colorCanvas.height = h;
+      const glowCanvas = document.createElement("canvas");
+      glowCanvas.width = w;
+      glowCanvas.height = h;
+      const ctx = colorCanvas.getContext("2d")!;
+      const gctx = glowCanvas.getContext("2d")!;
+
+      // Base dark gunmetal, with a little per-panel tone variation so it
+      // doesn't read as one flat fill.
+      ctx.fillStyle = "#1b1d21";
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "#222529";
+      for (let i = 0; i < 260; i++) {
+        const x = Math.random() * w;
+        const y = Math.random() * h;
+        ctx.fillRect(x, y, 2 + Math.random() * 3, 2 + Math.random() * 3);
+      }
+
+      // Ring seams (top cap edge, two body seams, bottom cap edge) with a
+      // rivet dotted along each — the same "segmented drum" read as the
+      // reference image.
+      const seamYs = [h * 0.1, h * 0.42, h * 0.58, h * 0.9];
+      ctx.strokeStyle = "#0a0b0d";
+      ctx.lineWidth = 7;
+      for (const y of seamYs) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#0c0d10";
+      for (const y of seamYs) {
+        for (let x = 8; x < w; x += 34) {
+          ctx.beginPath();
+          ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Front placard: brand text + a caution line, like the reference.
+      ctx.fillStyle = "#cfd3d8";
+      ctx.textAlign = "center";
+      ctx.font = "bold 30px sans-serif";
+      ctx.fillText("EXO-FUEL", w * 0.375, h * 0.51);
+      ctx.fillStyle = "#e8c23a";
+      ctx.font = "13px sans-serif";
+      ctx.fillText("⚠ CAUTION", w * 0.375, h * 0.615);
+
+      // Blue accent strips, repeated evenly around the circumference —
+      // drawn on BOTH canvases (bright on the glow map so they actually
+      // emit light, and a dim cyan on the color map so they still read
+      // faintly even unlit).
+      const stripY = h * 0.27;
+      const stripH = h * 0.12;
+      for (let x = 20; x < w; x += 128) {
+        ctx.fillStyle = "#173038";
+        ctx.fillRect(x, stripY, 8, stripH);
+        gctx.fillStyle = "#6fe6ff";
+        gctx.fillRect(x, stripY, 8, stripH);
+      }
+
+      const colorTex = new THREE.CanvasTexture(colorCanvas);
+      colorTex.colorSpace = THREE.SRGBColorSpace;
+      const glowTex = new THREE.CanvasTexture(glowCanvas);
+      return new THREE.MeshStandardMaterial({
+        map: colorTex,
+        emissiveMap: glowTex,
+        emissive: 0x6fe6ff,
+        emissiveIntensity: 1.1,
+        roughness: 0.65,
+        metalness: 0.5,
+      });
+    });
+  }
+  return drumMaterialPromise;
+}
+// A plain dark metal cap material shared by every drum's top/bottom face —
+// the side is the only face the wraparound texture above is meant for.
+let drumCapMaterial: THREE.MeshStandardMaterial | null = null;
+function getDrumCapMaterial(): THREE.MeshStandardMaterial {
+  if (!drumCapMaterial) drumCapMaterial = new THREE.MeshStandardMaterial({ color: 0x1b1d21, roughness: 0.7, metalness: 0.4 });
+  return drumCapMaterial;
 }
 
 // Parents a clone of the shared gun model onto a fighter's RightHand bone,
@@ -2603,7 +2719,7 @@ function CombatArena({
   // state re-renders — the ref itself is intentionally not React state.
   const [buildItemCount, setBuildItemCount] = useState(0);
   // Which kind SELECT stages next, and the size/length chosen for it.
-  const [buildPlaceKind, setBuildPlaceKind] = useState<"wall" | "obstacle">("wall");
+  const [buildPlaceKind, setBuildPlaceKind] = useState<"wall" | "obstacle" | "drum">("wall");
   const [buildWallLength, setBuildWallLength] = useState(3);
   const [buildObstacleSize, setBuildObstacleSize] = useState(MAP4_OBSTACLE_SMALL);
   const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
@@ -3309,17 +3425,27 @@ function CombatArena({
       });
       // Loaded synchronously (it's just a localStorage read) so
       // map4DynamicSpawn is ready in time for playerSpawnPos below —
-      // only the mesh-building has to wait on the crate material.
+      // only the mesh-building has to wait on the crate/drum materials.
       customItemsRef.current = loadMap4Items();
       if (customItemsRef.current.length > 0) {
         const sumX = customItemsRef.current.reduce((s, it) => s + it.x, 0);
         const sumZ = customItemsRef.current.reduce((s, it) => s + it.z, 0);
         map4DynamicSpawn = { x: sumX / customItemsRef.current.length, z: sumZ / customItemsRef.current.length };
       }
-      loadCrateMaterial().then((crateMaterial) => {
+      Promise.all([loadCrateMaterial(), loadDrumMaterial()]).then(([crateMaterial, drumMaterial]) => {
         if (disposed) return;
+        const drumCapMat = getDrumCapMaterial();
         const addBuildItemMesh = (item: Map4Item): THREE.Object3D => {
           if (item.kind === "wall") return addWallMesh(map4ItemRect(item), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
+          if (item.kind === "drum") {
+            const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
+            const mesh = new THREE.Mesh(geo, [drumMaterial, drumCapMat, drumCapMat]);
+            mesh.rotation.y = item.rotY;
+            mesh.position.set(item.x, MAP4_DRUM_HEIGHT / 2, item.z);
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            return mesh;
+          }
           const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), crateMaterial);
           mesh.rotation.y = item.rotY;
           mesh.position.set(item.x, item.size / 2, item.z);
@@ -3364,6 +3490,14 @@ function CombatArena({
               const ob = map4ItemRect(item);
               const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), buildPreviewMat);
               mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "drum") {
+              const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
+              const mesh = new THREE.Mesh(geo, buildPreviewMat);
+              mesh.rotation.y = item.rotY;
+              mesh.position.set(item.x, MAP4_DRUM_HEIGHT / 2, item.z);
               scene.add(mesh);
               return mesh;
             }
@@ -4437,7 +4571,9 @@ function CombatArena({
     const item: Map4Item =
       buildPlaceKind === "wall"
         ? { kind: "wall", x: facing.x, z: facing.z, axis: facing.axis, length: buildWallLength }
-        : { kind: "obstacle", x: facing.x, z: facing.z, size: buildObstacleSize, rotY: facing.rotY };
+        : buildPlaceKind === "drum"
+          ? { kind: "drum", x: facing.x, z: facing.z, rotY: facing.rotY }
+          : { kind: "obstacle", x: facing.x, z: facing.z, size: buildObstacleSize, rotY: facing.rotY };
     const mesh = api.addPreviewMesh(item);
     buildSelectionRef.current = { item, mesh };
     setBuildHasSelection(true);
@@ -4854,7 +4990,7 @@ function CombatArena({
                     padding: 5,
                   }}
                 >
-                  {(["wall", "obstacle"] as const).map((kind) => (
+                  {(["wall", "obstacle", "drum"] as const).map((kind) => (
                     <button
                       key={kind}
                       onPointerDown={(e) => {
@@ -4875,7 +5011,7 @@ function CombatArena({
                         cursor: "pointer",
                       }}
                     >
-                      {kind === "wall" ? "WALL" : "OBSTACLE"}
+                      {kind === "wall" ? "WALL" : kind === "obstacle" ? "OBSTACLE" : "DRUM"}
                     </button>
                   ))}
                 </div>
@@ -4916,7 +5052,7 @@ function CombatArena({
                       </button>
                     ))}
                   </div>
-                ) : (
+                ) : buildPlaceKind === "obstacle" ? (
                   <div
                     style={{
                       display: "flex",
@@ -4955,7 +5091,7 @@ function CombatArena({
                       </button>
                     ))}
                   </div>
-                )}
+                ) : null}
               </div>
 
               <button
@@ -5012,7 +5148,7 @@ function CombatArena({
                   opacity: settings.buttonOpacity,
                 }}
               >
-                {buildPlaceKind === "wall" ? "WALL" : "OBSTACLE"}
+                {buildPlaceKind === "wall" ? "WALL" : buildPlaceKind === "obstacle" ? "OBSTACLE" : "DRUM"}
               </button>
 
               {/* SAVE/REMOVE sit up with EXIT/Map View/gear instead of over
