@@ -81,6 +81,7 @@ export interface GameLoopState {
   matches: number; // bricks broken
   perfectMatches: number; // perfect-combo brick hits
   level: number;
+  startLevel: number;
   ball: Ball;
   paddle: Paddle;
   bricks: Brick[];
@@ -157,6 +158,7 @@ function makeInitialState(
   mode: GameMode,
   challengeId: string | undefined,
   now: number,
+  startLevel: number = 1,
 ): GameLoopState {
   const challenge = challengeId ? CHALLENGES.find((c) => c.id === challengeId) ?? null : null;
   const boundsWidth = 360;
@@ -177,7 +179,8 @@ function makeInitialState(
     highestCombo: 0,
     matches: 0,
     perfectMatches: 0,
-    level: 1,
+    level: Math.max(1, startLevel),
+    startLevel: Math.max(1, startLevel),
     ball,
     paddle,
     bricks: generateBricks(boundsWidth, boundsHeight),
@@ -261,7 +264,7 @@ function reducer(state: GameLoopState, action: Action): GameLoopState {
     }
 
     case "RESTART":
-      return makeInitialState(state.mode, state.challenge?.id, action.now);
+      return makeInitialState(state.mode, state.challenge?.id, action.now, state.startLevel);
 
     case "REMOVE_FLOATING":
       return { ...state, floatingTexts: state.floatingTexts.filter((f) => f.id !== action.id) };
@@ -470,9 +473,9 @@ function reducer(state: GameLoopState, action: Action): GameLoopState {
   }
 }
 
-export function useGameLoop(mode: GameMode, challengeId: string | undefined) {
+export function useGameLoop(mode: GameMode, challengeId: string | undefined, startLevel?: number) {
   const [state, dispatch] = useReducer(reducer, undefined, () =>
-    makeInitialState(mode, challengeId, Date.now()),
+    makeInitialState(mode, challengeId, Date.now(), startLevel),
   );
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 

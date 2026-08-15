@@ -27,6 +27,7 @@ interface ProfileState {
   regionFlag: string;
   selectedBallId: string;
   unlockedBallIds: string[];
+  currentLevel: number;
   stats: PlayerStats;
 
   addCoins: (n: number) => void;
@@ -36,6 +37,7 @@ interface ProfileState {
   addXp: (n: number) => void;
   unlockBall: (id: string) => void;
   selectBall: (id: string) => void;
+  bumpLevel: (n: number) => void;
   recordRunEnd: (result: {
     score: number;
     combo: number;
@@ -60,6 +62,7 @@ export const useProfileStore = create<ProfileState>()(
       regionFlag: "🇮🇳",
       selectedBallId: "nova",
       unlockedBallIds: ["nova"],
+      currentLevel: 1,
       stats: EMPTY_STATS,
 
       addCoins: (n) => set((s) => ({ coins: s.coins + Math.max(0, n) })),
@@ -86,6 +89,7 @@ export const useProfileStore = create<ProfileState>()(
           s.unlockedBallIds.includes(id) ? s : { unlockedBallIds: [...s.unlockedBallIds, id] },
         ),
       selectBall: (id) => set({ selectedBallId: id }),
+      bumpLevel: (n) => set((s) => ({ currentLevel: Math.max(s.currentLevel, n) })),
       bumpStat: (key, delta) =>
         set((s) => ({
           stats: { ...s.stats, [key]: (s.stats[key] as number) + delta },

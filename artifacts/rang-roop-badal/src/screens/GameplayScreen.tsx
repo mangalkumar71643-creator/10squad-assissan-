@@ -34,8 +34,10 @@ type Props = NativeStackScreenProps<RootStackParamList, "Gameplay">;
 
 export function GameplayScreen({ route, navigation }: Props) {
   const { mode, challengeId } = route.params;
+  const savedLevel = useProfileStore((s) => s.currentLevel);
+  const startLevel = route.params.startLevel ?? savedLevel;
   const { state, movePaddle, pause, resume, restart, collectStar, removeFloating, setBounds } =
-    useGameLoop(mode, challengeId);
+    useGameLoop(mode, challengeId, startLevel);
 
   const tutorialOn = useSettingsStore((s) => s.tutorialOn);
   const selectedBallId = useProfileStore((s) => s.selectedBallId);
@@ -44,6 +46,7 @@ export function GameplayScreen({ route, navigation }: Props) {
   const addXp = useProfileStore((s) => s.addXp);
   const recordRunEnd = useProfileStore((s) => s.recordRunEnd);
   const bumpStat = useProfileStore((s) => s.bumpStat);
+  const bumpLevel = useProfileStore((s) => s.bumpLevel);
 
   const ball = BALLS.find((b) => b.id === selectedBallId) ?? BALLS[0];
 
@@ -74,6 +77,11 @@ export function GameplayScreen({ route, navigation }: Props) {
       syncedStars.current = state.runStars;
     }
   }, [state.runCoins, state.runStars, addCoins, addStars, bumpStat]);
+
+  // Persist the highest level reached so the next run can resume from it.
+  useEffect(() => {
+    bumpLevel(state.level);
+  }, [state.level, bumpLevel]);
 
   // Particle burst + sfx whenever a brick breaks.
   useEffect(() => {
@@ -264,7 +272,7 @@ export function GameplayScreen({ route, navigation }: Props) {
           />
           <GameButton
             label="Main Menu"
-            onPress={() => navigation.reset({ index: 0, routes: [{ name: "Splash" }] })}
+            onPress={() => navigation.reset({ index: 0, routes: [{ name: "LevelPanel" }] })}
             colors={[theme.accent.red, "#B33240"]}
           />
         </View>

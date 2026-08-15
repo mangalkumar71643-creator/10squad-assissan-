@@ -125,7 +125,7 @@ export type RankName =
 
 export type RootStackParamList = {
   Splash: undefined;
-  Gameplay: { mode: GameMode; challengeId?: string };
+  Gameplay: { mode: GameMode; challengeId?: string; startLevel?: number };
   GameModes: undefined;
   ChallengeSelect: undefined;
   BallSelect: undefined;
@@ -134,6 +134,7 @@ export type RootStackParamList = {
   Achievements: undefined;
   Profile: undefined;
   RankProgress: undefined;
+  LevelPanel: undefined;
   Settings: undefined;
   GameOver: {
     score: number;

@@ -12,6 +12,7 @@ import { DailyRewardScreen } from "@/screens/DailyRewardScreen";
 import { AchievementsScreen } from "@/screens/AchievementsScreen";
 import { ProfileScreen } from "@/screens/ProfileScreen";
 import { RankProgressScreen } from "@/screens/RankProgressScreen";
+import { LevelPanelScreen } from "@/screens/LevelPanelScreen";
 import { SettingsScreen } from "@/screens/SettingsScreen";
 import { GameOverScreen } from "@/screens/GameOverScreen";
 
@@ -37,6 +38,7 @@ export function RootNavigator() {
       <Stack.Screen name="Achievements" component={AchievementsScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="RankProgress" component={RankProgressScreen} />
+      <Stack.Screen name="LevelPanel" component={LevelPanelScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen
         name="GameOver"
