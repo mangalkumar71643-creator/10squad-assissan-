@@ -11,13 +11,13 @@ const BUTTON_BG_ASPECT_RATIO = 1536 / 1024;
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 const BUTTON_BG_HEIGHT = SCREEN_WIDTH / BUTTON_BG_ASPECT_RATIO;
-const BUTTON_BG_BOTTOM = -90;
+const BUTTON_BG_BOTTOM = -90 - 7;
 
 const MENU_BUTTON_RATIO = 774 / 201;
 const MENU_BUTTON_WIDTH = SCREEN_WIDTH * 0.82;
 const MENU_BUTTON_HEIGHT = MENU_BUTTON_WIDTH / MENU_BUTTON_RATIO;
 const MENU_BUTTON_GAP = 6;
-const MENU_STACK_TOP = SCREEN_HEIGHT * 0.27 - 10;
+const MENU_STACK_TOP = SCREEN_HEIGHT * 0.27 - 10 + 7;
 
 // The pill artwork's solid band sits roughly between these two fractions of
 // its own height (measured from the source PNG) — icons are laid out there.
@@ -176,7 +176,9 @@ const styles = StyleSheet.create({
     height: MENU_BUTTON_HEIGHT,
   },
   image: {
-    flex: 1,
+    position: "absolute",
+    top: 7,
+    left: 0,
     width: "100%",
     height: "100%",
   },
