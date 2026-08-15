@@ -6,6 +6,25 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import {
+  type PlayerProgress,
+  type MatchHistoryEntry,
+  type Mission,
+  KILL_XP,
+  WIN_XP_BONUS,
+  CREDITS_PER_KILL,
+  MATCH_HISTORY_LIMIT,
+  rankForLevel,
+  loadPlayerProgress,
+  savePlayerProgress,
+  applyXP,
+  effectiveMissionRewards,
+  buildingUpgradeCost,
+  BUILDING_DEFS,
+  type BuildingId,
+} from "./progress";
+import MissionBriefing from "./MissionBriefing";
+import Base from "./Base";
 
 function StartMissionButton({
   pressed,
@@ -1884,7 +1903,21 @@ function tintBossFighter(rig: FighterRig) {
 // "bot" is just a simple chase-and-swing AI running in the same tick loop
 // as the player, both driven by the same idle-animation character model
 // (there's only one character asset right now) tinted to tell them apart.
-function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => void }) {
+function CombatArena({
+  missionTitle = "Kepler Station",
+  objectiveLabel = "Eliminate all hostiles",
+  rewardXpBonus = WIN_XP_BONUS,
+  rewardCreditsBonus = 300,
+  onExit,
+  onMatchEnd,
+}: {
+  missionTitle?: string;
+  objectiveLabel?: string;
+  rewardXpBonus?: number;
+  rewardCreditsBonus?: number;
+  onExit: () => void;
+  onMatchEnd: (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const joystickKnobRef = useRef<HTMLDivElement>(null);
   const joystickVec = useRef({ x: 0, y: 0 });
@@ -3502,6 +3535,53 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
         EXIT
       </button>
 
+      {/* Objective banner — mission title plus a live remaining-hostiles
+          count derived straight from botHps (index 5 is the Boss), so it
+          never drifts out of sync with the actual win condition below. */}
+      <div
+        style={{
+          position: "absolute",
+          top: 54,
+          left: "50%",
+          transform: "translateX(-50%)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 2,
+          padding: "6px 16px",
+          background: "rgba(6,10,20,0.6)",
+          border: "1px solid rgba(107,226,255,0.35)",
+          borderRadius: 6,
+          pointerEvents: "none",
+          maxWidth: "min(80vw, 420px)",
+        }}
+      >
+        <div
+          style={{
+            color: "#6be2ff",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: 10,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+          }}
+        >
+          {missionTitle}
+        </div>
+        <div
+          style={{
+            color: "#eef4fa",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 600,
+            fontSize: "clamp(11px, 2.4vw, 13px)",
+            letterSpacing: "0.03em",
+            textAlign: "center",
+          }}
+        >
+          OBJECTIVE: {objectiveLabel.toUpperCase()} · {botHps.filter((hp) => hp > 0).length} REMAINING
+        </div>
+      </div>
+
       {/* Look-sensitivity settings */}
       <button
         onClick={() => setSettingsOpen((v) => !v)}
@@ -3708,7 +3788,8 @@ function CombatArena({ onExit, onMatchEnd }: { onExit: () => void; onMatchEnd: (
               color: "#ffd23f",
             }}
           >
-            +{killCountRef.current * KILL_XP + (result === "win" ? WIN_XP_BONUS : 0)} XP
+            +{killCountRef.current * KILL_XP + (result === "win" ? rewardXpBonus : 0)} XP · +
+            {killCountRef.current * CREDITS_PER_KILL + (result === "win" ? rewardCreditsBonus : 0)} CREDITS
             {killCountRef.current > 0 && ` · ${killCountRef.current} kill${killCountRef.current === 1 ? "" : "s"}`}
           </div>
           <button
@@ -4440,6 +4521,14 @@ const MAIL_ICON = (
   </svg>
 );
 
+const BASE_ICON = (
+  <svg viewBox="0 0 24 24" width="50%" height="50%" fill="none">
+    <path d="M4 11L12 4l8 7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M6 10v9.5h12V10" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <rect x="10" y="14" width="4" height="5.5" stroke="#fff" strokeWidth="1.6" />
+  </svg>
+);
+
 function LobbyIconButton({
   icon,
   label,
@@ -4496,83 +4585,10 @@ function LobbyIconButton({
 
 // Real progress now (no account/backend, but persisted in localStorage
 // instead of hardcoded) — every match played through CombatArena awards
-// XP and updates these numbers for good, surviving reloads.
+// XP and updates these numbers for good, surviving reloads. The
+// PlayerProgress type and its persistence/reward-math helpers live in
+// progress.ts so MissionBriefing.tsx and Base.tsx can share them.
 const PLAYER_NAME = "ShadowReaper";
-const PLAYER_PROGRESS_STORAGE_KEY = "10sa-player-progress";
-const KILL_XP = 40;
-const WIN_XP_BONUS = 150;
-
-type MatchHistoryEntry = {
-  result: "win" | "lose";
-  kills: number;
-  xp: number;
-  durationSec: number;
-  damage: number;
-  timestamp: number;
-};
-
-const MATCH_HISTORY_LIMIT = 10;
-
-type PlayerProgress = {
-  level: number;
-  xp: number;
-  xpNext: number;
-  kills: number;
-  wins: number;
-  matches: number;
-  history: MatchHistoryEntry[];
-};
-
-function xpNextForLevel(level: number): number {
-  return 800 + (level - 1) * 150;
-}
-
-const RANK_TIERS = ["Bronze", "Silver", "Gold", "Platinum", "Diamond"];
-function rankForLevel(level: number): string {
-  const tierIndex = Math.min(RANK_TIERS.length - 1, Math.floor((level - 1) / 5));
-  const numerals = ["I", "II", "III"];
-  const subIndex = (level - 1) % 3;
-  return `${RANK_TIERS[tierIndex]} ${numerals[subIndex]}`;
-}
-
-function defaultPlayerProgress(): PlayerProgress {
-  return { level: 1, xp: 0, xpNext: xpNextForLevel(1), kills: 0, wins: 0, matches: 0, history: [] };
-}
-
-function loadPlayerProgress(): PlayerProgress {
-  try {
-    const raw = localStorage.getItem(PLAYER_PROGRESS_STORAGE_KEY);
-    if (!raw) return defaultPlayerProgress();
-    const parsed = JSON.parse(raw);
-    return {
-      level: parsed.level ?? 1,
-      xp: parsed.xp ?? 0,
-      xpNext: parsed.xpNext ?? xpNextForLevel(parsed.level ?? 1),
-      kills: parsed.kills ?? 0,
-      wins: parsed.wins ?? 0,
-      matches: parsed.matches ?? 0,
-      // Older saves (from before match history existed) simply won't have
-      // this field — default to empty rather than crashing on .map/.slice.
-      history: Array.isArray(parsed.history) ? parsed.history : [],
-    };
-  } catch {
-    return defaultPlayerProgress();
-  }
-}
-
-// Applies a chunk of XP, rolling over into as many level-ups as it takes
-// (each level's own xpNext threshold, not a fixed one) — a big XP grant
-// can legitimately jump more than one level at once.
-function applyXP(progress: PlayerProgress, xpGained: number): PlayerProgress {
-  let { level, xp, xpNext } = progress;
-  xp += xpGained;
-  while (xp >= xpNext) {
-    xp -= xpNext;
-    level += 1;
-    xpNext = xpNextForLevel(level);
-  }
-  return { ...progress, level, xp, xpNext };
-}
 
 const AVATAR_ICON = (
   <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none">
@@ -4943,6 +4959,7 @@ function MatchDetailPanel({ entry, onClose }: { entry: MatchHistoryEntry; onClos
     { label: "KILLS", value: String(entry.kills) },
     { label: "SURVIVED", value: duration },
     { label: "XP EARNED", value: `+${entry.xp}` },
+    { label: "CREDITS EARNED", value: `+${entry.credits ?? 0}` },
     { label: "DAMAGE DEALT", value: String(entry.damage ?? 0) },
   ];
   return (
@@ -5051,34 +5068,79 @@ function MatchDetailPanel({ entry, onClose }: { entry: MatchHistoryEntry; onClos
 }
 
 export default function Lobby({ visible }: { visible: boolean }) {
-  const [deployOpen, setDeployOpen] = useState(false);
+  const [missionBriefingOpen, setMissionBriefingOpen] = useState(false);
   const [deployPressed, setDeployPressed] = useState(false);
   const [rankOpen, setRankOpen] = useState(false);
   const [characterOpen, setCharacterOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [baseOpen, setBaseOpen] = useState(false);
   const [progress, setProgress] = useState<PlayerProgress>(loadPlayerProgress);
+  // Set once at deploy time (mission briefing -> DEPLOY), from the
+  // player's building levels *at that moment* — see effectiveMissionRewards
+  // in progress.ts. Kept fixed for the whole match so the in-arena reward
+  // preview and the reward actually granted in handleMatchEnd always agree,
+  // even though buildingLevels itself can't change mid-match anyway.
+  const [activeMission, setActiveMission] = useState<{ mission: Mission; xpBonus: number; creditsBonus: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const handleDeployMission = (mission: Mission) => {
+    const { xpBonus, creditsBonus } = effectiveMissionRewards(progress, mission);
+    setActiveMission({ mission, xpBonus, creditsBonus });
+    setMissionBriefingOpen(false);
+  };
+
+  const handleExitMatch = () => {
+    setActiveMission(null);
+  };
+
   const handleMatchEnd = (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => {
+    const mission = activeMission?.mission ?? null;
+    const xpBonus = activeMission?.xpBonus ?? WIN_XP_BONUS;
+    const creditsBonus = activeMission?.creditsBonus ?? 300;
     setProgress((prev) => {
-      const xpGained = kills * KILL_XP + (result === "win" ? WIN_XP_BONUS : 0);
+      const xpGained = kills * KILL_XP + (result === "win" ? xpBonus : 0);
+      const creditsGained = kills * CREDITS_PER_KILL + (result === "win" ? creditsBonus : 0);
       const entry: MatchHistoryEntry = {
         result,
         kills,
         xp: xpGained,
+        credits: creditsGained,
         durationSec: survivalSec,
         damage: damageDealt,
+        missionId: mission?.id ?? null,
         timestamp: Date.now(),
       };
+      const missionsCompleted =
+        result === "win" && mission && !prev.missionsCompleted.includes(mission.id)
+          ? [...prev.missionsCompleted, mission.id]
+          : prev.missionsCompleted;
       const next: PlayerProgress = {
         ...applyXP(prev, xpGained),
         kills: prev.kills + kills,
         wins: prev.wins + (result === "win" ? 1 : 0),
         matches: prev.matches + 1,
+        credits: prev.credits + creditsGained,
+        missionsCompleted,
         history: [entry, ...prev.history].slice(0, MATCH_HISTORY_LIMIT),
       };
-      localStorage.setItem(PLAYER_PROGRESS_STORAGE_KEY, JSON.stringify(next));
+      savePlayerProgress(next);
+      return next;
+    });
+  };
+
+  const handleUpgradeBuilding = (id: BuildingId) => {
+    setProgress((prev) => {
+      const level = prev.buildingLevels[id];
+      const def = BUILDING_DEFS[id];
+      const cost = buildingUpgradeCost(id, level);
+      if (level >= def.maxLevel || prev.credits < cost) return prev;
+      const next: PlayerProgress = {
+        ...prev,
+        credits: prev.credits - cost,
+        buildingLevels: { ...prev.buildingLevels, [id]: level + 1 },
+      };
+      savePlayerProgress(next);
       return next;
     });
   };
@@ -5136,11 +5198,11 @@ export default function Lobby({ visible }: { visible: boolean }) {
         missionPressed={deployPressed}
         onMissionPress={() => setDeployPressed(true)}
         onMissionRelease={() => setDeployPressed(false)}
-        onMissionClick={() => setDeployOpen(true)}
+        onMissionClick={() => setMissionBriefingOpen(true)}
       />
 
-      {/* RANK / Character / Mail row: bottom-left corner, matching the
-          reference mockup's position (measured at ~1.25% left inset,
+      {/* RANK / Character / Mail / Base row: bottom-left corner, matching
+          the reference mockup's position (measured at ~1.25% left inset,
           ~2.3% bottom inset, buttons ~8.75% of the mockup's width each). */}
       <div
         style={{
@@ -5154,9 +5216,26 @@ export default function Lobby({ visible }: { visible: boolean }) {
         <LobbyIconButton icon={HOME_ICON} label="RANK" onClick={() => setRankOpen(true)} />
         <LobbyIconButton icon={PEOPLE_ICON} onClick={() => setCharacterOpen(true)} />
         <LobbyIconButton icon={MAIL_ICON} onClick={() => setMailOpen(true)} />
+        <LobbyIconButton icon={BASE_ICON} label="BASE" onClick={() => setBaseOpen(true)} />
       </div>
 
-      {deployOpen && <CombatArena onExit={() => setDeployOpen(false)} onMatchEnd={handleMatchEnd} />}
+      {missionBriefingOpen && (
+        <MissionBriefing
+          progress={progress}
+          onClose={() => setMissionBriefingOpen(false)}
+          onDeploy={handleDeployMission}
+        />
+      )}
+      {activeMission && (
+        <CombatArena
+          missionTitle={`${activeMission.mission.sector} — ${activeMission.mission.title}`}
+          objectiveLabel={activeMission.mission.objective}
+          rewardXpBonus={activeMission.xpBonus}
+          rewardCreditsBonus={activeMission.creditsBonus}
+          onExit={handleExitMatch}
+          onMatchEnd={handleMatchEnd}
+        />
+      )}
       {rankOpen && (
         <ComingSoonPanel
           title="RANK"
@@ -5175,6 +5254,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
         />
       )}
       {profileOpen && <ProfilePanel progress={progress} onClose={() => setProfileOpen(false)} />}
+      {baseOpen && <Base progress={progress} onUpgrade={handleUpgradeBuilding} onClose={() => setBaseOpen(false)} />}
     </div>
   );
 }
