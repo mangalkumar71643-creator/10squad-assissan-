@@ -8,7 +8,7 @@
     "newArchEnabled": true,
     "icon": "./assets/icon.png",
     "splash": {
-      "backgroundColor": "#160B2E"
+      "backgroundColor": "#050814"
     },
     "android": {
       "package": "com.rangroopbadal.game",
@@ -32,7 +32,7 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#160B2E"
+          "backgroundColor": "#050814"
         }
       ],
       [
