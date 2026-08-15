@@ -1009,13 +1009,6 @@ function pickMap3ZoneTarget(guardIndex: number): { x: number; z: number } {
 const MAP4_ORIGIN = { x: 0, z: 200 };
 const MAP4_PLAYER_SPAWN = { x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z };
 const MAP4_WALL_LENGTH_DEFAULT = 6; // legacy fallback for pre-length-selector saves
-const MAP4_WALL_LENGTH_MIN = 1;
-const MAP4_WALL_LENGTH_MAX = 5;
-// The same two crate sizes already used elsewhere in the game — the small
-// EXTRA_CRATES ones (halfExtent 0.5) and the standard per-room crates
-// (CRATE_HALF_EXTENT, 0.9) — not new sizes invented for Build Mode.
-const MAP4_OBSTACLE_SMALL = 1; // 2 * 0.5
-const MAP4_OBSTACLE_BIG = CRATE_HALF_EXTENT * 2;
 // The fuel-drum obstacle — one fixed size, proportioned like a real barrel
 // (taller than it is wide) rather than a small/big pair.
 const MAP4_DRUM_RADIUS = 0.55;
@@ -1082,14 +1075,6 @@ function loadMap4Items(): Map4Item[] {
       );
   } catch {
     return [];
-  }
-}
-function saveMap4Items(items: Map4Item[]) {
-  try {
-    localStorage.setItem(MAP4_ITEMS_KEY, JSON.stringify(items));
-  } catch {
-    // Storage full/unavailable — the in-scene pieces still stand for the
-    // rest of this session, they just won't persist to the next one.
   }
 }
 function map4ItemRect(it: Map4Item): Obstacle {
@@ -2748,40 +2733,12 @@ function CombatArena({
   // Map 3's decorative key prop in the Boss Lair (set while building the
   // level, spun slowly each frame in the tick below — null on Map 1/2).
   const keyPropRef = useRef<THREE.Group | null>(null);
-  // Map 4 (Build Mode): a small API the scene-building effect wires up
-  // once (getPlayerFacing/addPreviewMesh/removeMesh/commitItem all close
-  // over the effect's own scene/player/materials), so the SELECT/PLACE/
-  // SAVE button handlers below — plain component functions, not part of
-  // that effect's closure — can still reach into the live scene.
-  const buildModeRef = useRef<{
-    getPlayerFacing: () => { x: number; z: number; axis: "x" | "z"; rotY: number } | null;
-    addPreviewMesh: (item: Map4Item) => THREE.Object3D;
-    removeMesh: (obj: THREE.Object3D) => void;
-    commitItem: (item: Map4Item) => THREE.Object3D;
-    removeCollisionRect: (item: Map4Item) => void;
-  } | null>(null);
-  // The piece currently staged by SELECT (world position + orientation)
-  // and its translucent preview mesh, cleared once PLACE commits it or
-  // SELECT is pressed again to re-aim. customItemsRef/customItemMeshesRef
-  // are the full placed-so-far list — walls and obstacles together, in
-  // placement order — loaded from localStorage on mount (recovering the
-  // original walls-only save if this is the first time under the new
-  // combined format), appended to by PLACE, popped from by REMOVE,
-  // written back out by SAVE. Kept outside React state since neither
-  // needs to trigger a re-render, only persist/stay in sync with the
-  // scene.
-  const buildSelectionRef = useRef<{ item: Map4Item; mesh: THREE.Object3D } | null>(null);
+  // Map 4: the pieces (walls/obstacles/drums) saved from Build Mode,
+  // loaded once on mount and rendered/collided-against same as any other
+  // map's fixed geometry — placing/editing them is no longer done in-game
+  // (that whole SELECT/PLACE/SAVE workflow has been retired now that the
+  // map's built and just gets fought over), so this is read-only here.
   const customItemsRef = useRef<Map4Item[]>([]);
-  const customItemMeshesRef = useRef<THREE.Object3D[]>([]);
-  const [buildHasSelection, setBuildHasSelection] = useState(false);
-  // Mirrors customItemsRef.current.length purely so REMOVE's disabled
-  // state re-renders — the ref itself is intentionally not React state.
-  const [buildItemCount, setBuildItemCount] = useState(0);
-  // Which kind SELECT stages next, and the size/length chosen for it.
-  const [buildPlaceKind, setBuildPlaceKind] = useState<"wall" | "obstacle" | "drum">("wall");
-  const [buildWallLength, setBuildWallLength] = useState(3);
-  const [buildObstacleSize, setBuildObstacleSize] = useState(MAP4_OBSTACLE_SMALL);
-  const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
   // The bird's heading (horizontal drag) and look pitch (vertical drag —
   // negative looks down at the ground, positive looks up toward the sky),
   // both set in handleLookMove. Flight direction always follows yaw only;
@@ -3468,119 +3425,64 @@ function CombatArena({
     // EXTRA_CRATES' own visuals are spawned in the loadCrateMaterial block
     // above, alongside the room crates.
     } else if (mapId === 4) {
-      // Map 4 — Build Mode. No rooms/zones, no bots; just whatever pieces
-      // (walls and/or crate obstacles) were saved from a previous
-      // session, rebuilt here, plus the small API (buildModeRef) the
-      // SELECT/PLACE/REMOVE/SAVE buttons below drive. Committed walls use
-      // the same textured sci-fi wall material as every other map
-      // (addWallMesh); committed obstacles use the same crate material
-      // used everywhere else (loadCrateMaterial/placeCrate) — real
+      // Map 4 — whatever pieces (walls, crate obstacles, drums) were saved
+      // from Build Mode in an earlier session, rebuilt here read-only —
+      // placing/editing is retired now that the map's built; this is now
+      // purely the arena those pieces are fought over in (see the
+      // MAP4_BOT_COUNT bot spawn/spawnPlayer setup below). Committed walls
+      // use the same textured sci-fi wall material as every other map
+      // (addWallMesh); committed obstacles/drums use the same materials
+      // used everywhere else (loadCrateMaterial/loadDrumMaterial) — real
       // materials, not a flat placeholder color.
-      const buildPreviewMat = new THREE.MeshStandardMaterial({
-        color: 0x6be2ff,
-        transparent: true,
-        opacity: 0.4,
-        depthWrite: false,
-      });
       // Loaded synchronously (it's just a localStorage read) so
       // map4DynamicSpawn is ready in time for playerSpawnPos below —
       // only the mesh-building has to wait on the crate/drum materials.
       customItemsRef.current = loadMap4Items();
       if (customItemsRef.current.length > 0) {
-        const sumX = customItemsRef.current.reduce((s, it) => s + it.x, 0);
-        const sumZ = customItemsRef.current.reduce((s, it) => s + it.z, 0);
-        map4DynamicSpawn = { x: sumX / customItemsRef.current.length, z: sumZ / customItemsRef.current.length };
+        const items = customItemsRef.current;
+        const sumX = items.reduce((s, it) => s + it.x, 0);
+        const sumZ = items.reduce((s, it) => s + it.z, 0);
+        const centroid = { x: sumX / items.length, z: sumZ / items.length };
+        // The raw average of every piece's position can land outside the
+        // actual structure for a sprawling or L-shaped/zigzag build (the
+        // centroid of a staircase-shaped house isn't necessarily inside
+        // any room of it) — snap to whichever placed piece is actually
+        // closest to that average instead, which is guaranteed to be
+        // right at the built structure rather than floating in open
+        // space between distant parts of it.
+        let nearest = items[0];
+        let nearestDist = Infinity;
+        for (const it of items) {
+          const d = Math.hypot(it.x - centroid.x, it.z - centroid.z);
+          if (d < nearestDist) {
+            nearestDist = d;
+            nearest = it;
+          }
+        }
+        map4DynamicSpawn = { x: nearest.x, z: nearest.z };
       }
       Promise.all([loadCrateMaterial(), loadDrumMaterial()]).then(([crateMaterial, drumMaterial]) => {
         if (disposed) return;
         const drumCapMat = getDrumCapMaterial();
-        const addBuildItemMesh = (item: Map4Item): THREE.Object3D => {
-          if (item.kind === "wall") return addWallMesh(map4ItemRect(item), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
-          if (item.kind === "drum") {
+        for (const item of customItemsRef.current) {
+          ACTIVE_OBSTACLES.push(map4ItemRect(item));
+          if (item.kind === "wall") {
+            addWallMesh(map4ItemRect(item), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
+          } else if (item.kind === "drum") {
             const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
             const mesh = new THREE.Mesh(geo, [drumMaterial, drumCapMat, drumCapMat]);
             mesh.rotation.y = item.rotY;
             mesh.position.set(item.x, MAP4_DRUM_HEIGHT / 2, item.z);
             mesh.receiveShadow = true;
             scene.add(mesh);
-            return mesh;
-          }
-          const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), crateMaterial);
-          mesh.rotation.y = item.rotY;
-          mesh.position.set(item.x, item.size / 2, item.z);
-          mesh.receiveShadow = true;
-          scene.add(mesh);
-          return mesh;
-        };
-        customItemMeshesRef.current = customItemsRef.current.map((item) => {
-          ACTIVE_OBSTACLES.push(map4ItemRect(item));
-          return addBuildItemMesh(item);
-        });
-        setBuildItemCount(customItemsRef.current.length);
-        buildModeRef.current = {
-          getPlayerFacing: () => {
-            if (!player) return null;
-            // Snap to the nearest cardinal direction so a wall stays
-            // axis-aligned (matching how every other wall in the game is
-            // collided against — a freely-rotated wall can't be
-            // expressed as the axis-aligned Obstacle rects everything
-            // else uses). Crates are symmetric cubes so this axis is
-            // only relevant when placing a wall; rotY (the raw facing)
-            // is what a crate's cosmetic rotation actually uses.
-            const yaw = ((cameraYaw.current % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-            const facingNS = yaw < Math.PI / 4 || yaw >= (Math.PI * 7) / 4 || (yaw >= (Math.PI * 3) / 4 && yaw < (Math.PI * 5) / 4);
-            const axis: "x" | "z" = facingNS ? "x" : "z";
-            // The chase camera sits behind the player along
-            // (-sin(yaw), -cos(yaw)) (see camTargetPos below), so the
-            // direction the player is actually facing/walking toward is
-            // the opposite of that.
-            const forwardX = Math.sin(cameraYaw.current);
-            const forwardZ = Math.cos(cameraYaw.current);
-            const dist = 4;
-            return {
-              x: player.root.position.x + forwardX * dist,
-              z: player.root.position.z + forwardZ * dist,
-              axis,
-              rotY: cameraYaw.current,
-            };
-          },
-          addPreviewMesh: (item) => {
-            if (item.kind === "wall") {
-              const ob = map4ItemRect(item);
-              const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), buildPreviewMat);
-              mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
-              scene.add(mesh);
-              return mesh;
-            }
-            if (item.kind === "drum") {
-              const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
-              const mesh = new THREE.Mesh(geo, buildPreviewMat);
-              mesh.rotation.y = item.rotY;
-              mesh.position.set(item.x, MAP4_DRUM_HEIGHT / 2, item.z);
-              scene.add(mesh);
-              return mesh;
-            }
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), buildPreviewMat);
+          } else {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), crateMaterial);
             mesh.rotation.y = item.rotY;
             mesh.position.set(item.x, item.size / 2, item.z);
+            mesh.receiveShadow = true;
             scene.add(mesh);
-            return mesh;
-          },
-          removeMesh: (obj) => scene.remove(obj),
-          commitItem: (item) => {
-            ACTIVE_OBSTACLES.push(map4ItemRect(item));
-            return addBuildItemMesh(item);
-          },
-          // Collision rects aren't individually tagged, so find-by-value
-          // the exact one this item pushed — safe since every Map 4
-          // collision rect is one of these and each commit pushes
-          // exactly one.
-          removeCollisionRect: (item) => {
-            const rect = map4ItemRect(item);
-            const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === rect.x && o.z === rect.z && o.halfX === rect.halfX && o.halfZ === rect.halfZ);
-            if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
-          },
-        };
+          }
+        }
       });
     } else {
       // Map 2 / Map 3 — both built from the same generic Map2Zone system
@@ -3991,10 +3893,12 @@ function CombatArena({
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
-    // Map 4 throws MAP4_BOT_COUNT armed bots at the player at once — a 40%
-    // cut to the player's own move speed (only here; every other map keeps
-    // the normal pace) makes that survivable instead of a speed-blitz.
-    const playerMaxSpeedForMatch = mapId === 4 ? PLAYER_MAX_SPEED * 0.6 : PLAYER_MAX_SPEED;
+    // Map 4's own combat (only here; every other map keeps the normal
+    // pace): the player moves 40% faster, and its MAP4_BOT_COUNT bots
+    // 40% slower, than the baseline.
+    const playerMaxSpeedForMatch = mapId === 4 ? PLAYER_MAX_SPEED * 1.4 : PLAYER_MAX_SPEED;
+    const botSpeedForMatch = mapId === 4 ? BOT_SPEED * 0.6 : BOT_SPEED;
+    const patrolSpeedForMatch = mapId === 4 ? PATROL_SPEED * 0.6 : PATROL_SPEED;
     // Short-lived tracer lines from a gun to its target, spawned per shot
     // and cleaned up once their life runs out (see spawnTracer/updateTracers).
     const tracers: Tracer[] = [];
@@ -4346,9 +4250,9 @@ function CombatArena({
               const pdz = st.patrolTarget.z - rig.root.position.z;
               const pdist = Math.hypot(pdx, pdz);
               if (pdist > 0.0001) {
-                moveWithAvoidance(rig, st, pdx / pdist, pdz / pdist, PATROL_SPEED, dt);
+                moveWithAvoidance(rig, st, pdx / pdist, pdz / pdist, patrolSpeedForMatch, dt);
                 rig.root.rotation.y = Math.atan2(pdx, pdz);
-                updateLocomotionAnim(rig, PATROL_RUN_WEIGHT, PATROL_SPEED);
+                updateLocomotionAnim(rig, PATROL_RUN_WEIGHT, patrolSpeedForMatch);
               }
               if (
                 botDist <= DETECTION_RANGE &&
@@ -4388,8 +4292,8 @@ function CombatArena({
             }
             if (st.awake) {
               if (botDist > GUN_RANGE * 0.85 || !canSeePlayer) {
-                moveWithAvoidance(rig, st, botDx / botDist, botDz / botDist, BOT_SPEED, dt);
-                updateLocomotionAnim(rig, 1, BOT_SPEED);
+                moveWithAvoidance(rig, st, botDx / botDist, botDz / botDist, botSpeedForMatch, dt);
+                updateLocomotionAnim(rig, 1, botSpeedForMatch);
               } else {
                 updateLocomotionAnim(rig, 0, 0);
               }
@@ -4643,61 +4547,6 @@ function CombatArena({
   };
   const handleLookUp = () => {
     lookTouchId.current = null;
-  };
-
-  // Map 4 (Build Mode): SELECT stages a wall a few units ahead of wherever
-  // the player's currently facing (re-aiming just replaces the preview,
-  // no need to explicitly cancel first); WALL commits the staged spot into
-  // a real, permanent-for-this-session wall; SAVE writes everything placed
-  // so far out to localStorage so it's still there next time this map is
-  // opened.
-  const handleBuildSelect = () => {
-    const api = buildModeRef.current;
-    if (!api) return;
-    const facing = api.getPlayerFacing();
-    if (!facing) return;
-    const prev = buildSelectionRef.current;
-    if (prev) api.removeMesh(prev.mesh);
-    const item: Map4Item =
-      buildPlaceKind === "wall"
-        ? { kind: "wall", x: facing.x, z: facing.z, axis: facing.axis, length: buildWallLength }
-        : buildPlaceKind === "drum"
-          ? { kind: "drum", x: facing.x, z: facing.z, rotY: facing.rotY }
-          : { kind: "obstacle", x: facing.x, z: facing.z, size: buildObstacleSize, rotY: facing.rotY };
-    const mesh = api.addPreviewMesh(item);
-    buildSelectionRef.current = { item, mesh };
-    setBuildHasSelection(true);
-  };
-  const handleBuildPlaceItem = () => {
-    const api = buildModeRef.current;
-    const selection = buildSelectionRef.current;
-    if (!api || !selection) return;
-    api.removeMesh(selection.mesh);
-    const mesh = api.commitItem(selection.item);
-    customItemsRef.current = [...customItemsRef.current, selection.item];
-    customItemMeshesRef.current = [...customItemMeshesRef.current, mesh];
-    buildSelectionRef.current = null;
-    setBuildHasSelection(false);
-    setBuildItemCount(customItemsRef.current.length);
-  };
-  // Undoes the most recently committed piece — wall or obstacle,
-  // whichever was placed last (last in, first out) — simpler and more
-  // predictable than targeting/raycasting a specific one.
-  const handleBuildRemoveItem = () => {
-    const api = buildModeRef.current;
-    if (!api || customItemsRef.current.length === 0) return;
-    const lastItem = customItemsRef.current[customItemsRef.current.length - 1];
-    const lastMesh = customItemMeshesRef.current[customItemMeshesRef.current.length - 1];
-    api.removeMesh(lastMesh);
-    api.removeCollisionRect(lastItem);
-    customItemsRef.current = customItemsRef.current.slice(0, -1);
-    customItemMeshesRef.current = customItemMeshesRef.current.slice(0, -1);
-    setBuildItemCount(customItemsRef.current.length);
-  };
-  const handleBuildSave = () => {
-    saveMap4Items(customItemsRef.current);
-    setBuildSaveLabel("SAVED!");
-    setTimeout(() => setBuildSaveLabel("SAVE"), 1500);
   };
 
   return (
@@ -5051,252 +4900,6 @@ function CombatArena({
                 {t(settings.language, "run")}
               </button>
             </>
-
-          {/* Build Mode (Map 4): the WALL/OBSTACLE tabs pick what SELECT
-              stages next — a wall (house/rooms) or a crate obstacle
-              (cover/decoration) — each with its own size row below the
-              tabs. PLACE commits whichever is staged; SAVE persists
-              everything placed so far (both kinds together). */}
-          {mapId === 4 && (
-            <>
-              <div
-                style={{
-                  position: "absolute",
-                  top: 58,
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 6,
-                    background: "rgba(8,14,24,0.7)",
-                    border: "1px solid rgba(200,220,240,0.3)",
-                    borderRadius: 8,
-                    padding: 5,
-                  }}
-                >
-                  {(["wall", "obstacle", "drum"] as const).map((kind) => (
-                    <button
-                      key={kind}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        setBuildPlaceKind(kind);
-                      }}
-                      aria-label={`Place kind ${kind}`}
-                      style={{
-                        padding: "6px 14px",
-                        borderRadius: 6,
-                        background: buildPlaceKind === kind ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
-                        border: buildPlaceKind === kind ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
-                        color: "#dce8f5",
-                        fontFamily: "'Rajdhani', sans-serif",
-                        fontWeight: 700,
-                        fontSize: 13,
-                        letterSpacing: "0.05em",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {kind === "wall" ? "WALL" : kind === "obstacle" ? "OBSTACLE" : "DRUM"}
-                    </button>
-                  ))}
-                </div>
-
-                {buildPlaceKind === "wall" ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 6,
-                      background: "rgba(8,14,24,0.7)",
-                      border: "1px solid rgba(200,220,240,0.3)",
-                      borderRadius: 8,
-                      padding: 5,
-                    }}
-                  >
-                    {Array.from({ length: MAP4_WALL_LENGTH_MAX - MAP4_WALL_LENGTH_MIN + 1 }, (_, i) => MAP4_WALL_LENGTH_MIN + i).map((n) => (
-                      <button
-                        key={n}
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          setBuildWallLength(n);
-                        }}
-                        aria-label={`Wall length ${n}m`}
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 6,
-                          background: buildWallLength === n ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
-                          border: buildWallLength === n ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
-                          color: "#dce8f5",
-                          fontFamily: "'Rajdhani', sans-serif",
-                          fontWeight: 700,
-                          fontSize: 14,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                ) : buildPlaceKind === "obstacle" ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 6,
-                      background: "rgba(8,14,24,0.7)",
-                      border: "1px solid rgba(200,220,240,0.3)",
-                      borderRadius: 8,
-                      padding: 5,
-                    }}
-                  >
-                    {[
-                      { size: MAP4_OBSTACLE_SMALL, label: "SMALL" },
-                      { size: MAP4_OBSTACLE_BIG, label: "BIG" },
-                    ].map(({ size, label }) => (
-                      <button
-                        key={label}
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          setBuildObstacleSize(size);
-                        }}
-                        aria-label={`Obstacle size ${label.toLowerCase()}`}
-                        style={{
-                          padding: "6px 14px",
-                          borderRadius: 6,
-                          background: buildObstacleSize === size ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
-                          border: buildObstacleSize === size ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
-                          color: "#dce8f5",
-                          fontFamily: "'Rajdhani', sans-serif",
-                          fontWeight: 700,
-                          fontSize: 13,
-                          letterSpacing: "0.05em",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleBuildSelect();
-                }}
-                aria-label="Select area"
-                style={{
-                  position: "absolute",
-                  right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
-                  width: "clamp(72px, 13vw, 100px)",
-                  height: "clamp(72px, 13vw, 100px)",
-                  borderRadius: "50%",
-                  background: "radial-gradient(circle, #baf0ff, #2f9fd8)",
-                  border: "2px solid rgba(210,245,255,0.85)",
-                  boxShadow: "0 0 20px rgba(80,190,255,0.6)",
-                  color: "#06212e",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.05em",
-                  fontSize: "clamp(12px, 1.9vw, 15px)",
-                  cursor: "pointer",
-                  opacity: settings.buttonOpacity,
-                }}
-              >
-                SELECT
-              </button>
-
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleBuildPlaceItem();
-                }}
-                disabled={!buildHasSelection}
-                aria-label="Place item"
-                style={{
-                  position: "absolute",
-                  right: "7%",
-                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
-                  width: "clamp(72px, 13vw, 100px)",
-                  height: "clamp(72px, 13vw, 100px)",
-                  borderRadius: "50%",
-                  background: buildHasSelection ? "radial-gradient(circle, #ffe2a6, #d88a2c)" : "rgba(255,255,255,0.1)",
-                  border: buildHasSelection ? "2px solid rgba(255,235,210,0.85)" : "1px solid rgba(200,220,240,0.35)",
-                  boxShadow: buildHasSelection ? "0 0 20px rgba(255,170,40,0.6)" : "none",
-                  color: buildHasSelection ? "#2e1c06" : "rgba(220,230,240,0.5)",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.03em",
-                  fontSize: "clamp(10px, 1.6vw, 12px)",
-                  cursor: buildHasSelection ? "pointer" : "default",
-                  opacity: settings.buttonOpacity,
-                }}
-              >
-                {buildPlaceKind === "wall" ? "WALL" : buildPlaceKind === "obstacle" ? "OBSTACLE" : "DRUM"}
-              </button>
-
-              {/* SAVE/REMOVE sit below the WALL/OBSTACLE/DRUM tabs (and the
-                  HP bar, which now shows in Map 4 too since its 20 bots
-                  actually fight back) instead of over the joystick. */}
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleBuildSave();
-                }}
-                aria-label="Save map"
-                style={{
-                  position: "absolute",
-                  top: 140,
-                  left: 16,
-                  padding: "8px 18px",
-                  borderRadius: 6,
-                  background: buildSaveLabel === "SAVED!" ? "rgba(107,216,255,0.35)" : "rgba(255,255,255,0.1)",
-                  border: "1px solid rgba(200,220,240,0.4)",
-                  color: "#dce8f5",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.06em",
-                  fontSize: 13,
-                  cursor: "pointer",
-                }}
-              >
-                {buildSaveLabel}
-              </button>
-
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleBuildRemoveItem();
-                }}
-                disabled={buildItemCount === 0}
-                aria-label="Remove last item"
-                style={{
-                  position: "absolute",
-                  top: 140,
-                  left: 96,
-                  padding: "8px 18px",
-                  borderRadius: 6,
-                  background: buildItemCount === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
-                  border: buildItemCount === 0 ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
-                  color: buildItemCount === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.06em",
-                  fontSize: 13,
-                  cursor: buildItemCount === 0 ? "default" : "pointer",
-                }}
-              >
-                REMOVE
-              </button>
-            </>
-          )}
         </>
       )}
 
