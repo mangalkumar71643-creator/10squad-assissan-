@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: "com.tensquad.assassin",
-  appName: "10 Squad Assassin",
+  appId: "com.vanguardprotocol.game",
+  appName: "Vanguard Protocol",
   webDir: "dist",
   plugins: {
     SplashScreen: {
