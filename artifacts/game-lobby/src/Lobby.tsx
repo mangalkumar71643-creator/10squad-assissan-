@@ -1092,62 +1092,63 @@ function map4ItemRect(it: Map4Item): Obstacle {
   return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD };
 }
 
-// Map 4's own combat: 20 armed bots roaming whatever the player has built,
-// instead of the fixed 5-guards-plus-boss roster every other map uses.
-const MAP4_BOT_COUNT = 20;
-const MAP4_BOT_AREA_PAD = 8; // extra room around the built footprint so spawns aren't wedged against the outer walls
-const MAP4_BOT_AREA_MIN_HALF = 14; // default spread radius when the canvas is still empty
-function isClearOfMap4Items(x: number, z: number, rects: Obstacle[], clearance: number): boolean {
-  for (const ob of rects) {
-    if (Math.abs(x - ob.x) < ob.halfX + ob.pad + clearance && Math.abs(z - ob.z) < ob.halfZ + ob.pad + clearance) return false;
-  }
-  return true;
+// Map 4's own combat roster is entirely player-placed: no player spawn or
+// bot position is picked automatically — the player walks Setup Mode to
+// wherever they want each thing, taps a button to drop it there, and nothing
+// fights back until ACTIVATE locks the layout in (see Map4Setup below, and
+// the SET SPAWN/PLACE BOT/SET PATROL/REMOVE BOT/ACTIVATE controls in
+// CombatArena's JSX).
+interface Map4BotConfig {
+  x: number;
+  z: number;
+  // How far this bot wanders from its own spawn once patrolling — set via
+  // SET PATROL as the distance from the bot's spot to wherever the player
+  // was standing when they pressed it.
+  patrolRadius: number;
 }
-// Scatters bot spawn points across the whole built layout — a jittered
-// grid over the built footprint's bounding box (or a default open area
-// when the canvas is still empty) — instead of clustering them all in one
-// spot, skipping any cell that would land inside a wall/obstacle/drum.
-function pickMap4BotSpawns(items: Map4Item[]): { x: number; z: number }[] {
-  const rects = items.map(map4ItemRect);
-  let minX: number, maxX: number, minZ: number, maxZ: number;
-  if (items.length > 0) {
-    minX = Math.min(...items.map((it) => it.x)) - MAP4_BOT_AREA_PAD;
-    maxX = Math.max(...items.map((it) => it.x)) + MAP4_BOT_AREA_PAD;
-    minZ = Math.min(...items.map((it) => it.z)) - MAP4_BOT_AREA_PAD;
-    maxZ = Math.max(...items.map((it) => it.z)) + MAP4_BOT_AREA_PAD;
-  } else {
-    minX = MAP4_ORIGIN.x - MAP4_BOT_AREA_MIN_HALF;
-    maxX = MAP4_ORIGIN.x + MAP4_BOT_AREA_MIN_HALF;
-    minZ = MAP4_ORIGIN.z - MAP4_BOT_AREA_MIN_HALF;
-    maxZ = MAP4_ORIGIN.z + MAP4_BOT_AREA_MIN_HALF;
-  }
-  const width = Math.max(maxX - minX, MAP4_BOT_AREA_MIN_HALF * 2);
-  const depth = Math.max(maxZ - minZ, MAP4_BOT_AREA_MIN_HALF * 2);
-  const cols = Math.max(1, Math.ceil(Math.sqrt((MAP4_BOT_COUNT * width) / depth)));
-  const rows = Math.ceil(MAP4_BOT_COUNT / cols);
-  const cellW = width / cols;
-  const cellD = depth / rows;
-  const spawns: { x: number; z: number }[] = [];
-  outer: for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (spawns.length >= MAP4_BOT_COUNT) break outer;
-      const cx = minX + cellW * (c + 0.5);
-      const cz = minZ + cellD * (r + 0.5);
-      let placed = false;
-      for (let attempt = 0; attempt < 6 && !placed; attempt++) {
-        const jx = attempt === 0 ? cx : cx + (Math.random() * 2 - 1) * cellW * 0.35;
-        const jz = attempt === 0 ? cz : cz + (Math.random() * 2 - 1) * cellD * 0.35;
-        if (isClearOfMap4Items(jx, jz, rects, 0.6)) {
-          spawns.push({ x: jx, z: jz });
-          placed = true;
-        }
-      }
-      if (!placed) spawns.push({ x: cx, z: cz }); // best effort — still spread out even if snug against something
-    }
-  }
-  return spawns;
+interface Map4Setup {
+  // False until ACTIVATE is pressed — while false, the map is a safe,
+  // combat-free canvas showing only placement markers (see CombatArena's
+  // mapId===4 branch); once true, real armed fighters spawn at every
+  // configured bot position and actually patrol/chase/fire.
+  activated: boolean;
+  playerSpawn: { x: number; z: number } | null;
+  bots: Map4BotConfig[];
 }
-const MAP4_PATROL_RADIUS = 6;
+const MAP4_SETUP_KEY = "10sa-map4-setup";
+const MAP4_DEFAULT_PATROL_RADIUS = 6;
+function loadMap4Setup(): Map4Setup {
+  try {
+    const raw = localStorage.getItem(MAP4_SETUP_KEY);
+    if (!raw) return { activated: false, playerSpawn: null, bots: [] };
+    const parsed = JSON.parse(raw);
+    const bots: Map4BotConfig[] = Array.isArray(parsed.bots)
+      ? parsed.bots
+          .filter((b: unknown): b is { x: number; z: number; patrolRadius?: number } => {
+            const bb = b as { x?: unknown; z?: unknown } | null;
+            return !!bb && typeof bb.x === "number" && typeof bb.z === "number";
+          })
+          .map((b: { x: number; z: number; patrolRadius?: number }) => ({
+            x: b.x,
+            z: b.z,
+            patrolRadius: typeof b.patrolRadius === "number" ? b.patrolRadius : MAP4_DEFAULT_PATROL_RADIUS,
+          }))
+      : [];
+    const rawSpawn = parsed.playerSpawn as { x?: unknown; z?: unknown } | null;
+    const playerSpawn = rawSpawn && typeof rawSpawn.x === "number" && typeof rawSpawn.z === "number" ? { x: rawSpawn.x, z: rawSpawn.z } : null;
+    return { activated: !!parsed.activated, playerSpawn, bots };
+  } catch {
+    return { activated: false, playerSpawn: null, bots: [] };
+  }
+}
+function saveMap4Setup(setup: Map4Setup) {
+  try {
+    localStorage.setItem(MAP4_SETUP_KEY, JSON.stringify(setup));
+  } catch {
+    // Storage full/unavailable — the setup still stands for the rest of
+    // this session, it just won't persist to the next one.
+  }
+}
 
 // An underground tunnel actually running beneath the real path between
 // houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
@@ -2686,13 +2687,38 @@ function CombatArena({
   const lookLastX = useRef(0);
   const lookLastY = useRef(0);
 
+  // Map 4's placement setup — loaded once (mapId is fixed for this
+  // component's whole mount, so reading it here is safe). map4SetupMode
+  // stays whatever it was at mount even if handleActivate later flips
+  // map4SetupRef.current.activated, so Setup Mode's own UI doesn't vanish
+  // out from under the "ACTIVATED!" confirmation before onExit fires.
+  const map4SetupRef = useRef<Map4Setup>(loadMap4Setup());
+  const [map4SetupMode] = useState(() => mapId === 4 && !map4SetupRef.current.activated);
+  // How many real fighters this match actually spawns: the fixed 5-guards-
+  // plus-boss roster on Maps 1-3, whatever the player configured on an
+  // activated Map 4, or none at all while Map 4 is still in Setup Mode.
+  const map4LiveBotCount = mapId === 4 ? (map4SetupRef.current.activated ? map4SetupRef.current.bots.length : 0) : 6;
+  // Setup Mode's own small API (see the mapId===4 branch of the scene-
+  // building effect) that the SET SPAWN/PLACE BOT/SET PATROL/REMOVE BOT
+  // handlers below drive, plus the React state that keeps their labels/
+  // disabled-ness in sync with map4SetupRef.
+  const map4SetupApiRef = useRef<{
+    getPlayerPos: () => { x: number; z: number } | null;
+    setPlayerSpawnMarker: (pos: { x: number; z: number }) => void;
+    addBotMarker: (pos: { x: number; z: number }) => void;
+    updateLastBotPatrolRing: (radius: number) => void;
+    removeLastBotMarker: () => void;
+  } | null>(null);
+  const [map4SpawnSet, setMap4SpawnSet] = useState(!!map4SetupRef.current.playerSpawn);
+  const [map4BotCount, setMap4BotCount] = useState(map4SetupRef.current.bots.length);
+  const [map4ActivateLabel, setMap4ActivateLabel] = useState<"ACTIVATE" | "ACTIVATED!">("ACTIVATE");
+
   const [playerHp, setPlayerHp] = useState(100);
   // One HP percentage + floating bar ref per fighter — on Maps 1-3, index
-  // 0-4 are the five room guards and index 5 is the Boss; on Map 4 it's
-  // MAP4_BOT_COUNT plain guards and no boss (mapId is fixed for this
-  // component's whole mount, so sizing the initial state off it is safe).
-  const [botHps, setBotHps] = useState<number[]>(() => new Array(mapId === 4 ? MAP4_BOT_COUNT : 6).fill(100));
-  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>(new Array(mapId === 4 ? MAP4_BOT_COUNT : 6).fill(null));
+  // 0-4 are the five room guards and index 5 is the Boss; on an activated
+  // Map 4 it's however many bots the player placed, and no boss.
+  const [botHps, setBotHps] = useState<number[]>(() => new Array(map4LiveBotCount).fill(100));
+  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>(new Array(map4LiveBotCount).fill(null));
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   // Counts bot deaths this match, for the profile progress system's XP
   // award — read once when `result` leaves "playing" (see the effect
@@ -3429,8 +3455,9 @@ function CombatArena({
       // from Build Mode in an earlier session, rebuilt here read-only —
       // placing/editing is retired now that the map's built; this is now
       // purely the arena those pieces are fought over in (see the
-      // MAP4_BOT_COUNT bot spawn/spawnPlayer setup below). Committed walls
-      // use the same textured sci-fi wall material as every other map
+      // player-spawn/bot-placement Setup Mode below, and the live-fighter
+      // spawn/spawnPlayer setup further down). Committed walls use the
+      // same textured sci-fi wall material as every other map
       // (addWallMesh); committed obstacles/drums use the same materials
       // used everywhere else (loadCrateMaterial/loadDrumMaterial) — real
       // materials, not a flat placeholder color.
@@ -3460,6 +3487,77 @@ function CombatArena({
           }
         }
         map4DynamicSpawn = { x: nearest.x, z: nearest.z };
+      }
+      // Setup Mode: the player hasn't hit ACTIVATE yet, so there's nothing
+      // to fight — just simple, cheap placeholder markers (no GLTF loads,
+      // no combat state) showing wherever SET SPAWN/PLACE BOT/SET PATROL
+      // have been pressed so far, plus the small API those handlers (component
+      // functions, not part of this effect's closure) drive to add/move/
+      // remove them. Reads `player` by closure the same way the old Build
+      // Mode's getPlayerFacing did — safe even though `player` itself is
+      // declared later below, since this API is only ever called after
+      // spawnPlayer has already run.
+      if (map4SetupMode) {
+        const spawnBeaconMat = new THREE.MeshBasicMaterial({ color: 0x6be2ff, transparent: true, opacity: 0.55 });
+        const botMarkerMat = new THREE.MeshBasicMaterial({ color: 0xff8a4d, transparent: true, opacity: 0.55 });
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xff8a4d, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+        let spawnMarkerMesh: THREE.Object3D | null = null;
+        const botMarkerMeshes: THREE.Object3D[] = [];
+        const botRingMeshes: (THREE.Object3D | null)[] = [];
+        const makeSpawnMarker = (pos: { x: number; z: number }): THREE.Object3D => {
+          const group = new THREE.Group();
+          const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3, 10), spawnBeaconMat);
+          pole.position.y = 1.5;
+          const cap = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.6, 10), spawnBeaconMat);
+          cap.position.y = 3.3;
+          group.add(pole, cap);
+          group.position.set(pos.x, 0, pos.z);
+          scene.add(group);
+          return group;
+        };
+        const makeBotMarker = (pos: { x: number; z: number }): THREE.Object3D => {
+          const mesh = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.8, 10), botMarkerMat);
+          mesh.position.set(pos.x, 0.9, pos.z);
+          scene.add(mesh);
+          return mesh;
+        };
+        const makeRing = (pos: { x: number; z: number }, radius: number): THREE.Object3D => {
+          const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(0.1, radius - 0.08), radius, 40), ringMat);
+          ring.rotation.x = -Math.PI / 2;
+          ring.position.set(pos.x, 0.05, pos.z);
+          scene.add(ring);
+          return ring;
+        };
+        if (map4SetupRef.current.playerSpawn) spawnMarkerMesh = makeSpawnMarker(map4SetupRef.current.playerSpawn);
+        for (const bot of map4SetupRef.current.bots) {
+          botMarkerMeshes.push(makeBotMarker(bot));
+          botRingMeshes.push(makeRing(bot, bot.patrolRadius));
+        }
+        map4SetupApiRef.current = {
+          getPlayerPos: () => (player ? { x: player.root.position.x, z: player.root.position.z } : null),
+          setPlayerSpawnMarker: (pos) => {
+            if (spawnMarkerMesh) scene.remove(spawnMarkerMesh);
+            spawnMarkerMesh = makeSpawnMarker(pos);
+          },
+          addBotMarker: (pos) => {
+            botMarkerMeshes.push(makeBotMarker(pos));
+            botRingMeshes.push(makeRing(pos, MAP4_DEFAULT_PATROL_RADIUS));
+          },
+          updateLastBotPatrolRing: (radius) => {
+            const idx = botRingMeshes.length - 1;
+            if (idx < 0) return;
+            const old = botRingMeshes[idx];
+            if (old) scene.remove(old);
+            const bot = map4SetupRef.current.bots[idx];
+            botRingMeshes[idx] = bot ? makeRing(bot, radius) : null;
+          },
+          removeLastBotMarker: () => {
+            const mesh = botMarkerMeshes.pop();
+            if (mesh) scene.remove(mesh);
+            const ring = botRingMeshes.pop();
+            if (ring) scene.remove(ring);
+          },
+        };
       }
       Promise.all([loadCrateMaterial(), loadDrumMaterial()]).then(([crateMaterial, drumMaterial]) => {
         if (disposed) return;
@@ -3795,14 +3893,25 @@ function CombatArena({
     // Selection (persisted under SELECTED_CARD_STORAGE_KEY) instead of
     // always being the SWAT model — CARD_MODELS/loadBotFighter are the same
     // lookup + retargeting pipeline the selection ring itself uses.
+    // On Map 4, an explicit SET SPAWN point (if the player placed one)
+    // always wins over the built-structure fallback (map4DynamicSpawn).
     const playerSpawnPos =
-      mapId === 2 ? MAP2_PLAYER_SPAWN : mapId === 3 ? MAP3_PLAYER_SPAWN : mapId === 4 ? map4DynamicSpawn : { x: 0, z: 3 };
+      mapId === 2
+        ? MAP2_PLAYER_SPAWN
+        : mapId === 3
+          ? MAP3_PLAYER_SPAWN
+          : mapId === 4
+            ? (map4SetupRef.current.playerSpawn ?? map4DynamicSpawn)
+            : { x: 0, z: 3 };
     const spawnPlayer = (rig: FighterRig) => {
       if (disposed) return;
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
       rig.root.rotation.y = Math.PI; // face into the facility at the start
       player = rig;
-      equipGun(rig);
+      // Setup Mode is combat-free (nothing's activated yet, and there's
+      // nothing to shoot) — every other map, and an activated Map 4, arms
+      // the player as usual.
+      if (!map4SetupMode) equipGun(rig);
     };
     const savedCard = Number(localStorage.getItem(SELECTED_CARD_STORAGE_KEY));
     const playerModel = CARD_MODELS[savedCard] && isCardUnlocked(savedCard) ? CARD_MODELS[savedCard] : CARD_MODELS[0];
@@ -3818,30 +3927,35 @@ function CombatArena({
     // map's boss room) — all loaded from the same rig/model, just spawned
     // at different posts and the Boss additionally scaled up and tinted
     // (see tintBossFighter).
-    // Map 4 (Build Mode) instead spawns MAP4_BOT_COUNT armed guards (no
-    // boss), scattered across whatever the player has built via
-    // pickMap4BotSpawns — everything else about them (patrol/chase/fire,
-    // wired up below) reuses the exact same generic per-fighter logic as
-    // every other map.
+    // An activated Map 4 instead spawns exactly the bots the player placed
+    // in Setup Mode (no boss) — everything else about them (patrol/chase/
+    // fire, wired up below) reuses the exact same generic per-fighter
+    // logic as every other map. A not-yet-activated Map 4 spawns none at
+    // all (Setup Mode's markers aren't real fighters).
     const botSpawns =
       mapId === 2
         ? MAP2_BOT_SPAWNS
         : mapId === 3
           ? MAP3_BOT_SPAWNS
           : mapId === 4
-            ? pickMap4BotSpawns(customItemsRef.current)
+            ? map4SetupRef.current.activated
+              ? map4SetupRef.current.bots.map((b) => ({ x: b.x, z: b.z }))
+              : []
             : BOT_SPAWNS;
     const bossSpawn = mapId === 2 ? MAP2_BOSS_SPAWN : mapId === 3 ? MAP3_BOSS_SPAWN : BOSS_SPAWN;
-    const bots: (FighterRig | null)[] = new Array(mapId === 4 ? MAP4_BOT_COUNT : 6).fill(null);
+    const bots: (FighterRig | null)[] = new Array(map4LiveBotCount).fill(null);
     // A dormant guard's local wander point around its own spawn (see the
-    // patrol-target dispatcher below) — closes over botSpawns since Map
-    // 4's own spread is rebuilt fresh per match, not a fixed module-level
-    // array like the other maps' zone pickers.
+    // patrol-target dispatcher below), using that specific bot's own
+    // SET-PATROL radius (MAP4_DEFAULT_PATROL_RADIUS if it was never set) —
+    // closes over botSpawns/map4SetupRef since Map 4's own roster is
+    // rebuilt fresh per match, not a fixed module-level array like the
+    // other maps' zone pickers.
     const pickMap4PatrolTarget = (botIndex: number): { x: number; z: number } => {
       const home = botSpawns[botIndex] ?? MAP4_PLAYER_SPAWN;
+      const radius = map4SetupRef.current.bots[botIndex]?.patrolRadius ?? MAP4_DEFAULT_PATROL_RADIUS;
       for (let attempt = 0; attempt < 8; attempt++) {
-        const x = home.x + (Math.random() * 2 - 1) * MAP4_PATROL_RADIUS;
-        const z = home.z + (Math.random() * 2 - 1) * MAP4_PATROL_RADIUS;
+        const x = home.x + (Math.random() * 2 - 1) * radius;
+        const z = home.z + (Math.random() * 2 - 1) * radius;
         if (!ACTIVE_OBSTACLES.some((ob) => Math.abs(x - ob.x) < ob.halfX + ob.pad && Math.abs(z - ob.z) < ob.halfZ + ob.pad)) {
           return { x, z };
         }
@@ -3894,7 +4008,7 @@ function CombatArena({
     let playerSpeedNow = 0;
     let ended = false;
     // Map 4's own combat (only here; every other map keeps the normal
-    // pace): the player moves 40% faster, and its MAP4_BOT_COUNT bots
+    // pace): the player moves 40% faster, and its player-placed bots
     // 40% slower, than the baseline.
     const playerMaxSpeedForMatch = mapId === 4 ? PLAYER_MAX_SPEED * 1.4 : PLAYER_MAX_SPEED;
     const botSpeedForMatch = mapId === 4 ? BOT_SPEED * 0.6 : BOT_SPEED;
@@ -3920,9 +4034,9 @@ function CombatArena({
     // Maps 1-3: index 0-4 are the five room guards, one per ROOM_POSITIONS
     // entry (see roomIndex); index 5 is the Boss — tougher, and isBoss
     // skips the patrol/chase behavior entirely in favor of holding its
-    // ground. Map 4 has no boss — every one of its MAP4_BOT_COUNT bots is
+    // ground. Map 4 has no boss — every one of its player-placed bots is
     // a plain guard, roomIndex doubling as its own spawn index.
-    const botMaxHps = mapId === 4 ? new Array(MAP4_BOT_COUNT).fill(100) : [100, 100, 100, 100, 100, BOSS_HP];
+    const botMaxHps = mapId === 4 ? new Array(map4LiveBotCount).fill(100) : [100, 100, 100, 100, 100, BOSS_HP];
     const botStates = botMaxHps.map((hp, i) => ({
       hp,
       cooldown: 0,
@@ -4549,6 +4663,61 @@ function CombatArena({
     lookTouchId.current = null;
   };
 
+  // Map 4 Setup Mode: SET SPAWN/PLACE BOT/SET PATROL all act on wherever
+  // the player is currently standing — no separate aim/preview step
+  // needed the way wall placement used, since a marker is just a point.
+  // SET PATROL and REMOVE BOT always target the most-recently-placed bot
+  // (last in, first out), same convention Build Mode's old REMOVE used.
+  const handleSetSpawn = () => {
+    const api = map4SetupApiRef.current;
+    const pos = api?.getPlayerPos();
+    if (!api || !pos) return;
+    map4SetupRef.current.playerSpawn = pos;
+    api.setPlayerSpawnMarker(pos);
+    saveMap4Setup(map4SetupRef.current);
+    setMap4SpawnSet(true);
+  };
+  const handlePlaceBot = () => {
+    const api = map4SetupApiRef.current;
+    const pos = api?.getPlayerPos();
+    if (!api || !pos) return;
+    map4SetupRef.current.bots = [...map4SetupRef.current.bots, { x: pos.x, z: pos.z, patrolRadius: MAP4_DEFAULT_PATROL_RADIUS }];
+    api.addBotMarker(pos);
+    saveMap4Setup(map4SetupRef.current);
+    setMap4BotCount(map4SetupRef.current.bots.length);
+  };
+  const handleSetPatrol = () => {
+    const api = map4SetupApiRef.current;
+    const pos = api?.getPlayerPos();
+    const bots = map4SetupRef.current.bots;
+    if (!api || !pos || bots.length === 0) return;
+    const last = bots[bots.length - 1];
+    const radius = Math.max(1, Math.hypot(pos.x - last.x, pos.z - last.z));
+    last.patrolRadius = radius;
+    api.updateLastBotPatrolRing(radius);
+    saveMap4Setup(map4SetupRef.current);
+  };
+  const handleRemoveBot = () => {
+    const api = map4SetupApiRef.current;
+    if (!api || map4SetupRef.current.bots.length === 0) return;
+    map4SetupRef.current.bots = map4SetupRef.current.bots.slice(0, -1);
+    api.removeLastBotMarker();
+    saveMap4Setup(map4SetupRef.current);
+    setMap4BotCount(map4SetupRef.current.bots.length);
+  };
+  // Locks the layout in and hands control back to the lobby — the bots
+  // the player just placed only actually come alive (patrol/chase/fire)
+  // the next time this map is entered (see map4LiveBotCount/botSpawns
+  // above), same as how a saved wall only really "exists" on the next
+  // load. Flashing the label first makes that handoff legible instead of
+  // just vanishing back to the lobby with no confirmation.
+  const handleActivate = () => {
+    map4SetupRef.current.activated = true;
+    saveMap4Setup(map4SetupRef.current);
+    setMap4ActivateLabel("ACTIVATED!");
+    setTimeout(() => onExit(), 1200);
+  };
+
   return (
     <div
       role="dialog"
@@ -4571,9 +4740,11 @@ function CombatArena({
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
       />
 
-      {/* Health bar — hidden in Map View (nothing but the level on screen).
-          Map 4 now has its own combat (20 armed bots), so it shows here too. */}
-      {!topDownView && (
+      {/* Health bar — hidden in Map View (nothing but the level on screen)
+          and in Map 4's Setup Mode (nothing's activated yet, so nothing
+          can hurt the player). Shows for an activated Map 4 same as any
+          other map, since its bots actually fight back. */}
+      {!topDownView && !map4SetupMode && (
         <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
           <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
             {t(settings.language, "you")}
@@ -4816,13 +4987,14 @@ function CombatArena({
             />
           </div>
 
-          <>
+          {!map4SetupMode && (
+            <>
               {/* Fire button — auto-fires for as long as it's held down (see the
                   attackRequested consumption in the tick loop), not just once per
                   tap. setPointerCapture keeps the up/cancel events firing on this
                   button even if the finger slides off it while held, so a drag-off
-                  reliably stops the fire instead of leaving it stuck on. Map 4 now
-                  has its own combat (20 armed bots), so this shows there too. */}
+                  reliably stops the fire instead of leaving it stuck on. An activated
+                  Map 4 has its own combat too, so this shows there same as anywhere else. */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -4900,6 +5072,182 @@ function CombatArena({
                 {t(settings.language, "run")}
               </button>
             </>
+          )}
+        </>
+      )}
+
+      {/* Map 4 Setup Mode: SET SPAWN/PLACE BOT/SET PATROL/REMOVE BOT let the
+          player walk the built structure and decide exactly where the
+          character and every bot start (and how far each bot patrols)
+          before ACTIVATE locks the layout in — nothing fights back until
+          then (see map4LiveBotCount/botSpawns in the setup effect above).
+          Hidden in Map View same as every other ground-movement control,
+          since it acts on wherever the player is actually standing. */}
+      {map4SetupMode && !topDownView && (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              top: 58,
+              left: "50%",
+              transform: "translateX(-50%)",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              background: "rgba(8,14,24,0.7)",
+              border: "1px solid rgba(200,220,240,0.3)",
+              borderRadius: 8,
+              padding: "6px 14px",
+              color: "#dce8f5",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 12,
+              letterSpacing: "0.06em",
+            }}
+          >
+            <span>SPAWN {map4SpawnSet ? "✓" : "✗"}</span>
+            <span>BOTS: {map4BotCount}</span>
+          </div>
+
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              handleSetSpawn();
+            }}
+            aria-label="Set player spawn"
+            style={{
+              position: "absolute",
+              right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+              bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
+              width: "clamp(72px, 13vw, 100px)",
+              height: "clamp(72px, 13vw, 100px)",
+              borderRadius: "50%",
+              background: "radial-gradient(circle, #baf0ff, #2f9fd8)",
+              border: "2px solid rgba(210,245,255,0.85)",
+              boxShadow: "0 0 20px rgba(80,190,255,0.6)",
+              color: "#06212e",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              letterSpacing: "0.03em",
+              fontSize: "clamp(11px, 1.7vw, 14px)",
+              cursor: "pointer",
+              opacity: settings.buttonOpacity,
+            }}
+          >
+            SET SPAWN
+          </button>
+
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              handlePlaceBot();
+            }}
+            aria-label="Place bot"
+            style={{
+              position: "absolute",
+              right: "7%",
+              bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
+              width: "clamp(72px, 13vw, 100px)",
+              height: "clamp(72px, 13vw, 100px)",
+              borderRadius: "50%",
+              background: "radial-gradient(circle, #ffe2a6, #d88a2c)",
+              border: "2px solid rgba(255,235,210,0.85)",
+              boxShadow: "0 0 20px rgba(255,170,40,0.6)",
+              color: "#2e1c06",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              letterSpacing: "0.03em",
+              fontSize: "clamp(11px, 1.7vw, 14px)",
+              cursor: "pointer",
+              opacity: settings.buttonOpacity,
+            }}
+          >
+            PLACE BOT
+          </button>
+
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              handleSetPatrol();
+            }}
+            disabled={map4BotCount === 0}
+            aria-label="Set patrol range"
+            style={{
+              position: "absolute",
+              right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+              bottom: "9%",
+              width: "clamp(72px, 13vw, 100px)",
+              height: "clamp(72px, 13vw, 100px)",
+              borderRadius: "50%",
+              background: map4BotCount === 0 ? "rgba(255,255,255,0.1)" : "radial-gradient(circle, #ffb0e8, #b83fa0)",
+              border: map4BotCount === 0 ? "1px solid rgba(200,220,240,0.35)" : "2px solid rgba(255,220,245,0.85)",
+              boxShadow: map4BotCount === 0 ? "none" : "0 0 20px rgba(220,80,190,0.6)",
+              color: map4BotCount === 0 ? "rgba(220,230,240,0.5)" : "#2e0620",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              letterSpacing: "0.03em",
+              fontSize: "clamp(11px, 1.7vw, 14px)",
+              cursor: map4BotCount === 0 ? "default" : "pointer",
+              opacity: settings.buttonOpacity,
+            }}
+          >
+            SET PATROL
+          </button>
+
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              handleActivate();
+            }}
+            aria-label="Activate bots"
+            style={{
+              position: "absolute",
+              right: "7%",
+              bottom: "9%",
+              width: "clamp(72px, 13vw, 100px)",
+              height: "clamp(72px, 13vw, 100px)",
+              borderRadius: "50%",
+              background:
+                map4ActivateLabel === "ACTIVATED!" ? "radial-gradient(circle, #baffb0, #3fd85a)" : "radial-gradient(circle, #8fe89a, #2f8f45)",
+              border: "2px solid rgba(220,255,220,0.95)",
+              boxShadow: "0 0 20px rgba(90,255,120,0.6)",
+              color: "#0c2e10",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              letterSpacing: "0.03em",
+              fontSize: "clamp(11px, 1.7vw, 14px)",
+              cursor: "pointer",
+              opacity: settings.buttonOpacity,
+            }}
+          >
+            {map4ActivateLabel}
+          </button>
+
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              handleRemoveBot();
+            }}
+            disabled={map4BotCount === 0}
+            aria-label="Remove last bot"
+            style={{
+              position: "absolute",
+              top: 16,
+              left: 16,
+              padding: "8px 18px",
+              borderRadius: 6,
+              background: map4BotCount === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
+              border: map4BotCount === 0 ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
+              color: map4BotCount === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              fontSize: 13,
+              cursor: map4BotCount === 0 ? "default" : "pointer",
+            }}
+          >
+            REMOVE BOT
+          </button>
         </>
       )}
 
