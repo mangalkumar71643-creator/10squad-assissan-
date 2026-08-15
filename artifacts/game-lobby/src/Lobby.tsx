@@ -1041,6 +1041,10 @@ interface Map4Drum {
   rotY: number;
 }
 type Map4Item = Map4Wall | Map4Crate | Map4Drum;
+// Absolute, not relative — the Android build's WebView doesn't share an
+// origin with this deployment, so a relative "/api/house" would resolve
+// against the app's own local origin instead of actually reaching it.
+const MAP4_CLOUD_API = "https://10squad-permanent-test.vercel.app/api/house";
 const MAP4_ITEMS_KEY = "10sa-map4-items";
 // Build Mode's very first version only placed walls, saved under this key —
 // kept only as a one-time recovery source for whatever was already built
@@ -2819,15 +2823,23 @@ function CombatArena({
   const [buildWallLength, setBuildWallLength] = useState(3);
   const [buildObstacleSize, setBuildObstacleSize] = useState(MAP4_OBSTACLE_SMALL);
   const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
-  // A text "house code" (just the saved items, JSON-stringified) the
-  // player can copy out to their own notes/WhatsApp/wherever and paste
-  // back in later via IMPORT — recoverable even across an uninstall,
-  // since it never depends on this app's own local storage surviving.
+  // BACKUP: shows both a short cloud code (a few characters, needs
+  // internet — see MAP4_CLOUD_API) and a longer text code that works
+  // fully offline, so the player has a way out even without a network.
+  // Neither depends on this app's own local storage surviving, unlike
+  // the in-app SAVE — that's the whole point, since an uninstall wipes
+  // local storage but not whatever the player pasted the code into.
   const [map4ExportText, setMap4ExportText] = useState<string | null>(null);
   const [map4ExportCopied, setMap4ExportCopied] = useState(false);
+  const [map4CloudCode, setMap4CloudCode] = useState<string | null>(null);
+  const [map4CloudCodeCopied, setMap4CloudCodeCopied] = useState(false);
+  const [map4CloudSaveError, setMap4CloudSaveError] = useState<string | null>(null);
   const [map4ImportOpen, setMap4ImportOpen] = useState(false);
   const [map4ImportText, setMap4ImportText] = useState("");
   const [map4ImportError, setMap4ImportError] = useState<string | null>(null);
+  const [map4CloudCodeInput, setMap4CloudCodeInput] = useState("");
+  const [map4CloudLoadError, setMap4CloudLoadError] = useState<string | null>(null);
+  const [map4CloudLoading, setMap4CloudLoading] = useState(false);
   // The bird's heading (horizontal drag) and look pitch (vertical drag —
   // negative looks down at the ground, positive looks up toward the sky),
   // both set in handleLookMove. Flight direction always follows yaw only;
@@ -4745,13 +4757,28 @@ function CombatArena({
     setBuildSaveLabel("SAVED!");
     setTimeout(() => setBuildSaveLabel("SAVE"), 1500);
   };
-  // EXPORT/IMPORT: a plain-text "house code" the player copies out
-  // somewhere of their own (WhatsApp to self, Notes, wherever) and pastes
-  // back in later — the only way a build survives something like an
-  // uninstall, since that wipes this app's own local storage entirely.
+  // BACKUP: opens a dialog with a short cloud code (needs internet — the
+  // actual house data lives in Vercel Blob, see api/house.js) and, right
+  // below it, a longer text code that works fully offline. Either one the
+  // player copies out somewhere of their own (WhatsApp to self, Notes,
+  // wherever) and pastes back in later via RESTORE — the only way a build
+  // survives something like an uninstall, since that wipes this app's own
+  // local storage entirely.
   const handleBuildExport = () => {
-    setMap4ExportText(JSON.stringify(customItemsRef.current));
+    const text = JSON.stringify(customItemsRef.current);
+    setMap4ExportText(text);
     setMap4ExportCopied(false);
+    setMap4CloudCode(null);
+    setMap4CloudCodeCopied(false);
+    setMap4CloudSaveError(null);
+    fetch(MAP4_CLOUD_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: text }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((json) => setMap4CloudCode(json.code))
+      .catch(() => setMap4CloudSaveError("Cloud save nahi ho paya (internet check karo) — neeche wala text code use karo."));
   };
   const handleBuildExportCopy = () => {
     if (!map4ExportText) return;
@@ -4762,22 +4789,54 @@ function CombatArena({
         .catch(() => {});
     }
   };
+  const handleCloudCodeCopy = () => {
+    if (!map4CloudCode) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(map4CloudCode)
+        .then(() => setMap4CloudCodeCopied(true))
+        .catch(() => {});
+    }
+  };
+  // Loads a list of items (already parsed+validated) as the current house
+  // and hands control back to the lobby — re-entering is what actually
+  // rebuilds the scene with them, since items only load once at mount.
+  const applyImportedItems = (items: Map4Item[]) => {
+    saveMap4Items(items);
+    setMap4ImportOpen(false);
+    setMap4ImportText("");
+    setMap4ImportError(null);
+    setMap4CloudCodeInput("");
+    setMap4CloudLoadError(null);
+    onExit();
+  };
   const handleBuildImportLoad = () => {
     try {
       const parsed = JSON.parse(map4ImportText);
       if (!Array.isArray(parsed)) throw new Error("not an array");
       const valid = parsed.filter(isValidMap4Item);
       if (valid.length === 0) throw new Error("no valid pieces");
-      saveMap4Items(valid);
-      setMap4ImportOpen(false);
-      setMap4ImportText("");
-      setMap4ImportError(null);
-      // The scene only loads items once at mount — re-entering is what
-      // actually rebuilds it with the newly-imported layout.
-      onExit();
+      applyImportedItems(valid);
     } catch {
       setMap4ImportError("Code sahi nahi hai — dobara check karke paste karo.");
     }
+  };
+  const handleCloudCodeLoad = () => {
+    const code = map4CloudCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setMap4CloudLoading(true);
+    setMap4CloudLoadError(null);
+    fetch(`${MAP4_CLOUD_API}?code=${encodeURIComponent(code)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((json) => {
+        const parsed = JSON.parse(json.data);
+        if (!Array.isArray(parsed)) throw new Error("not an array");
+        const valid = parsed.filter(isValidMap4Item);
+        if (valid.length === 0) throw new Error("no valid pieces");
+        applyImportedItems(valid);
+      })
+      .catch(() => setMap4CloudLoadError("Code nahi mila — spelling check karo, ya neeche text code try karo."))
+      .finally(() => setMap4CloudLoading(false));
   };
 
   return (
@@ -5376,15 +5435,17 @@ function CombatArena({
                 REMOVE
               </button>
 
-              {/* EXPORT/IMPORT: a plain-text backup that lives wherever the
-                  player pastes it, not in this app's own storage — the
-                  only way a build survives something like an uninstall. */}
+              {/* BACKUP/RESTORE: a short cloud code (needs internet) plus a
+                  longer text code that works fully offline — either one
+                  lives wherever the player pastes it, not in this app's
+                  own storage, so a build survives something like an
+                  uninstall that a plain in-app SAVE can't. */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
                   handleBuildExport();
                 }}
-                aria-label="Export house code"
+                aria-label="Backup house"
                 style={{
                   position: "absolute",
                   top: 180,
@@ -5401,7 +5462,7 @@ function CombatArena({
                   cursor: "pointer",
                 }}
               >
-                EXPORT
+                BACKUP
               </button>
 
               <button
@@ -5409,8 +5470,9 @@ function CombatArena({
                   e.preventDefault();
                   setMap4ImportOpen(true);
                   setMap4ImportError(null);
+                  setMap4CloudLoadError(null);
                 }}
-                aria-label="Import house code"
+                aria-label="Restore house"
                 style={{
                   position: "absolute",
                   top: 180,
@@ -5427,7 +5489,7 @@ function CombatArena({
                   cursor: "pointer",
                 }}
               >
-                IMPORT
+                RESTORE
               </button>
             </>
           )}
@@ -5437,7 +5499,7 @@ function CombatArena({
       {map4ExportText !== null && (
         <div
           role="dialog"
-          aria-label="Export house code"
+          aria-label="Backup house"
           style={{
             position: "absolute",
             inset: 0,
@@ -5461,11 +5523,54 @@ function CombatArena({
             }}
           >
             <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", marginBottom: 6 }}>
-              HOUSE CODE
+              SHORT CODE
             </div>
-            <div style={{ fontSize: 11, color: "#9d8ac2", marginBottom: 8, lineHeight: 1.5 }}>
-              Isko copy karke kahi surakshit save kar lo (WhatsApp, Notes, wherever) — app uninstall ho jaaye tab bhi IMPORT se ye wapas load ho
-              jaayega.
+            <div style={{ fontSize: 11, color: "#9d8ac2", marginBottom: 8, lineHeight: 1.5 }}>Internet chahiye — RESTORE me ye type karke laa sakte ho.</div>
+            {map4CloudCode ? (
+              <div
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: 26,
+                  letterSpacing: 4,
+                  textAlign: "center",
+                  color: "#6be2ff",
+                  background: "rgba(107,216,255,0.1)",
+                  border: "1px solid rgba(107,216,255,0.4)",
+                  borderRadius: 8,
+                  padding: "10px 0",
+                }}
+              >
+                {map4CloudCode}
+              </div>
+            ) : map4CloudSaveError ? (
+              <div style={{ color: "#ff9c9c", fontSize: 12, textAlign: "center", padding: "10px 0" }}>{map4CloudSaveError}</div>
+            ) : (
+              <div style={{ color: "#9d8ac2", fontSize: 12, textAlign: "center", padding: "10px 0" }}>Saving...</div>
+            )}
+            {map4CloudCode && (
+              <button
+                onClick={handleCloudCodeCopy}
+                style={{
+                  width: "100%",
+                  marginTop: 8,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: map4CloudCodeCopied ? "rgba(107,216,255,0.35)" : "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                {map4CloudCodeCopied ? "COPIED!" : "COPY SHORT CODE"}
+              </button>
+            )}
+
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", margin: "14px 0 6px" }}>
+              TEXT CODE (works offline)
             </div>
             <textarea
               readOnly
@@ -5473,7 +5578,7 @@ function CombatArena({
               onFocus={(e) => e.currentTarget.select()}
               style={{
                 width: "100%",
-                height: 90,
+                height: 70,
                 fontSize: 10,
                 fontFamily: "monospace",
                 background: "rgba(255,255,255,0.06)",
@@ -5530,7 +5635,7 @@ function CombatArena({
       {map4ImportOpen && (
         <div
           role="dialog"
-          aria-label="Import house code"
+          aria-label="Restore house"
           style={{
             position: "absolute",
             inset: 0,
@@ -5554,18 +5659,58 @@ function CombatArena({
             }}
           >
             <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", marginBottom: 6 }}>
-              IMPORT HOUSE CODE
+              SHORT CODE
             </div>
-            <div style={{ fontSize: 11, color: "#9d8ac2", marginBottom: 8, lineHeight: 1.5 }}>
-              Pehle jo house code save karke rakha tha, wo yahan paste karo. Ye current house ki jagah le lega.
+            <input
+              value={map4CloudCodeInput}
+              onChange={(e) => setMap4CloudCodeInput(e.target.value.toUpperCase())}
+              placeholder="e.g. ZE4GFX"
+              style={{
+                width: "100%",
+                fontSize: 18,
+                letterSpacing: 3,
+                textAlign: "center",
+                fontFamily: "monospace",
+                background: "rgba(255,255,255,0.06)",
+                color: "#dce8f5",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 6,
+                padding: "8px 0",
+                boxSizing: "border-box",
+              }}
+            />
+            {map4CloudLoadError && <div style={{ color: "#ff9c9c", fontSize: 11, marginTop: 6 }}>{map4CloudLoadError}</div>}
+            <button
+              onClick={handleCloudCodeLoad}
+              disabled={map4CloudCodeInput.trim().length === 0 || map4CloudLoading}
+              style={{
+                width: "100%",
+                marginTop: 8,
+                padding: "10px 0",
+                borderRadius: 6,
+                background: map4CloudCodeInput.trim().length === 0 ? "rgba(255,255,255,0.08)" : "rgba(107,216,255,0.3)",
+                border: "1px solid rgba(107,216,255,0.5)",
+                color: map4CloudCodeInput.trim().length === 0 ? "rgba(220,230,240,0.4)" : "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                fontSize: 13,
+                cursor: map4CloudCodeInput.trim().length === 0 ? "default" : "pointer",
+              }}
+            >
+              {map4CloudLoading ? "LOADING..." : "LOAD"}
+            </button>
+
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", margin: "14px 0 6px" }}>
+              OR TEXT CODE
             </div>
             <textarea
               value={map4ImportText}
               onChange={(e) => setMap4ImportText(e.target.value)}
-              placeholder="Paste house code here"
+              placeholder="Paste text code here"
               style={{
                 width: "100%",
-                height: 90,
+                height: 70,
                 fontSize: 10,
                 fontFamily: "monospace",
                 background: "rgba(255,255,255,0.06)",
@@ -5596,13 +5741,15 @@ function CombatArena({
                   cursor: map4ImportText.trim().length === 0 ? "default" : "pointer",
                 }}
               >
-                LOAD
+                LOAD TEXT
               </button>
               <button
                 onClick={() => {
                   setMap4ImportOpen(false);
                   setMap4ImportText("");
                   setMap4ImportError(null);
+                  setMap4CloudCodeInput("");
+                  setMap4CloudLoadError(null);
                 }}
                 style={{
                   flex: 1,
