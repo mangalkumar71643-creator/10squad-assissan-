@@ -1008,6 +1008,12 @@ function pickMap3ZoneTarget(guardIndex: number): { x: number; z: number } {
 // ============================================================================
 const MAP4_ORIGIN = { x: 0, z: 200 };
 const MAP4_PLAYER_SPAWN = { x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z };
+// Map 4's own playable reach around MAP4_ORIGIN — half of every other
+// map's ARENA_HALF, since it's a build/explore canvas around a house, not
+// a level meant to need walking hundreds of meters. The shared ground
+// plane/fog/sky (sized off ARENA_HALF) are untouched — only how far the
+// player can actually walk from MAP4_ORIGIN shrinks.
+const MAP4_PLAY_HALF = ARENA_HALF / 2;
 const MAP4_WALL_LENGTH_DEFAULT = 6; // legacy fallback for pre-length-selector saves
 const MAP4_WALL_LENGTH_MIN = 1;
 const MAP4_WALL_LENGTH_MAX = 5;
@@ -2672,6 +2678,12 @@ function CombatArena({
   // how far the joystick is pushed, instead of requiring it held near max.
   const runToggled = useRef(false);
   const [runActive, setRunActive] = useState(false);
+  // Map 4 only (see the FIRE/RUN vs WALK swap below): tapping WALK caps
+  // the player's speed back down to the normal per-map pace instead of
+  // the doubled default it moves at there, for lining up a precise wall
+  // placement instead of overshooting past it.
+  const walkToggled = useRef(false);
+  const [walkActive, setWalkActive] = useState(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
@@ -3968,10 +3980,6 @@ function CombatArena({
     let sprintBlend = 0;
     let playerSpeedNow = 0;
     let ended = false;
-    // Map 4 has no bots to fight anymore — just an empty/built canvas to
-    // move through freely, so the player runs twice as fast there (only
-    // there; every other map keeps the normal pace).
-    const playerMaxSpeedForMatch = mapId === 4 ? PLAYER_MAX_SPEED * 2 : PLAYER_MAX_SPEED;
     // Short-lived tracer lines from a gun to its target, spawned per shot
     // and cleaned up once their life runs out (see spawnTracer/updateTracers).
     const tracers: Tracer[] = [];
@@ -4141,6 +4149,10 @@ function CombatArena({
         const dirZ = joyMag > 0.0001 ? rawZ / joyMag : runningInPlace ? -camForwardZ : 0;
         const effectiveMag = runningInPlace ? 1 : joyMag;
 
+        // Map 4 normally moves at double speed (no bots left to balance
+        // against) — WALK caps that back down to the normal per-map pace
+        // for lining up a precise placement instead of overshooting it.
+        const playerMaxSpeedForMatch = mapId === 4 && !walkToggled.current ? PLAYER_MAX_SPEED * 2 : PLAYER_MAX_SPEED;
         // How far the stick is pushed sets the target speed continuously —
         // a light tap walks, a full push runs, and holding full tilt ramps
         // sprint in on top — so there's no discrete walk/jog/run jump.
@@ -4156,8 +4168,14 @@ function CombatArena({
         playerVelX = approach(playerVelX, targetVelX, accelRate, dt);
         playerVelZ = approach(playerVelZ, targetVelZ, accelRate, dt);
 
-        player.root.position.x = clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-        player.root.position.z = clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+        player.root.position.x =
+          mapId === 4
+            ? clamp(player.root.position.x + playerVelX * dt, MAP4_ORIGIN.x - MAP4_PLAY_HALF + 0.4, MAP4_ORIGIN.x + MAP4_PLAY_HALF - 0.4)
+            : clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+        player.root.position.z =
+          mapId === 4
+            ? clamp(player.root.position.z + playerVelZ * dt, MAP4_ORIGIN.z - MAP4_PLAY_HALF + 0.4, MAP4_ORIGIN.z + MAP4_PLAY_HALF - 0.4)
+            : clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         resolveObstacleCollisions(player.root.position);
 
         // Walking down each house's stairwell (see ROOM_STAIRS_DOWN_POS/
@@ -5017,13 +5035,15 @@ function CombatArena({
             />
           </div>
 
-          <>
+          {mapId !== 4 && (
+            <>
               {/* Fire button — auto-fires for as long as it's held down (see the
                   attackRequested consumption in the tick loop), not just once per
                   tap. setPointerCapture keeps the up/cancel events firing on this
                   button even if the finger slides off it while held, so a drag-off
-                  reliably stops the fire instead of leaving it stuck on. Map 4 now
-                  has its own combat (20 armed bots), so this shows there too. */}
+                  reliably stops the fire instead of leaving it stuck on. Map 4 has
+                  no bots to shoot, so this (and RUN, replaced there by WALK) don't
+                  show there. */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -5101,6 +5121,44 @@ function CombatArena({
                 {t(settings.language, "run")}
               </button>
             </>
+          )}
+
+          {/* WALK toggle — Map 4 only, in the same slot RUN occupies
+              elsewhere. Map 4 moves at double speed by default (see
+              playerMaxSpeedForMatch in the tick loop); WALK caps that back
+              down to the normal pace for a precise placement. */}
+          {mapId === 4 && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                walkToggled.current = !walkToggled.current;
+                setWalkActive(walkToggled.current);
+              }}
+              aria-label="Walk"
+              style={{
+                position: "absolute",
+                right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+                bottom: "9%",
+                width: "clamp(56px, 10vw, 76px)",
+                height: "clamp(56px, 10vw, 76px)",
+                borderRadius: "50%",
+                background: walkActive ? "radial-gradient(circle, #baffb0, #3fd85a)" : "radial-gradient(circle, #8fe89a, #2f8f45)",
+                border: walkActive ? "2px solid rgba(220,255,220,0.95)" : "2px solid rgba(210,255,210,0.7)",
+                boxShadow: walkActive ? "0 0 26px rgba(90,255,120,0.85)" : "0 0 14px rgba(90,255,120,0.4)",
+                color: "#f0fff2",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                fontSize: "clamp(11px, 1.7vw, 14px)",
+                cursor: "pointer",
+                opacity: settings.buttonOpacity,
+                transform: `translate(${settings.controlOffsets.run.x}px, ${settings.controlOffsets.run.y}px) scale(${settings.buttonSize})`,
+                transformOrigin: "right bottom",
+              }}
+            >
+              WALK
+            </button>
+          )}
 
           {/* Build Mode (Map 4): the WALL/OBSTACLE tabs pick what SELECT
               stages next — a wall (house/rooms) or a crate obstacle
