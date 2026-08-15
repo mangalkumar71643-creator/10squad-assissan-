@@ -1009,6 +1009,13 @@ function pickMap3ZoneTarget(guardIndex: number): { x: number; z: number } {
 const MAP4_ORIGIN = { x: 0, z: 200 };
 const MAP4_PLAYER_SPAWN = { x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z };
 const MAP4_WALL_LENGTH_DEFAULT = 6; // legacy fallback for pre-length-selector saves
+const MAP4_WALL_LENGTH_MIN = 1;
+const MAP4_WALL_LENGTH_MAX = 5;
+// The same two crate sizes already used elsewhere in the game — the small
+// EXTRA_CRATES ones (halfExtent 0.5) and the standard per-room crates
+// (CRATE_HALF_EXTENT, 0.9) — not new sizes invented for Build Mode.
+const MAP4_OBSTACLE_SMALL = 1; // 2 * 0.5
+const MAP4_OBSTACLE_BIG = CRATE_HALF_EXTENT * 2;
 // The fuel-drum obstacle — one fixed size, proportioned like a real barrel
 // (taller than it is wide) rather than a small/big pair.
 const MAP4_DRUM_RADIUS = 0.55;
@@ -1075,6 +1082,14 @@ function loadMap4Items(): Map4Item[] {
       );
   } catch {
     return [];
+  }
+}
+function saveMap4Items(items: Map4Item[]) {
+  try {
+    localStorage.setItem(MAP4_ITEMS_KEY, JSON.stringify(items));
+  } catch {
+    // Storage full/unavailable — the in-scene pieces still stand for the
+    // rest of this session, they just won't persist to the next one.
   }
 }
 function map4ItemRect(it: Map4Item): Obstacle {
@@ -2795,12 +2810,44 @@ function CombatArena({
   // Map 3's decorative key prop in the Boss Lair (set while building the
   // level, spun slowly each frame in the tick below — null on Map 1/2).
   const keyPropRef = useRef<THREE.Group | null>(null);
-  // Map 4: the pieces (walls/obstacles/drums) saved from Build Mode,
-  // loaded once on mount and rendered/collided-against same as any other
-  // map's fixed geometry — placing/editing them is no longer done in-game
-  // (that whole SELECT/PLACE/SAVE workflow has been retired now that the
-  // map's built and just gets fought over), so this is read-only here.
+  // Map 4 Setup Mode has two tabs of its own concern: STRUCTURE (walls/
+  // obstacles/drums — the house itself) and BOTS (spawn point + placed
+  // fighters). Both only editable pre-activation; only one shows at a
+  // time so they can safely share the same on-screen button positions.
+  const [map4TopMode, setMap4TopMode] = useState<"structure" | "bots">("structure");
+  // Build Mode (STRUCTURE tab): a small API the scene-building effect
+  // wires up once (getPlayerFacing/addPreviewMesh/removeMesh/commitItem
+  // all close over the effect's own scene/player/materials), so the
+  // SELECT/PLACE/SAVE button handlers below — plain component functions,
+  // not part of that effect's closure — can still reach into the live
+  // scene.
+  const buildModeRef = useRef<{
+    getPlayerFacing: () => { x: number; z: number; axis: "x" | "z"; rotY: number } | null;
+    addPreviewMesh: (item: Map4Item) => THREE.Object3D;
+    removeMesh: (obj: THREE.Object3D) => void;
+    commitItem: (item: Map4Item) => THREE.Object3D;
+    removeCollisionRect: (item: Map4Item) => void;
+  } | null>(null);
+  // The piece currently staged by SELECT (world position + orientation)
+  // and its translucent preview mesh, cleared once PLACE commits it or
+  // SELECT is pressed again to re-aim. customItemsRef/customItemMeshesRef
+  // are the full placed-so-far list — walls, obstacles and drums together,
+  // in placement order — loaded from localStorage on mount, appended to
+  // by PLACE, popped from by REMOVE, written back out by SAVE. Kept
+  // outside React state since neither needs to trigger a re-render, only
+  // persist/stay in sync with the scene.
+  const buildSelectionRef = useRef<{ item: Map4Item; mesh: THREE.Object3D } | null>(null);
   const customItemsRef = useRef<Map4Item[]>([]);
+  const customItemMeshesRef = useRef<THREE.Object3D[]>([]);
+  const [buildHasSelection, setBuildHasSelection] = useState(false);
+  // Mirrors customItemsRef.current.length purely so REMOVE's disabled
+  // state re-renders — the ref itself is intentionally not React state.
+  const [buildItemCount, setBuildItemCount] = useState(0);
+  // Which kind SELECT stages next, and the size/length chosen for it.
+  const [buildPlaceKind, setBuildPlaceKind] = useState<"wall" | "obstacle" | "drum">("wall");
+  const [buildWallLength, setBuildWallLength] = useState(3);
+  const [buildObstacleSize, setBuildObstacleSize] = useState(MAP4_OBSTACLE_SMALL);
+  const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
   // The bird's heading (horizontal drag) and look pitch (vertical drag —
   // negative looks down at the ground, positive looks up toward the sky),
   // both set in handleLookMove. Flight direction always follows yaw only;
@@ -3635,27 +3682,106 @@ function CombatArena({
           },
         };
       }
+      const buildPreviewMat = new THREE.MeshStandardMaterial({
+        color: 0x6be2ff,
+        transparent: true,
+        opacity: 0.4,
+        depthWrite: false,
+      });
       Promise.all([loadCrateMaterial(), loadDrumMaterial()]).then(([crateMaterial, drumMaterial]) => {
         if (disposed) return;
         const drumCapMat = getDrumCapMaterial();
-        for (const item of customItemsRef.current) {
-          ACTIVE_OBSTACLES.push(map4ItemRect(item));
-          if (item.kind === "wall") {
-            addWallMesh(map4ItemRect(item), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
-          } else if (item.kind === "drum") {
+        const addBuildItemMesh = (item: Map4Item): THREE.Object3D => {
+          if (item.kind === "wall") return addWallMesh(map4ItemRect(item), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
+          if (item.kind === "drum") {
             const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
             const mesh = new THREE.Mesh(geo, [drumMaterial, drumCapMat, drumCapMat]);
             mesh.rotation.y = item.rotY;
             mesh.position.set(item.x, MAP4_DRUM_HEIGHT / 2, item.z);
             mesh.receiveShadow = true;
             scene.add(mesh);
-          } else {
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), crateMaterial);
-            mesh.rotation.y = item.rotY;
-            mesh.position.set(item.x, item.size / 2, item.z);
-            mesh.receiveShadow = true;
-            scene.add(mesh);
+            return mesh;
           }
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), crateMaterial);
+          mesh.rotation.y = item.rotY;
+          mesh.position.set(item.x, item.size / 2, item.z);
+          mesh.receiveShadow = true;
+          scene.add(mesh);
+          return mesh;
+        };
+        customItemMeshesRef.current = customItemsRef.current.map((item) => {
+          ACTIVE_OBSTACLES.push(map4ItemRect(item));
+          return addBuildItemMesh(item);
+        });
+        setBuildItemCount(customItemsRef.current.length);
+        // Build Mode (STRUCTURE tab): only editable pre-activation, same as
+        // the bot/spawn Setup Mode API above — the house is done being
+        // built once ACTIVATE is pressed, same moment the bots come alive.
+        if (map4SetupMode) {
+          buildModeRef.current = {
+            getPlayerFacing: () => {
+              if (!player) return null;
+              // Snap to the nearest cardinal direction so a wall stays
+              // axis-aligned (matching how every other wall in the game is
+              // collided against — a freely-rotated wall can't be
+              // expressed as the axis-aligned Obstacle rects everything
+              // else uses). Crates are symmetric cubes so this axis is
+              // only relevant when placing a wall; rotY (the raw facing)
+              // is what a crate's cosmetic rotation actually uses.
+              const yaw = ((cameraYaw.current % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+              const facingNS = yaw < Math.PI / 4 || yaw >= (Math.PI * 7) / 4 || (yaw >= (Math.PI * 3) / 4 && yaw < (Math.PI * 5) / 4);
+              const axis: "x" | "z" = facingNS ? "x" : "z";
+              // The chase camera sits behind the player along
+              // (-sin(yaw), -cos(yaw)) (see camTargetPos below), so the
+              // direction the player is actually facing/walking toward is
+              // the opposite of that.
+              const forwardX = Math.sin(cameraYaw.current);
+              const forwardZ = Math.cos(cameraYaw.current);
+              const dist = 4;
+              return {
+                x: player.root.position.x + forwardX * dist,
+                z: player.root.position.z + forwardZ * dist,
+                axis,
+                rotY: cameraYaw.current,
+              };
+            },
+            addPreviewMesh: (item) => {
+              if (item.kind === "wall") {
+                const ob = map4ItemRect(item);
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), buildPreviewMat);
+                mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+                scene.add(mesh);
+                return mesh;
+              }
+              if (item.kind === "drum") {
+                const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
+                const mesh = new THREE.Mesh(geo, buildPreviewMat);
+                mesh.rotation.y = item.rotY;
+                mesh.position.set(item.x, MAP4_DRUM_HEIGHT / 2, item.z);
+                scene.add(mesh);
+                return mesh;
+              }
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), buildPreviewMat);
+              mesh.rotation.y = item.rotY;
+              mesh.position.set(item.x, item.size / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            },
+            removeMesh: (obj) => scene.remove(obj),
+            commitItem: (item) => {
+              ACTIVE_OBSTACLES.push(map4ItemRect(item));
+              return addBuildItemMesh(item);
+            },
+            // Collision rects aren't individually tagged, so find-by-value
+            // the exact one this item pushed — safe since every Map 4
+            // collision rect is one of these and each commit pushes
+            // exactly one.
+            removeCollisionRect: (item) => {
+              const rect = map4ItemRect(item);
+              const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === rect.x && o.z === rect.z && o.halfX === rect.halfX && o.halfZ === rect.halfZ);
+              if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
+            },
+          };
         }
       });
     } else {
@@ -4128,6 +4254,12 @@ function CombatArena({
       isBoss: mapId !== 4 && i === 5,
       roomIndex: i, // only meaningful for guards; Boss ignores it
       awake: mapId !== 4 && i === 5, // the Boss has no guard/patrol behavior to wait on
+      // A Map 4 bot the player never gave a patrol range (SET RANGE) stays
+      // purely decorative forever, even once activated — it never detects,
+      // wakes, chases or fires, only stands exactly where it was placed
+      // (see the tick loop's per-bot dispatch below). Maps 1-3 and any
+      // Map 4 bot that does have a range are never inert.
+      inert: mapId === 4 && (map4SetupRef.current.bots[i]?.patrolRadius ?? 0) <= 0,
       alertT: -1,
       patrolTarget: null as { x: number; z: number } | null,
       stuckT: 0,
@@ -4389,7 +4521,13 @@ function CombatArena({
             botDist = Math.hypot(botDx, botDz);
           }
 
-          if (st.isBoss) {
+          if (st.inert) {
+            // A Map 4 bot placed without a patrol range — purely
+            // decorative, forever: no detection, no waking, no chasing, no
+            // firing, just standing exactly where it was placed (still a
+            // valid target the player can shoot, same as any obstacle).
+            updateLocomotionAnim(rig, 0, 0);
+          } else if (st.isBoss) {
             // The Boss holds its ground in Room 6 — it never patrols or
             // chases, but opens fire the instant the player comes within
             // range and line of sight.
@@ -4743,6 +4881,61 @@ function CombatArena({
   };
   const handleLookUp = () => {
     lookTouchId.current = null;
+  };
+
+  // Map 4 Setup Mode, STRUCTURE tab: SELECT stages a piece a few units
+  // ahead of wherever the player's currently facing (re-aiming just
+  // replaces the preview, no need to explicitly cancel first); PLACE
+  // commits the staged spot into a real, permanent-for-this-session
+  // piece; SAVE writes everything placed so far out to localStorage so
+  // it's still there next time this map is opened.
+  const handleBuildSelect = () => {
+    const api = buildModeRef.current;
+    if (!api) return;
+    const facing = api.getPlayerFacing();
+    if (!facing) return;
+    const prev = buildSelectionRef.current;
+    if (prev) api.removeMesh(prev.mesh);
+    const item: Map4Item =
+      buildPlaceKind === "wall"
+        ? { kind: "wall", x: facing.x, z: facing.z, axis: facing.axis, length: buildWallLength }
+        : buildPlaceKind === "drum"
+          ? { kind: "drum", x: facing.x, z: facing.z, rotY: facing.rotY }
+          : { kind: "obstacle", x: facing.x, z: facing.z, size: buildObstacleSize, rotY: facing.rotY };
+    const mesh = api.addPreviewMesh(item);
+    buildSelectionRef.current = { item, mesh };
+    setBuildHasSelection(true);
+  };
+  const handleBuildPlaceItem = () => {
+    const api = buildModeRef.current;
+    const selection = buildSelectionRef.current;
+    if (!api || !selection) return;
+    api.removeMesh(selection.mesh);
+    const mesh = api.commitItem(selection.item);
+    customItemsRef.current = [...customItemsRef.current, selection.item];
+    customItemMeshesRef.current = [...customItemMeshesRef.current, mesh];
+    buildSelectionRef.current = null;
+    setBuildHasSelection(false);
+    setBuildItemCount(customItemsRef.current.length);
+  };
+  // Undoes the most recently committed piece — wall, obstacle or drum,
+  // whichever was placed last (last in, first out) — simpler and more
+  // predictable than targeting/raycasting a specific one.
+  const handleBuildRemoveItem = () => {
+    const api = buildModeRef.current;
+    if (!api || customItemsRef.current.length === 0) return;
+    const lastItem = customItemsRef.current[customItemsRef.current.length - 1];
+    const lastMesh = customItemMeshesRef.current[customItemMeshesRef.current.length - 1];
+    api.removeMesh(lastMesh);
+    api.removeCollisionRect(lastItem);
+    customItemsRef.current = customItemsRef.current.slice(0, -1);
+    customItemMeshesRef.current = customItemMeshesRef.current.slice(0, -1);
+    setBuildItemCount(customItemsRef.current.length);
+  };
+  const handleBuildSave = () => {
+    saveMap4Items(customItemsRef.current);
+    setBuildSaveLabel("SAVED!");
+    setTimeout(() => setBuildSaveLabel("SAVE"), 1500);
   };
 
   // Map 4 Setup Mode: SET SPAWN/PLACE/SET RANGE all act on wherever the
@@ -5208,18 +5401,15 @@ function CombatArena({
         </>
       )}
 
-      {/* Map 4 Setup Mode: SET SPAWN/PLACE/SET RANGE/REMOVE let the player
-          walk the built structure and decide exactly where the character
-          and every bot start (and how far each bot patrols) before
-          ACTIVATE locks the layout in — nothing fights back until then
-          (see map4LiveBotCount/botSpawns in the setup effect above). The
-          BOT/EXCLUDE tabs pick what PLACE/SET RANGE/REMOVE act on — a bot
-          (which stands guard right at its spot until given a patrol
-          range) or a no-go circle no bot's patrol will ever wander into,
-          for carving an obstacle out of a patrol range that would
-          otherwise cross it. Hidden in Map View same as every other
-          ground-movement control, since it acts on wherever the player is
-          actually standing. */}
+      {/* Map 4 Setup Mode: two top-level tabs, STRUCTURE (walls/obstacles/
+          drums — the house itself, exactly the old Build Mode) and BOTS
+          (player spawn + placed fighters), sharing the same on-screen
+          button positions since only one shows at a time. Nothing fights
+          back and the house can't be re-shuffled once ACTIVATE locks the
+          layout in — see map4LiveBotCount/botSpawns in the setup effect
+          above. Hidden in Map View same as every other ground-movement
+          control, since every action here acts on wherever the player is
+          actually standing (or facing, for STRUCTURE's SELECT). */}
       {map4SetupMode && !topDownView && (
         <>
           <div
@@ -5237,26 +5427,6 @@ function CombatArena({
             <div
               style={{
                 display: "flex",
-                alignItems: "center",
-                gap: 10,
-                background: "rgba(8,14,24,0.7)",
-                border: "1px solid rgba(200,220,240,0.3)",
-                borderRadius: 8,
-                padding: "6px 14px",
-                color: "#dce8f5",
-                fontFamily: "'Rajdhani', sans-serif",
-                fontWeight: 700,
-                fontSize: 12,
-                letterSpacing: "0.06em",
-              }}
-            >
-              <span>SPAWN {map4SpawnSet ? "✓" : "✗"}</span>
-              <span>BOTS: {map4BotCount}</span>
-              <span>EXCLUDE: {map4ExcludeCount}</span>
-            </div>
-            <div
-              style={{
-                display: "flex",
                 gap: 6,
                 background: "rgba(8,14,24,0.7)",
                 border: "1px solid rgba(200,220,240,0.3)",
@@ -5264,19 +5434,19 @@ function CombatArena({
                 padding: 5,
               }}
             >
-              {(["bot", "exclude"] as const).map((tab) => (
+              {(["structure", "bots"] as const).map((mode) => (
                 <button
-                  key={tab}
+                  key={mode}
                   onPointerDown={(e) => {
                     e.preventDefault();
-                    setMap4SetupTab(tab);
+                    setMap4TopMode(mode);
                   }}
-                  aria-label={`Setup tab ${tab}`}
+                  aria-label={`Setup mode ${mode}`}
                   style={{
                     padding: "6px 14px",
                     borderRadius: 6,
-                    background: map4SetupTab === tab ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
-                    border: map4SetupTab === tab ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                    background: map4TopMode === mode ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                    border: map4TopMode === mode ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
                     color: "#dce8f5",
                     fontFamily: "'Rajdhani', sans-serif",
                     fontWeight: 700,
@@ -5285,160 +5455,450 @@ function CombatArena({
                     cursor: "pointer",
                   }}
                 >
-                  {tab === "bot" ? "BOT" : "EXCLUDE"}
+                  {mode === "structure" ? "STRUCTURE" : "BOTS"}
                 </button>
               ))}
             </div>
+
+            {map4TopMode === "structure" ? (
+              <>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    background: "rgba(8,14,24,0.7)",
+                    border: "1px solid rgba(200,220,240,0.3)",
+                    borderRadius: 8,
+                    padding: 5,
+                  }}
+                >
+                  {(["wall", "obstacle", "drum"] as const).map((kind) => (
+                    <button
+                      key={kind}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        setBuildPlaceKind(kind);
+                      }}
+                      aria-label={`Place kind ${kind}`}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 6,
+                        background: buildPlaceKind === kind ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                        border: buildPlaceKind === kind ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                        color: "#dce8f5",
+                        fontFamily: "'Rajdhani', sans-serif",
+                        fontWeight: 700,
+                        fontSize: 13,
+                        letterSpacing: "0.05em",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {kind === "wall" ? "WALL" : kind === "obstacle" ? "OBSTACLE" : "DRUM"}
+                    </button>
+                  ))}
+                </div>
+
+                {buildPlaceKind === "wall" ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 6,
+                      background: "rgba(8,14,24,0.7)",
+                      border: "1px solid rgba(200,220,240,0.3)",
+                      borderRadius: 8,
+                      padding: 5,
+                    }}
+                  >
+                    {Array.from({ length: MAP4_WALL_LENGTH_MAX - MAP4_WALL_LENGTH_MIN + 1 }, (_, i) => MAP4_WALL_LENGTH_MIN + i).map((n) => (
+                      <button
+                        key={n}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          setBuildWallLength(n);
+                        }}
+                        aria-label={`Wall length ${n}m`}
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 6,
+                          background: buildWallLength === n ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                          border: buildWallLength === n ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                          color: "#dce8f5",
+                          fontFamily: "'Rajdhani', sans-serif",
+                          fontWeight: 700,
+                          fontSize: 14,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                ) : buildPlaceKind === "obstacle" ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 6,
+                      background: "rgba(8,14,24,0.7)",
+                      border: "1px solid rgba(200,220,240,0.3)",
+                      borderRadius: 8,
+                      padding: 5,
+                    }}
+                  >
+                    {[
+                      { size: MAP4_OBSTACLE_SMALL, label: "SMALL" },
+                      { size: MAP4_OBSTACLE_BIG, label: "BIG" },
+                    ].map(({ size, label }) => (
+                      <button
+                        key={label}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          setBuildObstacleSize(size);
+                        }}
+                        aria-label={`Obstacle size ${label.toLowerCase()}`}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 6,
+                          background: buildObstacleSize === size ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                          border: buildObstacleSize === size ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                          color: "#dce8f5",
+                          fontFamily: "'Rajdhani', sans-serif",
+                          fontWeight: 700,
+                          fontSize: 13,
+                          letterSpacing: "0.05em",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    background: "rgba(8,14,24,0.7)",
+                    border: "1px solid rgba(200,220,240,0.3)",
+                    borderRadius: 8,
+                    padding: "6px 14px",
+                    color: "#dce8f5",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  <span>SPAWN {map4SpawnSet ? "✓" : "✗"}</span>
+                  <span>BOTS: {map4BotCount}</span>
+                  <span>EXCLUDE: {map4ExcludeCount}</span>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    background: "rgba(8,14,24,0.7)",
+                    border: "1px solid rgba(200,220,240,0.3)",
+                    borderRadius: 8,
+                    padding: 5,
+                  }}
+                >
+                  {(["bot", "exclude"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        setMap4SetupTab(tab);
+                      }}
+                      aria-label={`Setup tab ${tab}`}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 6,
+                        background: map4SetupTab === tab ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                        border: map4SetupTab === tab ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                        color: "#dce8f5",
+                        fontFamily: "'Rajdhani', sans-serif",
+                        fontWeight: 700,
+                        fontSize: 13,
+                        letterSpacing: "0.05em",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {tab === "bot" ? "BOT" : "EXCLUDE"}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
-          <button
-            onPointerDown={(e) => {
-              e.preventDefault();
-              handleSetSpawn();
-            }}
-            aria-label="Set player spawn"
-            style={{
-              position: "absolute",
-              right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-              bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
-              width: "clamp(72px, 13vw, 100px)",
-              height: "clamp(72px, 13vw, 100px)",
-              borderRadius: "50%",
-              background: "radial-gradient(circle, #baf0ff, #2f9fd8)",
-              border: "2px solid rgba(210,245,255,0.85)",
-              boxShadow: "0 0 20px rgba(80,190,255,0.6)",
-              color: "#06212e",
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              letterSpacing: "0.03em",
-              fontSize: "clamp(11px, 1.7vw, 14px)",
-              cursor: "pointer",
-              opacity: settings.buttonOpacity,
-            }}
-          >
-            SET SPAWN
-          </button>
+          {map4TopMode === "structure" ? (
+            <>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildSelect();
+                }}
+                aria-label="Select area"
+                style={{
+                  position: "absolute",
+                  right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+                  bottom: "9%",
+                  width: "clamp(72px, 13vw, 100px)",
+                  height: "clamp(72px, 13vw, 100px)",
+                  borderRadius: "50%",
+                  background: "radial-gradient(circle, #baf0ff, #2f9fd8)",
+                  border: "2px solid rgba(210,245,255,0.85)",
+                  boxShadow: "0 0 20px rgba(80,190,255,0.6)",
+                  color: "#06212e",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  fontSize: "clamp(12px, 1.9vw, 15px)",
+                  cursor: "pointer",
+                  opacity: settings.buttonOpacity,
+                }}
+              >
+                SELECT
+              </button>
 
-          <button
-            onPointerDown={(e) => {
-              e.preventDefault();
-              handleSetupPlace();
-            }}
-            aria-label="Place"
-            style={{
-              position: "absolute",
-              right: "7%",
-              bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
-              width: "clamp(72px, 13vw, 100px)",
-              height: "clamp(72px, 13vw, 100px)",
-              borderRadius: "50%",
-              background: "radial-gradient(circle, #ffe2a6, #d88a2c)",
-              border: "2px solid rgba(255,235,210,0.85)",
-              boxShadow: "0 0 20px rgba(255,170,40,0.6)",
-              color: "#2e1c06",
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              letterSpacing: "0.03em",
-              fontSize: "clamp(11px, 1.7vw, 14px)",
-              cursor: "pointer",
-              opacity: settings.buttonOpacity,
-            }}
-          >
-            {map4SetupTab === "bot" ? "PLACE BOT" : "MARK EXCLUDE"}
-          </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildPlaceItem();
+                }}
+                disabled={!buildHasSelection}
+                aria-label="Place item"
+                style={{
+                  position: "absolute",
+                  right: "7%",
+                  bottom: "9%",
+                  width: "clamp(72px, 13vw, 100px)",
+                  height: "clamp(72px, 13vw, 100px)",
+                  borderRadius: "50%",
+                  background: buildHasSelection ? "radial-gradient(circle, #ffe2a6, #d88a2c)" : "rgba(255,255,255,0.1)",
+                  border: buildHasSelection ? "2px solid rgba(255,235,210,0.85)" : "1px solid rgba(200,220,240,0.35)",
+                  boxShadow: buildHasSelection ? "0 0 20px rgba(255,170,40,0.6)" : "none",
+                  color: buildHasSelection ? "#2e1c06" : "rgba(220,230,240,0.5)",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.03em",
+                  fontSize: "clamp(10px, 1.6vw, 12px)",
+                  cursor: buildHasSelection ? "pointer" : "default",
+                  opacity: settings.buttonOpacity,
+                }}
+              >
+                {buildPlaceKind === "wall" ? "WALL" : buildPlaceKind === "obstacle" ? "OBSTACLE" : "DRUM"}
+              </button>
 
-          <button
-            onPointerDown={(e) => {
-              e.preventDefault();
-              handleSetupRange();
-            }}
-            disabled={(map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0}
-            aria-label="Set range"
-            style={{
-              position: "absolute",
-              right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-              bottom: "9%",
-              width: "clamp(72px, 13vw, 100px)",
-              height: "clamp(72px, 13vw, 100px)",
-              borderRadius: "50%",
-              background:
-                (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
-                  ? "rgba(255,255,255,0.1)"
-                  : "radial-gradient(circle, #ffb0e8, #b83fa0)",
-              border:
-                (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
-                  ? "1px solid rgba(200,220,240,0.35)"
-                  : "2px solid rgba(255,220,245,0.85)",
-              boxShadow: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "none" : "0 0 20px rgba(220,80,190,0.6)",
-              color: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(220,230,240,0.5)" : "#2e0620",
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              letterSpacing: "0.03em",
-              fontSize: "clamp(11px, 1.7vw, 14px)",
-              cursor: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "default" : "pointer",
-              opacity: settings.buttonOpacity,
-            }}
-          >
-            {map4SetupTab === "bot" ? "SET PATROL" : "SET RADIUS"}
-          </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildSave();
+                }}
+                aria-label="Save map"
+                style={{
+                  position: "absolute",
+                  top: 16,
+                  left: 16,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: buildSaveLabel === "SAVED!" ? "rgba(107,216,255,0.35)" : "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {buildSaveLabel}
+              </button>
 
-          <button
-            onPointerDown={(e) => {
-              e.preventDefault();
-              handleActivate();
-            }}
-            aria-label="Activate bots"
-            style={{
-              position: "absolute",
-              right: "7%",
-              bottom: "9%",
-              width: "clamp(72px, 13vw, 100px)",
-              height: "clamp(72px, 13vw, 100px)",
-              borderRadius: "50%",
-              background:
-                map4ActivateLabel === "ACTIVATED!" ? "radial-gradient(circle, #baffb0, #3fd85a)" : "radial-gradient(circle, #8fe89a, #2f8f45)",
-              border: "2px solid rgba(220,255,220,0.95)",
-              boxShadow: "0 0 20px rgba(90,255,120,0.6)",
-              color: "#0c2e10",
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              letterSpacing: "0.03em",
-              fontSize: "clamp(11px, 1.7vw, 14px)",
-              cursor: "pointer",
-              opacity: settings.buttonOpacity,
-            }}
-          >
-            {map4ActivateLabel}
-          </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildRemoveItem();
+                }}
+                disabled={buildItemCount === 0}
+                aria-label="Remove last item"
+                style={{
+                  position: "absolute",
+                  top: 16,
+                  left: 96,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: buildItemCount === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
+                  border: buildItemCount === 0 ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
+                  color: buildItemCount === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: buildItemCount === 0 ? "default" : "pointer",
+                }}
+              >
+                REMOVE
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleSetSpawn();
+                }}
+                aria-label="Set player spawn"
+                style={{
+                  position: "absolute",
+                  right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
+                  width: "clamp(72px, 13vw, 100px)",
+                  height: "clamp(72px, 13vw, 100px)",
+                  borderRadius: "50%",
+                  background: "radial-gradient(circle, #baf0ff, #2f9fd8)",
+                  border: "2px solid rgba(210,245,255,0.85)",
+                  boxShadow: "0 0 20px rgba(80,190,255,0.6)",
+                  color: "#06212e",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.03em",
+                  fontSize: "clamp(11px, 1.7vw, 14px)",
+                  cursor: "pointer",
+                  opacity: settings.buttonOpacity,
+                }}
+              >
+                SET SPAWN
+              </button>
 
-          <button
-            onPointerDown={(e) => {
-              e.preventDefault();
-              handleSetupRemove();
-            }}
-            disabled={(map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0}
-            aria-label="Remove last"
-            style={{
-              position: "absolute",
-              top: 16,
-              left: 16,
-              padding: "8px 18px",
-              borderRadius: 6,
-              background: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
-              border:
-                (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
-                  ? "1px solid rgba(200,220,240,0.25)"
-                  : "1px solid rgba(255,140,130,0.4)",
-              color: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              letterSpacing: "0.06em",
-              fontSize: 13,
-              cursor: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "default" : "pointer",
-            }}
-          >
-            {map4SetupTab === "bot" ? "REMOVE BOT" : "REMOVE EXCLUDE"}
-          </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleSetupPlace();
+                }}
+                aria-label="Place"
+                style={{
+                  position: "absolute",
+                  right: "7%",
+                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
+                  width: "clamp(72px, 13vw, 100px)",
+                  height: "clamp(72px, 13vw, 100px)",
+                  borderRadius: "50%",
+                  background: "radial-gradient(circle, #ffe2a6, #d88a2c)",
+                  border: "2px solid rgba(255,235,210,0.85)",
+                  boxShadow: "0 0 20px rgba(255,170,40,0.6)",
+                  color: "#2e1c06",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.03em",
+                  fontSize: "clamp(11px, 1.7vw, 14px)",
+                  cursor: "pointer",
+                  opacity: settings.buttonOpacity,
+                }}
+              >
+                {map4SetupTab === "bot" ? "PLACE BOT" : "MARK EXCLUDE"}
+              </button>
+
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleSetupRange();
+                }}
+                disabled={(map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0}
+                aria-label="Set range"
+                style={{
+                  position: "absolute",
+                  right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+                  bottom: "9%",
+                  width: "clamp(72px, 13vw, 100px)",
+                  height: "clamp(72px, 13vw, 100px)",
+                  borderRadius: "50%",
+                  background:
+                    (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
+                      ? "rgba(255,255,255,0.1)"
+                      : "radial-gradient(circle, #ffb0e8, #b83fa0)",
+                  border:
+                    (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
+                      ? "1px solid rgba(200,220,240,0.35)"
+                      : "2px solid rgba(255,220,245,0.85)",
+                  boxShadow: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "none" : "0 0 20px rgba(220,80,190,0.6)",
+                  color: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(220,230,240,0.5)" : "#2e0620",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.03em",
+                  fontSize: "clamp(11px, 1.7vw, 14px)",
+                  cursor: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "default" : "pointer",
+                  opacity: settings.buttonOpacity,
+                }}
+              >
+                {map4SetupTab === "bot" ? "SET PATROL" : "SET RADIUS"}
+              </button>
+
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleActivate();
+                }}
+                aria-label="Activate bots"
+                style={{
+                  position: "absolute",
+                  right: "7%",
+                  bottom: "9%",
+                  width: "clamp(72px, 13vw, 100px)",
+                  height: "clamp(72px, 13vw, 100px)",
+                  borderRadius: "50%",
+                  background:
+                    map4ActivateLabel === "ACTIVATED!" ? "radial-gradient(circle, #baffb0, #3fd85a)" : "radial-gradient(circle, #8fe89a, #2f8f45)",
+                  border: "2px solid rgba(220,255,220,0.95)",
+                  boxShadow: "0 0 20px rgba(90,255,120,0.6)",
+                  color: "#0c2e10",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.03em",
+                  fontSize: "clamp(11px, 1.7vw, 14px)",
+                  cursor: "pointer",
+                  opacity: settings.buttonOpacity,
+                }}
+              >
+                {map4ActivateLabel}
+              </button>
+
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleSetupRemove();
+                }}
+                disabled={(map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0}
+                aria-label="Remove last"
+                style={{
+                  position: "absolute",
+                  top: 16,
+                  left: 16,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background:
+                    (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
+                  border:
+                    (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0
+                      ? "1px solid rgba(200,220,240,0.25)"
+                      : "1px solid rgba(255,140,130,0.4)",
+                  color: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: (map4SetupTab === "bot" ? map4BotCount : map4ExcludeCount) === 0 ? "default" : "pointer",
+                }}
+              >
+                {map4SetupTab === "bot" ? "REMOVE BOT" : "REMOVE EXCLUDE"}
+              </button>
+            </>
+          )}
         </>
       )}
 
