@@ -1046,6 +1046,40 @@ const MAP4_ITEMS_KEY = "10sa-map4-items";
 // kept only as a one-time recovery source for whatever was already built
 // under it, never written to again.
 const MAP4_LEGACY_WALLS_KEY = "10sa-map4-walls";
+// A small two-room starter house (used only when nothing's been placed or
+// saved yet — see loadMap4Items) so Map 4 isn't a totally empty field the
+// very first time it's opened. Entrance on the south wall, a doorway
+// through the dividing wall near the south side connecting the two rooms,
+// a few crates/drums scattered for cover. Anything the player places (and
+// saves) themselves overrides this entirely.
+const DEFAULT_MAP4_HOUSE: Map4Item[] = [
+  // North wall
+  { kind: "wall", x: MAP4_ORIGIN.x - 6, z: MAP4_ORIGIN.z - 6, axis: "x", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x - 2, z: MAP4_ORIGIN.z - 6, axis: "x", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x + 2, z: MAP4_ORIGIN.z - 6, axis: "x", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x + 6, z: MAP4_ORIGIN.z - 6, axis: "x", length: 4 },
+  // South wall, with a 4m entrance gap in the middle
+  { kind: "wall", x: MAP4_ORIGIN.x - 6.5, z: MAP4_ORIGIN.z + 6, axis: "x", length: 3 },
+  { kind: "wall", x: MAP4_ORIGIN.x - 3.5, z: MAP4_ORIGIN.z + 6, axis: "x", length: 3 },
+  { kind: "wall", x: MAP4_ORIGIN.x + 3.5, z: MAP4_ORIGIN.z + 6, axis: "x", length: 3 },
+  { kind: "wall", x: MAP4_ORIGIN.x + 6.5, z: MAP4_ORIGIN.z + 6, axis: "x", length: 3 },
+  // West wall
+  { kind: "wall", x: MAP4_ORIGIN.x - 8, z: MAP4_ORIGIN.z - 4, axis: "z", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x - 8, z: MAP4_ORIGIN.z, axis: "z", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x - 8, z: MAP4_ORIGIN.z + 4, axis: "z", length: 4 },
+  // East wall, with a 4m window/side-gap in the middle
+  { kind: "wall", x: MAP4_ORIGIN.x + 8, z: MAP4_ORIGIN.z - 4, axis: "z", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x + 8, z: MAP4_ORIGIN.z + 4, axis: "z", length: 4 },
+  // Dividing wall between the two rooms, with a doorway gap near the south side
+  { kind: "wall", x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z - 4, axis: "z", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z, axis: "z", length: 4 },
+  // Cover inside both rooms
+  { kind: "obstacle", x: MAP4_ORIGIN.x - 4, z: MAP4_ORIGIN.z - 2, size: MAP4_OBSTACLE_BIG, rotY: 0 },
+  { kind: "obstacle", x: MAP4_ORIGIN.x + 4, z: MAP4_ORIGIN.z - 2, size: MAP4_OBSTACLE_SMALL, rotY: 0.4 },
+  { kind: "obstacle", x: MAP4_ORIGIN.x - 3, z: MAP4_ORIGIN.z + 3, size: MAP4_OBSTACLE_SMALL, rotY: 0.2 },
+  { kind: "drum", x: MAP4_ORIGIN.x + 3, z: MAP4_ORIGIN.z + 3, rotY: 0 },
+  { kind: "drum", x: MAP4_ORIGIN.x - 6, z: MAP4_ORIGIN.z, rotY: 0 },
+];
 function loadMap4Items(): Map4Item[] {
   try {
     const raw = localStorage.getItem(MAP4_ITEMS_KEY);
@@ -1066,9 +1100,9 @@ function loadMap4Items(): Map4Item[] {
     // Nothing under the current key yet — recover anything saved by the
     // original walls-only version instead of it just vanishing.
     const legacyRaw = localStorage.getItem(MAP4_LEGACY_WALLS_KEY);
-    if (!legacyRaw) return [];
+    if (!legacyRaw) return DEFAULT_MAP4_HOUSE;
     const legacyParsed = JSON.parse(legacyRaw);
-    if (!Array.isArray(legacyParsed)) return [];
+    if (!Array.isArray(legacyParsed)) return DEFAULT_MAP4_HOUSE;
     return legacyParsed
       .filter((w) => w && typeof w.x === "number" && typeof w.z === "number" && (w.axis === "x" || w.axis === "z"))
       .map(
