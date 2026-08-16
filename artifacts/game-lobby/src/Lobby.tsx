@@ -2678,12 +2678,6 @@ function CombatArena({
   // how far the joystick is pushed, instead of requiring it held near max.
   const runToggled = useRef(false);
   const [runActive, setRunActive] = useState(false);
-  // Map 4 only (see the FIRE/RUN vs WALK swap below): tapping WALK caps
-  // the player's speed back down to the normal per-map pace instead of
-  // the doubled default it moves at there, for lining up a precise wall
-  // placement instead of overshooting past it.
-  const walkToggled = useRef(false);
-  const [walkActive, setWalkActive] = useState(false);
   const joystickTouchId = useRef<number | null>(null);
   const joystickBaseRef = useRef<HTMLDivElement>(null);
   // Free-look: dragging anywhere on the arena view (outside the joystick/
@@ -4149,10 +4143,8 @@ function CombatArena({
         const dirZ = joyMag > 0.0001 ? rawZ / joyMag : runningInPlace ? -camForwardZ : 0;
         const effectiveMag = runningInPlace ? 1 : joyMag;
 
-        // Map 4 normally moves at double speed (no bots left to balance
-        // against) — WALK caps that back down to the normal per-map pace
-        // for lining up a precise placement instead of overshooting it.
-        const playerMaxSpeedForMatch = mapId === 4 && !walkToggled.current ? PLAYER_MAX_SPEED * 2 : PLAYER_MAX_SPEED;
+        // Map 4 moves at double speed — no bots there to balance against.
+        const playerMaxSpeedForMatch = mapId === 4 ? PLAYER_MAX_SPEED * 2 : PLAYER_MAX_SPEED;
         // How far the stick is pushed sets the target speed continuously —
         // a light tap walks, a full push runs, and holding full tilt ramps
         // sprint in on top — so there's no discrete walk/jog/run jump.
@@ -5042,8 +5034,8 @@ function CombatArena({
                   tap. setPointerCapture keeps the up/cancel events firing on this
                   button even if the finger slides off it while held, so a drag-off
                   reliably stops the fire instead of leaving it stuck on. Map 4 has
-                  no bots to shoot, so this (and RUN, replaced there by WALK) don't
-                  show there. */}
+                  no bots to shoot, so this (and RUN) don't show there — SELECT and
+                  PLACE take their slots instead. */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -5121,43 +5113,6 @@ function CombatArena({
                 {t(settings.language, "run")}
               </button>
             </>
-          )}
-
-          {/* WALK toggle — Map 4 only, in the same slot RUN occupies
-              elsewhere. Map 4 moves at double speed by default (see
-              playerMaxSpeedForMatch in the tick loop); WALK caps that back
-              down to the normal pace for a precise placement. */}
-          {mapId === 4 && (
-            <button
-              onPointerDown={(e) => {
-                e.preventDefault();
-                walkToggled.current = !walkToggled.current;
-                setWalkActive(walkToggled.current);
-              }}
-              aria-label="Walk"
-              style={{
-                position: "absolute",
-                right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-                bottom: "9%",
-                width: "clamp(56px, 10vw, 76px)",
-                height: "clamp(56px, 10vw, 76px)",
-                borderRadius: "50%",
-                background: walkActive ? "radial-gradient(circle, #baffb0, #3fd85a)" : "radial-gradient(circle, #8fe89a, #2f8f45)",
-                border: walkActive ? "2px solid rgba(220,255,220,0.95)" : "2px solid rgba(210,255,210,0.7)",
-                boxShadow: walkActive ? "0 0 26px rgba(90,255,120,0.85)" : "0 0 14px rgba(90,255,120,0.4)",
-                color: "#f0fff2",
-                fontFamily: "'Rajdhani', sans-serif",
-                fontWeight: 700,
-                letterSpacing: "0.05em",
-                fontSize: "clamp(11px, 1.7vw, 14px)",
-                cursor: "pointer",
-                opacity: settings.buttonOpacity,
-                transform: `translate(${settings.controlOffsets.run.x}px, ${settings.controlOffsets.run.y}px) scale(${settings.buttonSize})`,
-                transformOrigin: "right bottom",
-              }}
-            >
-              WALK
-            </button>
           )}
 
           {/* Build Mode (Map 4): the WALL/OBSTACLE tabs pick what SELECT
@@ -5302,7 +5257,7 @@ function CombatArena({
                 style={{
                   position: "absolute",
                   right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
+                  bottom: "9%",
                   width: "clamp(72px, 13vw, 100px)",
                   height: "clamp(72px, 13vw, 100px)",
                   borderRadius: "50%",
@@ -5331,7 +5286,7 @@ function CombatArena({
                 style={{
                   position: "absolute",
                   right: "7%",
-                  bottom: "calc(9% + clamp(72px, 13vw, 100px) + 14px)",
+                  bottom: "9%",
                   width: "clamp(72px, 13vw, 100px)",
                   height: "clamp(72px, 13vw, 100px)",
                   borderRadius: "50%",
