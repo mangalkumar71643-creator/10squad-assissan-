@@ -47,6 +47,7 @@ export function GameplayScreen({ route, navigation }: Props) {
   const recordRunEnd = useProfileStore((s) => s.recordRunEnd);
   const bumpStat = useProfileStore((s) => s.bumpStat);
   const bumpLevel = useProfileStore((s) => s.bumpLevel);
+  const recordLevelStars = useProfileStore((s) => s.recordLevelStars);
 
   const ball = BALLS.find((b) => b.id === selectedBallId) ?? BALLS[0];
 
@@ -82,6 +83,13 @@ export function GameplayScreen({ route, navigation }: Props) {
   useEffect(() => {
     bumpLevel(state.level);
   }, [state.level, bumpLevel]);
+
+  // Persist the star rating earned each time a level is cleared.
+  useEffect(() => {
+    if (state.lastLevelCleared) {
+      recordLevelStars(state.lastLevelCleared.level, state.lastLevelCleared.stars);
+    }
+  }, [state.lastLevelCleared, recordLevelStars]);
 
   // Particle burst + sfx whenever a brick breaks.
   useEffect(() => {

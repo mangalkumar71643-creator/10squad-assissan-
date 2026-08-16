@@ -28,6 +28,7 @@ interface ProfileState {
   selectedBallId: string;
   unlockedBallIds: string[];
   currentLevel: number;
+  levelStars: Record<number, number>;
   stats: PlayerStats;
 
   addCoins: (n: number) => void;
@@ -38,6 +39,7 @@ interface ProfileState {
   unlockBall: (id: string) => void;
   selectBall: (id: string) => void;
   bumpLevel: (n: number) => void;
+  recordLevelStars: (level: number, stars: number) => void;
   recordRunEnd: (result: {
     score: number;
     combo: number;
@@ -63,6 +65,7 @@ export const useProfileStore = create<ProfileState>()(
       selectedBallId: "nova",
       unlockedBallIds: ["nova"],
       currentLevel: 1,
+      levelStars: {},
       stats: EMPTY_STATS,
 
       addCoins: (n) => set((s) => ({ coins: s.coins + Math.max(0, n) })),
@@ -90,6 +93,10 @@ export const useProfileStore = create<ProfileState>()(
         ),
       selectBall: (id) => set({ selectedBallId: id }),
       bumpLevel: (n) => set((s) => ({ currentLevel: Math.max(s.currentLevel, n) })),
+      recordLevelStars: (level, stars) =>
+        set((s) => ({
+          levelStars: { ...s.levelStars, [level]: Math.max(s.levelStars[level] ?? 0, stars) },
+        })),
       bumpStat: (key, delta) =>
         set((s) => ({
           stats: { ...s.stats, [key]: (s.stats[key] as number) + delta },

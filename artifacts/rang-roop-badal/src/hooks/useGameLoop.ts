@@ -82,6 +82,7 @@ export interface GameLoopState {
   perfectMatches: number; // perfect-combo brick hits
   level: number;
   startLevel: number;
+  lastLevelCleared: { level: number; stars: number } | null;
   ball: Ball;
   paddle: Paddle;
   bricks: Brick[];
@@ -181,6 +182,7 @@ function makeInitialState(
     perfectMatches: 0,
     level: Math.max(1, startLevel),
     startLevel: Math.max(1, startLevel),
+    lastLevelCleared: null,
     ball,
     paddle,
     bricks: generateBricks(boundsWidth, boundsHeight),
@@ -379,12 +381,15 @@ function reducer(state: GameLoopState, action: Action): GameLoopState {
           };
 
           if (bricks.every((b) => !b.alive)) {
+            const clearedLevel = next.level;
+            const starsEarned = Math.max(1, Math.min(3, next.lives));
             next = {
               ...next,
-              level: next.level + 1,
+              level: clearedLevel + 1,
               bricks: generateBricks(next.bounds.width, next.bounds.height),
               banner: { key: now, text: "LEVEL UP!", tone: "info" },
               bannerUntil: now + 1600,
+              lastLevelCleared: { level: clearedLevel, stars: starsEarned },
             };
           }
         }
