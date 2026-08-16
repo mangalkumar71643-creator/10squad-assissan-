@@ -94,9 +94,9 @@ export function SplashScreen({ navigation }: Props) {
       onPress: () => navigation.replace("Gameplay", { mode: "classic" }),
     },
     {
-      key: "game_modes",
-      source: require("../../assets/btn_game_modes.png"),
-      onPress: () => navigation.navigate("GameModes"),
+      key: "level",
+      source: require("../../assets/btn_level.png"),
+      onPress: () => navigation.navigate("LevelPanel"),
     },
     {
       key: "balls",
