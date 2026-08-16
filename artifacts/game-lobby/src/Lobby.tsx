@@ -4849,8 +4849,10 @@ function CombatArena({
         style={{
           position: "absolute",
           top: 16,
-          left: "50%",
-          transform: "translateX(-50%)",
+          // Map 4 puts the WALL/OBSTACLE/DRUM tabs in EXIT's usual
+          // top-center spot (see below), so EXIT moves to the side,
+          // stacked directly above the settings gear instead.
+          ...(mapId === 4 ? { right: 16 } : { left: "50%", transform: "translateX(-50%)" }),
           padding: "6px 18px",
           background: "rgba(255,255,255,0.08)",
           border: "1px solid rgba(200,220,240,0.4)",
@@ -5119,13 +5121,15 @@ function CombatArena({
               stages next — a wall (house/rooms) or a crate obstacle
               (cover/decoration) — each with its own size row below the
               tabs. PLACE commits whichever is staged; SAVE persists
-              everything placed so far (both kinds together). */}
+              everything placed so far (both kinds together). Sits in
+              EXIT's usual top-center spot, since EXIT moves to the side
+              for Map 4 (see above). */}
           {mapId === 4 && (
             <>
               <div
                 style={{
                   position: "absolute",
-                  top: 58,
+                  top: 16,
                   left: "50%",
                   transform: "translateX(-50%)",
                   display: "flex",
