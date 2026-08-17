@@ -2725,6 +2725,20 @@ function CombatArena({
     return saved >= LOOK_SENSITIVITY_MIN && saved <= LOOK_SENSITIVITY_MAX ? saved : 1;
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // EXIT confirmation — tapping EXIT no longer quits immediately (an
+  // accidental tap mid-match used to cut straight out). It opens a
+  // confirm dialog instead, with YES locked out for 3 seconds so a
+  // reflexive double-tap can't quit through the confirmation either.
+  const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
+  const [exitConfirmSecondsLeft, setExitConfirmSecondsLeft] = useState(3);
+  useEffect(() => {
+    if (!exitConfirmOpen) return;
+    setExitConfirmSecondsLeft(3);
+    const interval = setInterval(() => {
+      setExitConfirmSecondsLeft((s) => Math.max(0, s - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [exitConfirmOpen]);
   // Map View: a bird flying itself over the level — the player only steers
   // left/right (dragged into birdYawRef below), forward flight and
   // altitude are automatic autopilot. Mirrored into a ref since the render
@@ -4844,7 +4858,7 @@ function CombatArena({
       ))}
 
       <button
-        onClick={onExit}
+        onClick={() => setExitConfirmOpen(true)}
         aria-label="Exit match"
         style={{
           position: "absolute",
@@ -4867,6 +4881,94 @@ function CombatArena({
       >
         {t(settings.language, "exit")}
       </button>
+
+      {exitConfirmOpen && (
+        <div
+          role="dialog"
+          aria-label="Confirm exit"
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 40,
+            background: "rgba(4,6,16,0.75)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            touchAction: "none",
+          }}
+        >
+          <div
+            style={{
+              width: "min(80vw, 320px)",
+              padding: "24px 20px",
+              background: "rgba(10,16,28,0.96)",
+              border: "1px solid rgba(200,220,240,0.35)",
+              borderRadius: 8,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 18,
+              boxShadow: "0 0 30px rgba(0,0,0,0.6)",
+            }}
+          >
+            <div
+              style={{
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                fontSize: 17,
+                letterSpacing: "0.04em",
+                textAlign: "center",
+              }}
+            >
+              Are you sure to quit?
+            </div>
+            <div style={{ display: "flex", gap: 14 }}>
+              <button
+                onClick={() => setExitConfirmOpen(false)}
+                aria-label="Cancel exit"
+                style={{
+                  padding: "10px 28px",
+                  background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  borderRadius: 4,
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  fontSize: 14,
+                  cursor: "pointer",
+                }}
+              >
+                NO
+              </button>
+              <button
+                onClick={() => {
+                  if (exitConfirmSecondsLeft > 0) return;
+                  setExitConfirmOpen(false);
+                  onExit();
+                }}
+                disabled={exitConfirmSecondsLeft > 0}
+                aria-label="Confirm exit"
+                style={{
+                  padding: "10px 28px",
+                  background: exitConfirmSecondsLeft > 0 ? "rgba(255,90,80,0.12)" : "rgba(255,90,80,0.35)",
+                  border: exitConfirmSecondsLeft > 0 ? "1px solid rgba(255,150,140,0.3)" : "1px solid rgba(255,180,170,0.85)",
+                  borderRadius: 4,
+                  color: exitConfirmSecondsLeft > 0 ? "rgba(220,230,240,0.5)" : "#fff0ee",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  fontSize: 14,
+                  cursor: exitConfirmSecondsLeft > 0 ? "default" : "pointer",
+                }}
+              >
+                {exitConfirmSecondsLeft > 0 ? `YES (${exitConfirmSecondsLeft})` : "YES"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Map View: pulls the camera up/back for a bird's-eye look at the
           level layout, without leaving the match. */}
