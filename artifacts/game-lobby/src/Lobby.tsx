@@ -1052,13 +1052,13 @@ const BUILD_COLORS: { color: number; label: string }[] = [
 // undefined, which is just as falsy as 0).
 const BUILD_DEFAULT_WALL_COLOR = 0;
 const MAP4_FLOOR_TILE_SIZE = 4;
-// How close the player's own Y already needs to be to a floor tile's
-// stored height before it'll hold them there (see the mapId===4||5
-// stairs/floor block in the tick loop) — arriving off the stairs' own top
-// step or an adjacent tile is always well within this; standing on the
-// ground under a meaningfully elevated tile is not, so walking underneath
-// one no longer teleports the player up onto it.
-const MAP4_FLOOR_TILE_SNAP_TOLERANCE = 0.5;
+// How close the player's own Y already needs to be to a stairs step's or
+// floor tile's own height before either will hold them there (see the
+// mapId===4||5 stairs/floor block in the tick loop) — arriving off the
+// step/tile behind it is always well within this; standing on the ground
+// and just bumping into the side/underside of an elevated one is not, so
+// that no longer teleports the player up onto it.
+const MAP4_ELEVATION_SNAP_TOLERANCE = 0.5;
 const MAP4_PILLAR_RADIUS = 0.5;
 const MAP4_RAILING_LENGTH = 4;
 const MAP4_RAILING_THICKNESS = 0.4;
@@ -4694,7 +4694,17 @@ function CombatArena({
         // the band a little past the tread so stepping off the front of
         // the topmost step in a chain doesn't immediately snap back down —
         // though in practice a floor tile placed right there (see below)
-        // makes that unnecessary.
+        // makes that unnecessary. Like the floor-tile check below, this
+        // only takes hold if the player's current Y is already close to
+        // the step's own starting height (rank * MAP4_STAIRS_RISE) — a
+        // step's along/perp band is still just a horizontal footprint, so
+        // without this, bumping into ANY step from the side (or straight
+        // into the riser under a mid-chain step) at ground level snapped
+        // the player up to that step's height instantly, the same
+        // "touch it and fly up" bug the floor-tile fix solved. Climbing
+        // normally is unaffected: by the time a step's own band starts
+        // mattering, the player is already at (or within a hair of) its
+        // start height from having just finished the step behind it.
         // Floor tiles: unlike every other decorative kind, a floor tile
         // holds the player at its own stored y (flat, no lerp — it's a
         // platform, not a ramp) for as long as they're standing on its
@@ -4729,6 +4739,7 @@ function CombatArena({
             const margin = isTopOfStairChain(item, customItemsRef.current) ? MAP4_STAIRS_EDGE_MARGIN : 0;
             if (along < -0.3 || along > MAP4_STAIRS_DEPTH + margin) continue;
             const rank = computeStairRank(item, customItemsRef.current);
+            if (Math.abs(player.root.position.y - rank * MAP4_STAIRS_RISE) >= MAP4_ELEVATION_SNAP_TOLERANCE) continue;
             const progress = clamp(along / MAP4_STAIRS_DEPTH, 0, 1);
             player.root.position.y = THREE.MathUtils.lerp(rank * MAP4_STAIRS_RISE, (rank + 1) * MAP4_STAIRS_RISE, progress);
             grounded = true;
@@ -4741,7 +4752,7 @@ function CombatArena({
               if (
                 Math.abs(player.root.position.x - item.x) < MAP4_FLOOR_TILE_SIZE / 2 &&
                 Math.abs(player.root.position.z - item.z) < MAP4_FLOOR_TILE_SIZE / 2 &&
-                Math.abs(player.root.position.y - tileY) < MAP4_FLOOR_TILE_SNAP_TOLERANCE
+                Math.abs(player.root.position.y - tileY) < MAP4_ELEVATION_SNAP_TOLERANCE
               ) {
                 player.root.position.y = tileY;
                 grounded = true;
