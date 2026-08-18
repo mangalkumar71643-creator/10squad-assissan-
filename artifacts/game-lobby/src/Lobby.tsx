@@ -1232,7 +1232,12 @@ const MAP5_CORE_SPOKES: { x: number; z: number }[][] = [1, 3, 5, 7].map((i) => [
   { x: MAP5_CORE.x, z: MAP5_CORE.z },
   { x: MAP5_NODES[i].x, z: MAP5_NODES[i].z },
 ]);
-const MAP5_PLAYER_SPAWN = { x: MAP5_NODES[5].x, z: MAP5_NODES[5].z }; // Blue Spawn
+// Spawns near the staircase (not literally on the Blue Spawn disc) — the
+// platform is 600+ units across, so spawning in the middle of it (like
+// Blue Spawn's own marker) put the edge, the rail, and the stairs all out
+// of sight, and the raised platform just read as flat ground again. Right
+// next to the stairs, the drop and the way down are visible immediately.
+const MAP5_PLAYER_SPAWN = { x: MAP5_STAIRS_X, z: MAP5_STAIRS_Z_TOP - 15 };
 
 // An underground tunnel actually running beneath the real path between
 // houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
@@ -2771,7 +2776,12 @@ function CombatArena({
   // Horizontal drag turns cameraYaw; vertical drag adds to cameraPitch,
   // which orbits the camera up/down around the player on top of its
   // default over-the-shoulder angle (see CAM_PITCH_MIN/MAX below).
-  const cameraYaw = useRef(Math.PI);
+  // Map 5 spawns facing the stairs (yaw 0 -> forward (sin 0, cos 0) = +z,
+  // toward MAP5_STAIRS_Z_TOP) instead of the usual Math.PI, so the drop and
+  // the way down are the first thing on screen — this is what actually
+  // drives the camera's look direction, not the character rig's own
+  // rotation.y (that only orients the visible mesh, not the view).
+  const cameraYaw = useRef(mapId === 5 ? 0 : Math.PI);
   const cameraPitch = useRef(0);
   const lookTouchId = useRef<number | null>(null);
   const lookLastX = useRef(0);
@@ -3742,20 +3752,35 @@ function CombatArena({
         step.receiveShadow = true;
         scene.add(step);
       }
-      // A low guard-rail all around the platform's edge, gapped only at the
+      // A guard-rail all around the platform's edge, gapped only at the
       // staircase — without this, the player could walk off the platform
       // anywhere else and stay stuck at MAP5_FLOOR_Y (the Y-lerp above only
       // fires inside the stairs' own band), floating above the lower
       // ground exactly like the original "flying" bug, just relocated to
       // every edge but this one.
-      const MAP5_RAIL_HEIGHT = 1.4;
-      const MAP5_RAIL_THICKNESS = 0.6;
-      const railMat = new THREE.MeshStandardMaterial({ color: 0x4a4f5a, roughness: 0.7, metalness: 0.25 });
+      // Tall and glowing on purpose, not just a curb: standing anywhere on
+      // a platform this big (600+ units across), the edge itself is too
+      // far to ever see — this is what actually reads as "I'm up on a
+      // raised platform" from the middle of it, a glowing fence line
+      // visible over the horizon in every direction.
+      const MAP5_RAIL_HEIGHT = 14;
+      const MAP5_RAIL_THICKNESS = 0.8;
+      const railMat = new THREE.MeshStandardMaterial({
+        color: 0x6be2ff,
+        emissive: 0x6be2ff,
+        emissiveIntensity: 1.4,
+        roughness: 0.4,
+        transparent: true,
+        opacity: 0.55,
+      });
       const addPlatformEdge = (x: number, z: number, halfX: number, halfZ: number) => {
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(halfX * 2, MAP5_RAIL_HEIGHT, halfZ * 2), railMat);
         mesh.position.set(x, MAP5_FLOOR_Y + MAP5_RAIL_HEIGHT / 2, z);
-        mesh.receiveShadow = true;
         scene.add(mesh);
+        // Collision only cares about the walkable footprint near the
+        // ground, not the fence's full visual height, so the obstacle rect
+        // uses the original curb-sized thickness regardless of how tall
+        // the fence reads visually.
         ACTIVE_OBSTACLES.push({ x, z, halfX, halfZ, pad: ROOM_PAD });
       };
       addPlatformEdge(MAP5_ORIGIN.x, MAP5_ORIGIN.z - MAP5_PLATFORM_HALF, MAP5_PLATFORM_HALF, MAP5_RAIL_THICKNESS / 2);
@@ -4146,7 +4171,14 @@ function CombatArena({
     const spawnPlayer = (rig: FighterRig) => {
       if (disposed) return;
       rig.root.position.set(playerSpawnPos.x, mapId === 5 ? MAP5_FLOOR_Y : 0, playerSpawnPos.z);
-      rig.root.rotation.y = Math.PI; // face into the facility at the start
+      // Face into the facility at the start — for Map 5 specifically, that
+      // means facing the stairs/drop (+z, south) instead of the usual
+      // Math.PI, since spawn sits just north of them so the platform edge
+      // is the first thing the player sees, not their back turned to it.
+      // Matches cameraYaw's own initial value above (0 for Map 5, facing
+      // the stairs) so the camera is looking at the character's back, not
+      // its front.
+      rig.root.rotation.y = mapId === 5 ? 0 : Math.PI;
       player = rig;
       equipGun(rig);
     };
