@@ -3762,6 +3762,14 @@ function CombatArena({
         transparent: true,
         opacity: 0.4,
         depthWrite: false,
+        // A floor tile's PlaneGeometry is a single flat quad — without this,
+        // its default front-face-only culling makes it vanish the moment
+        // the camera is below it (e.g. standing under a floor tile placed
+        // above via the stairs, looking up) instead of just looking
+        // through empty air. Every other preview shape here is a real
+        // volume (box/cylinder), where single- vs double-sided makes no
+        // visible difference, so this is safe to apply to all of them.
+        side: THREE.DoubleSide,
       });
       // Loaded synchronously (it's just a localStorage read) so
       // map4DynamicSpawn is ready in time for playerSpawnPos below —
@@ -3836,6 +3844,13 @@ function CombatArena({
             color: color || 0xffffff,
             roughness: 0.7,
             metalness: 0.3,
+            // Only the floor tile is a flat single-quad PlaneGeometry among
+            // everything this builds — without DoubleSide it disappears
+            // the moment the camera dips below it (e.g. standing under a
+            // floor placed above via stairs, looking up), instead of just
+            // showing empty air through it. Harmless on every other
+            // (solid-volume) shape this material is also used for.
+            side: THREE.DoubleSide,
           });
         const addBuildItemMesh = (item: Map4Item): THREE.Object3D => {
           if (item.kind === "wall") {
