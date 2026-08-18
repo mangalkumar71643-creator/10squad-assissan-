@@ -3680,11 +3680,15 @@ function CombatArena({
       // walls, no obstacles, no bots — geometry only, for the user to
       // review before deciding what comes next (an edit/texture UI, real
       // walls, elevation, etc.).
+      // Glow knob for the whole map — dropped 70% at the user's request
+      // ("chamak 70% minus"). Every emissive material below is multiplied
+      // by this instead of hand-tuning each one.
+      const MAP5_GLOW = 0.3;
       const addZoneMarker = (x: number, z: number, radius: number, color: number) => {
         const discMat = new THREE.MeshStandardMaterial({
           color,
           emissive: color,
-          emissiveIntensity: 0.35,
+          emissiveIntensity: 0.35 * MAP5_GLOW,
           roughness: 0.7,
           transparent: true,
           opacity: 0.55,
@@ -3693,7 +3697,7 @@ function CombatArena({
         disc.rotation.x = -Math.PI / 2;
         disc.position.set(x, 0.02, z);
         scene.add(disc);
-        const ringMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.6, roughness: 0.4 });
+        const ringMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.6 * MAP5_GLOW, roughness: 0.4 });
         const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.18 * MAP5_SCALE, 8, 48), ringMat);
         ring.rotation.x = -Math.PI / 2;
         ring.position.set(x, 0.05, z);
@@ -3703,7 +3707,7 @@ function CombatArena({
         const stripMat = new THREE.MeshStandardMaterial({
           color,
           emissive: color,
-          emissiveIntensity: 0.9,
+          emissiveIntensity: 0.9 * MAP5_GLOW,
           roughness: 0.5,
           transparent: true,
           opacity: 0.7,
@@ -3730,7 +3734,7 @@ function CombatArena({
       // schematic's diamond — no tick-loop animation needed for this pass.
       const coreMarker = new THREE.Mesh(
         new THREE.OctahedronGeometry(2.2 * MAP5_SCALE, 0),
-        new THREE.MeshStandardMaterial({ color: MAP5_COLOR_RED, emissive: MAP5_COLOR_RED, emissiveIntensity: 1.5, roughness: 0.3 }),
+        new THREE.MeshStandardMaterial({ color: MAP5_COLOR_RED, emissive: MAP5_COLOR_RED, emissiveIntensity: 1.5 * MAP5_GLOW, roughness: 0.3 }),
       );
       coreMarker.position.set(MAP5_CORE.x, 4.5 * MAP5_SCALE, MAP5_CORE.z);
       scene.add(coreMarker);
