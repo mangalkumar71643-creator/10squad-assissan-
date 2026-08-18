@@ -1005,6 +1005,15 @@ function pickMap3ZoneTarget(guardIndex: number): { x: number; z: number } {
 // (MAP4_ITEMS_KEY) and rebuilt every time this map is entered. Positioned
 // in +Z, clear of every other map (all of which sit at z<=~10 near their
 // spawns and go further negative from there).
+//
+// Map 5 reuses this entire origin/geometry/UI wholesale as a second,
+// independent Build Mode canvas — its own save slot (MAP5_ITEMS_KEY,
+// defined further down), no starter house (a genuinely blank canvas, not
+// even Map 4's default two-room starter). Since the two maps are never
+// active at the same time, sharing MAP4_ORIGIN/MAP4_PLAY_HALF between them
+// is safe — see activeBuildItemsKey/activeBuildLegacyKey/
+// activeBuildDefaultItems in CombatArena for the one thing that actually
+// differs per map.
 // ============================================================================
 const MAP4_ORIGIN = { x: 0, z: 200 };
 const MAP4_PLAYER_SPAWN = { x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z };
@@ -1055,6 +1064,12 @@ const MAP4_ITEMS_KEY = "10sa-map4-items";
 // kept only as a one-time recovery source for whatever was already built
 // under it, never written to again.
 const MAP4_LEGACY_WALLS_KEY = "10sa-map4-walls";
+// Map 5 is a second, independent Build Mode canvas — same tools, same
+// origin/play-radius as Map 4 (see isNoCombatMap/activeBuildItemsKey in
+// CombatArena), just its own save slot so the two don't overwrite each
+// other. No legacy key of its own — there's nothing to migrate for a map
+// that didn't exist before.
+const MAP5_ITEMS_KEY = "10sa-map5-items";
 // A small two-room starter house (used only when nothing's been placed or
 // saved yet — see loadMap4Items) so Map 4 isn't a totally empty field the
 // very first time it's opened. Entrance on the south wall, a doorway
@@ -1100,9 +1115,14 @@ function isValidMap4Item(it: unknown): it is Map4Item {
       i.kind === "drum")
   );
 }
-function loadMap4Items(): Map4Item[] {
+// key/legacyKey/defaultItems are passed in rather than hardcoded so this one
+// implementation serves both Map 4 (its own key, its legacy walls-only key,
+// the starter house) and Map 5 (its own key, no legacy key, no starter —
+// see activeBuildItemsKey/activeBuildLegacyKey/activeBuildDefaultItems in
+// CombatArena).
+function loadMap4Items(key: string, legacyKey: string | null, defaultItems: Map4Item[]): Map4Item[] {
   try {
-    const raw = localStorage.getItem(MAP4_ITEMS_KEY);
+    const raw = localStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
@@ -1111,10 +1131,11 @@ function loadMap4Items(): Map4Item[] {
     }
     // Nothing under the current key yet — recover anything saved by the
     // original walls-only version instead of it just vanishing.
-    const legacyRaw = localStorage.getItem(MAP4_LEGACY_WALLS_KEY);
-    if (!legacyRaw) return DEFAULT_MAP4_HOUSE;
+    if (!legacyKey) return defaultItems;
+    const legacyRaw = localStorage.getItem(legacyKey);
+    if (!legacyRaw) return defaultItems;
     const legacyParsed = JSON.parse(legacyRaw);
-    if (!Array.isArray(legacyParsed)) return DEFAULT_MAP4_HOUSE;
+    if (!Array.isArray(legacyParsed)) return defaultItems;
     return legacyParsed
       .filter((w) => w && typeof w.x === "number" && typeof w.z === "number" && (w.axis === "x" || w.axis === "z"))
       .map(
@@ -1130,9 +1151,9 @@ function loadMap4Items(): Map4Item[] {
     return [];
   }
 }
-function saveMap4Items(items: Map4Item[]) {
+function saveMap4Items(key: string, items: Map4Item[]) {
   try {
-    localStorage.setItem(MAP4_ITEMS_KEY, JSON.stringify(items));
+    localStorage.setItem(key, JSON.stringify(items));
   } catch {
     // Storage full/unavailable — the in-scene pieces still stand for the
     // rest of this session, they just won't persist to the next one.
@@ -2642,15 +2663,22 @@ function CombatArena({
   onExit,
   onMatchEnd,
 }: {
-  mapId: 1 | 2 | 3 | 4;
+  mapId: 1 | 2 | 3 | 4 | 5;
   onExit: () => void;
   onMatchEnd: (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => void;
 }) {
-  // Map 4 (Build Mode) is combat-free: no bots, no FIRE/RUN, no level
-  // obstacles, movement clamped to a circular play radius instead of a
-  // walled level. mapId is fixed for this component's whole mount, so
+  // Map 4 and Map 5 (both Build Mode) are combat-free: no bots, no FIRE/RUN,
+  // no level obstacles, movement clamped to a circular play radius instead
+  // of a walled level. mapId is fixed for this component's whole mount, so
   // deriving this once up front is safe.
-  const isNoCombatMap = mapId === 4;
+  const isNoCombatMap = mapId === 4 || mapId === 5;
+  // Map 5 reuses Map 4's build-mode mechanics wholesale (same tools, same
+  // origin/play-radius — see the mapId===4||5 scene-building branch below)
+  // but gets its own save slot and starts as a genuinely blank canvas, with
+  // no legacy key to migrate from.
+  const activeBuildItemsKey = mapId === 5 ? MAP5_ITEMS_KEY : MAP4_ITEMS_KEY;
+  const activeBuildLegacyKey = mapId === 5 ? null : MAP4_LEGACY_WALLS_KEY;
+  const activeBuildDefaultItems = mapId === 5 ? [] : DEFAULT_MAP4_HOUSE;
   // Read once per match — the Settings panel lives in the lobby, outside
   // CombatArena's lifetime, so there's nothing to react to mid-match.
   const [settings] = useState(loadGameSettings);
@@ -3114,12 +3142,13 @@ function CombatArena({
       addCeilingStrip(pos.x, pos.z + 2.5, 1.5, 0.3);
     };
 
-    // Map 4 only: the player always spawns at the center of whatever's
-    // already been built (see the mapId===4 branch below), not a fixed
-    // point — a fixed spawn would drift outside an irregularly-shaped
-    // house as soon as it's built off-center, leaving no way back in
-    // since Build Mode has no door/entrance concept. Falls back to
-    // MAP4_PLAYER_SPAWN itself only for a still-empty canvas.
+    // Map 4/5 (Build Mode) only: the player always spawns at the center of
+    // whatever's already been built (see the mapId===4||5 branch below),
+    // not a fixed point — a fixed spawn would drift outside an
+    // irregularly-shaped house as soon as it's built off-center, leaving
+    // no way back in since Build Mode has no door/entrance concept. Falls
+    // back to MAP4_PLAYER_SPAWN itself (shared by both, since it's just the
+    // canvas's own origin) only for a still-empty canvas.
     let map4DynamicSpawn = MAP4_PLAYER_SPAWN;
 
     // Everything from here through the "EXTRA_CRATES' own visuals" comment
@@ -3493,15 +3522,18 @@ function CombatArena({
 
     // EXTRA_CRATES' own visuals are spawned in the loadCrateMaterial block
     // above, alongside the room crates.
-    } else if (mapId === 4) {
-      // Map 4 — Build Mode. No rooms/zones, no bots; just whatever pieces
-      // (walls and/or crate obstacles) were saved from a previous
-      // session, rebuilt here, plus the small API (buildModeRef) the
-      // SELECT/PLACE/REMOVE/SAVE buttons below drive. Committed walls use
-      // the same textured sci-fi wall material as every other map
-      // (addWallMesh); committed obstacles use the same crate material
-      // used everywhere else (loadCrateMaterial/placeCrate) — real
-      // materials, not a flat placeholder color.
+    } else if (mapId === 4 || mapId === 5) {
+      // Map 4 / Map 5 — both Build Mode, same code path (see
+      // activeBuildItemsKey/activeBuildLegacyKey/activeBuildDefaultItems
+      // above for the one thing that differs between them: which save slot
+      // loads and whether a starter house is used). No rooms/zones, no
+      // bots; just whatever pieces (walls and/or crate obstacles) were
+      // saved from a previous session, rebuilt here, plus the small API
+      // (buildModeRef) the SELECT/PLACE/REMOVE/SAVE buttons below drive.
+      // Committed walls use the same textured sci-fi wall material as
+      // every other map (addWallMesh); committed obstacles use the same
+      // crate material used everywhere else (loadCrateMaterial/placeCrate)
+      // — real materials, not a flat placeholder color.
       const buildPreviewMat = new THREE.MeshStandardMaterial({
         color: 0x6be2ff,
         transparent: true,
@@ -3511,7 +3543,7 @@ function CombatArena({
       // Loaded synchronously (it's just a localStorage read) so
       // map4DynamicSpawn is ready in time for playerSpawnPos below —
       // only the mesh-building has to wait on the crate/drum materials.
-      customItemsRef.current = loadMap4Items();
+      customItemsRef.current = loadMap4Items(activeBuildItemsKey, activeBuildLegacyKey, activeBuildDefaultItems);
       if (customItemsRef.current.length > 0) {
         const sumX = customItemsRef.current.reduce((s, it) => s + it.x, 0);
         const sumZ = customItemsRef.current.reduce((s, it) => s + it.z, 0);
@@ -3924,7 +3956,7 @@ function CombatArena({
         ? MAP2_PLAYER_SPAWN
         : mapId === 3
           ? MAP3_PLAYER_SPAWN
-          : mapId === 4
+          : mapId === 4 || mapId === 5
             ? map4DynamicSpawn
             : { x: 0, z: 3 };
     const spawnPlayer = (rig: FighterRig) => {
@@ -4185,11 +4217,11 @@ function CombatArena({
         playerVelZ = approach(playerVelZ, targetVelZ, accelRate, dt);
 
         player.root.position.x =
-          mapId === 4
+          mapId === 4 || mapId === 5
             ? clamp(player.root.position.x + playerVelX * dt, MAP4_ORIGIN.x - MAP4_PLAY_HALF + 0.4, MAP4_ORIGIN.x + MAP4_PLAY_HALF - 0.4)
             : clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         player.root.position.z =
-          mapId === 4
+          mapId === 4 || mapId === 5
             ? clamp(player.root.position.z + playerVelZ * dt, MAP4_ORIGIN.z - MAP4_PLAY_HALF + 0.4, MAP4_ORIGIN.z + MAP4_PLAY_HALF - 0.4)
             : clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         resolveObstacleCollisions(player.root.position);
@@ -4702,7 +4734,7 @@ function CombatArena({
     setBuildItemCount(customItemsRef.current.length);
   };
   const handleBuildSave = () => {
-    saveMap4Items(customItemsRef.current);
+    saveMap4Items(activeBuildItemsKey, customItemsRef.current);
     setBuildSaveLabel("SAVED!");
     setTimeout(() => setBuildSaveLabel("SAVE"), 1500);
   };
@@ -4751,7 +4783,7 @@ function CombatArena({
   // and hands control back to the lobby — re-entering is what actually
   // rebuilds the scene with them, since items only load once at mount.
   const applyImportedItems = (items: Map4Item[]) => {
-    saveMap4Items(items);
+    saveMap4Items(activeBuildItemsKey, items);
     setMap4ImportOpen(false);
     setMap4ImportText("");
     setMap4ImportError(null);
@@ -4876,10 +4908,10 @@ function CombatArena({
         style={{
           position: "absolute",
           top: 16,
-          // Map 4 puts the WALL/OBSTACLE/DRUM tabs in EXIT's usual
+          // Map 4/5 put the WALL/OBSTACLE/DRUM tabs in EXIT's usual
           // top-center spot (see below), so EXIT moves to the side,
           // stacked directly above the settings gear instead.
-          ...(mapId === 4 ? { right: 16 } : { left: "50%", transform: "translateX(-50%)" }),
+          ...(mapId === 4 || mapId === 5 ? { right: 16 } : { left: "50%", transform: "translateX(-50%)" }),
           padding: "6px 18px",
           background: "rgba(255,255,255,0.08)",
           border: "1px solid rgba(200,220,240,0.4)",
@@ -5150,8 +5182,8 @@ function CombatArena({
                   attackRequested consumption in the tick loop), not just once per
                   tap. setPointerCapture keeps the up/cancel events firing on this
                   button even if the finger slides off it while held, so a drag-off
-                  reliably stops the fire instead of leaving it stuck on. Map 4 has
-                  no bots to shoot, so this (and RUN) don't show there — it puts
+                  reliably stops the fire instead of leaving it stuck on. Map 4/5 have
+                  no bots to shoot, so this (and RUN) don't show there — they put
                   SELECT and PLACE in their slots instead (see isNoCombatMap above). */}
               <button
                 onPointerDown={(e) => {
@@ -5232,14 +5264,14 @@ function CombatArena({
             </>
           )}
 
-          {/* Build Mode (Map 4): the WALL/OBSTACLE tabs pick what SELECT
-              stages next — a wall (house/rooms) or a crate obstacle
-              (cover/decoration) — each with its own size row below the
-              tabs. PLACE commits whichever is staged; SAVE persists
-              everything placed so far (both kinds together). Sits in
-              EXIT's usual top-center spot, since EXIT moves to the side
-              for Map 4 (see above). */}
-          {mapId === 4 && (
+          {/* Build Mode (Map 4 and Map 5 both — see activeBuildItemsKey
+              above): the WALL/OBSTACLE tabs pick what SELECT stages next —
+              a wall (house/rooms) or a crate obstacle (cover/decoration) —
+              each with its own size row below the tabs. PLACE commits
+              whichever is staged; SAVE persists everything placed so far
+              (both kinds together). Sits in EXIT's usual top-center spot,
+              since EXIT moves to the side for Build Mode (see above). */}
+          {(mapId === 4 || mapId === 5) && (
             <>
               <div
                 style={{
@@ -6678,14 +6710,15 @@ function StorePanel({
   );
 }
 
-const MAP_CARDS: { id: 1 | 2 | 3 | 4; title: string; subtitle: string }[] = [
+const MAP_CARDS: { id: 1 | 2 | 3 | 4 | 5; title: string; subtitle: string }[] = [
   { id: 1, title: "MAP 1", subtitle: "Outpost — the original 6-room facility" },
   { id: 2, title: "MAP 2", subtitle: "Central Hall — an 11-zone military complex" },
   { id: 3, title: "MAP 3", subtitle: "Safehouse — a big house, one way through" },
   { id: 4, title: "MAP 4", subtitle: "Build Mode — place walls, design your own" },
+  { id: 5, title: "MAP 5", subtitle: "Build Mode 2 — a second canvas, blank" },
 ];
 
-function MapSelectPanel({ onClose, onSelect }: { onClose: () => void; onSelect: (mapId: 1 | 2 | 3 | 4) => void }) {
+function MapSelectPanel({ onClose, onSelect }: { onClose: () => void; onSelect: (mapId: 1 | 2 | 3 | 4 | 5) => void }) {
   return (
     <div
       role="dialog"
@@ -8450,7 +8483,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployPressed, setDeployPressed] = useState(false);
   const [mapSelectOpen, setMapSelectOpen] = useState(false);
-  const [selectedMapId, setSelectedMapId] = useState<1 | 2 | 3 | 4>(1);
+  const [selectedMapId, setSelectedMapId] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [rankOpen, setRankOpen] = useState(false);
   const [characterOpen, setCharacterOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
