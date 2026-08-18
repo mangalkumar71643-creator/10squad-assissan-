@@ -1181,6 +1181,19 @@ const MAP5_PLAY_HALF = 210 * MAP5_SCALE;
 // floor marker/path/marker below is offset by this on top of its own small
 // decal height, and the player spawns/stands at this Y instead of 0.
 const MAP5_FLOOR_Y = 3;
+// The raised platform's own footprint — smaller than MAP5_PLAY_HALF so
+// there's real lower ground (the shared map floor, already there at y=0)
+// beyond its edge, reachable via the staircase below. 605 comfortably
+// contains every node/side-room disc (the farthest, a side room, reaches
+// x=±590.7 including its own radius).
+const MAP5_PLATFORM_HALF = 605;
+// One staircase down, centered on x=0, on the south edge (the same side as
+// SOUTH_PLATFORM, clear of its own disc which only reaches z=543).
+const MAP5_STAIRS_X = 0;
+const MAP5_STAIRS_Z_TOP = MAP5_PLATFORM_HALF;
+const MAP5_STAIRS_RUN = 20;
+const MAP5_STAIRS_HALF_WIDTH = 12;
+const MAP5_STAIRS_STEPS = 8;
 const MAP5_COLOR_PLATFORM = 0xc98bff;
 const MAP5_COLOR_AREA = 0x4fe0d4;
 const MAP5_COLOR_BLUE = 0x4fa8ff;
@@ -3689,24 +3702,15 @@ function CombatArena({
       // ground the player actually walks on was still the shared map's
       // floor at y=0, standing 3m below their feet (looked like flying).
       // Every other map hides the shared ground's own finite outer edge
-      // behind walls/rooms — Map 5 is wide open with no walls, so that
-      // same edge (a dark grazing-angle seam where the plane's boundary
-      // meets the fog) was suddenly visible at the horizon. Sized a bit
-      // past the shared ground plane's own extent (proven fine at that
-      // size on every other map) rather than pushed out toward FOG_FAR,
-      // which put it uncomfortably close to CAMERA_FAR.
-      //
-      // Separately: from one specific spot, looking a specific direction,
-      // a large black shape appears above the horizon. Confirmed (by
-      // testing with this floor's material, size, and even the whole mesh
-      // itself removed one at a time) that it is NOT caused by anything
-      // built for Map 5 — it's some other, already-existing piece of the
-      // scene (most likely the sky dome or fog at a grazing angle) that
-      // every other map's walls happen to always block from view. Left
-      // as-is: fixing it means touching shared rendering code with real
-      // regression risk to every other map, for a display glitch the user
-      // hasn't hit or reported.
-      const map5FloorSpan = (ARENA_HALF + 100) * 2;
+      // behind walls/rooms — Map 5 is wide open with no walls, so instead
+      // of extending this floor out to hide that same edge (which pushed
+      // it uncomfortably close to CAMERA_FAR and triggered an unrelated
+      // depth-precision artifact), the platform is now a real, finite
+      // raised deck: it stops at MAP5_PLATFORM_HALF, and the shared map
+      // floor (already there at y=0, the same floor every other map
+      // stands on) is simply what's visible/walkable past its edge — one
+      // real staircase (below) connects the two.
+      const map5FloorSpan = MAP5_PLATFORM_HALF * 2;
       const map5Floor = new THREE.Mesh(
         new THREE.PlaneGeometry(map5FloorSpan, map5FloorSpan),
         new THREE.MeshStandardMaterial({
@@ -3721,6 +3725,45 @@ function CombatArena({
       // is a tiny ±20 units (fine for every other map's room-scale
       // geometry), far smaller than this floor.
       scene.add(map5Floor);
+      // The staircase down — a run of stepped boxes from the platform's
+      // south edge (MAP5_STAIRS_Z_TOP, at MAP5_FLOOR_Y) down to the lower
+      // ground (0). Purely visual; the actual walk-down feel comes from
+      // the Y-lerp keyed to the same span, in the tick loop below.
+      const stairMat = new THREE.MeshStandardMaterial({ color: 0x4a4f5a, roughness: 0.7, metalness: 0.25 });
+      for (let i = 0; i < MAP5_STAIRS_STEPS; i++) {
+        const t0 = i / MAP5_STAIRS_STEPS;
+        const t1 = (i + 1) / MAP5_STAIRS_STEPS;
+        const stepTopY = MAP5_FLOOR_Y * (1 - t0);
+        const stepBottomY = MAP5_FLOOR_Y * (1 - t1);
+        const stepDepth = (t1 - t0) * MAP5_STAIRS_RUN;
+        const stepHeight = stepTopY - stepBottomY;
+        const step = new THREE.Mesh(new THREE.BoxGeometry(MAP5_STAIRS_HALF_WIDTH * 2, stepHeight, stepDepth), stairMat);
+        step.position.set(MAP5_STAIRS_X, stepBottomY + stepHeight / 2, MAP5_STAIRS_Z_TOP + (t0 + t1) * 0.5 * MAP5_STAIRS_RUN);
+        step.receiveShadow = true;
+        scene.add(step);
+      }
+      // A low guard-rail all around the platform's edge, gapped only at the
+      // staircase — without this, the player could walk off the platform
+      // anywhere else and stay stuck at MAP5_FLOOR_Y (the Y-lerp above only
+      // fires inside the stairs' own band), floating above the lower
+      // ground exactly like the original "flying" bug, just relocated to
+      // every edge but this one.
+      const MAP5_RAIL_HEIGHT = 1.4;
+      const MAP5_RAIL_THICKNESS = 0.6;
+      const railMat = new THREE.MeshStandardMaterial({ color: 0x4a4f5a, roughness: 0.7, metalness: 0.25 });
+      const addPlatformEdge = (x: number, z: number, halfX: number, halfZ: number) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(halfX * 2, MAP5_RAIL_HEIGHT, halfZ * 2), railMat);
+        mesh.position.set(x, MAP5_FLOOR_Y + MAP5_RAIL_HEIGHT / 2, z);
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        ACTIVE_OBSTACLES.push({ x, z, halfX, halfZ, pad: ROOM_PAD });
+      };
+      addPlatformEdge(MAP5_ORIGIN.x, MAP5_ORIGIN.z - MAP5_PLATFORM_HALF, MAP5_PLATFORM_HALF, MAP5_RAIL_THICKNESS / 2);
+      addPlatformEdge(MAP5_ORIGIN.x + MAP5_PLATFORM_HALF, MAP5_ORIGIN.z, MAP5_RAIL_THICKNESS / 2, MAP5_PLATFORM_HALF);
+      addPlatformEdge(MAP5_ORIGIN.x - MAP5_PLATFORM_HALF, MAP5_ORIGIN.z, MAP5_RAIL_THICKNESS / 2, MAP5_PLATFORM_HALF);
+      const southSegHalf = (MAP5_PLATFORM_HALF - MAP5_STAIRS_HALF_WIDTH) / 2;
+      addPlatformEdge(MAP5_ORIGIN.x - MAP5_STAIRS_HALF_WIDTH - southSegHalf, MAP5_ORIGIN.z + MAP5_PLATFORM_HALF, southSegHalf, MAP5_RAIL_THICKNESS / 2);
+      addPlatformEdge(MAP5_ORIGIN.x + MAP5_STAIRS_HALF_WIDTH + southSegHalf, MAP5_ORIGIN.z + MAP5_PLATFORM_HALF, southSegHalf, MAP5_RAIL_THICKNESS / 2);
       // Glow knob for the whole map — dropped 70% at the user's request
       // ("chamak 70% minus"). Every emissive material below is multiplied
       // by this instead of hand-tuning each one.
@@ -4340,8 +4383,9 @@ function CombatArena({
         const dirZ = joyMag > 0.0001 ? rawZ / joyMag : runningInPlace ? -camForwardZ : 0;
         const effectiveMag = runningInPlace ? 1 : joyMag;
 
-        // Map 4 moves at double speed — no bots there to balance against.
-        const playerMaxSpeedForMatch = mapId === 4 ? PLAYER_MAX_SPEED * 2 : PLAYER_MAX_SPEED;
+        // Maps 4/5 move at double speed — no bots there to balance against
+        // (Map 5's doubling is also an explicit user request).
+        const playerMaxSpeedForMatch = isNoCombatMap ? PLAYER_MAX_SPEED * 2 : PLAYER_MAX_SPEED;
         // How far the stick is pushed sets the target speed continuously —
         // a light tap walks, a full push runs, and holding full tilt ramps
         // sprint in on top — so there's no discrete walk/jog/run jump.
@@ -4392,6 +4436,22 @@ function CombatArena({
               player.root.position.y = THREE.MathUtils.lerp(0, TUNNEL_Y, progress);
               break;
             }
+          }
+        }
+
+        // Map 5's one staircase down off the raised platform — same
+        // along/perp ramp-band approach as Map 1's stairwells above, just
+        // for a single fixed run (MAP5_STAIRS_X/Z_TOP, descending +z) instead
+        // of one per room. Outside the stairs' band, Y is simply left alone
+        // (stays at MAP5_FLOOR_Y on the platform, or 0 once fully descended
+        // and walked away — matching how Map 1's stairwell also just leaves
+        // Y wherever the last crossing put it).
+        if (mapId === 5) {
+          const dx = player.root.position.x - MAP5_STAIRS_X;
+          const dz = player.root.position.z - MAP5_STAIRS_Z_TOP;
+          if (Math.abs(dx) < MAP5_STAIRS_HALF_WIDTH && dz > -5 && dz < MAP5_STAIRS_RUN + 5) {
+            const progress = clamp(dz / MAP5_STAIRS_RUN, 0, 1);
+            player.root.position.y = THREE.MathUtils.lerp(MAP5_FLOOR_Y, 0, progress);
           }
         }
 
