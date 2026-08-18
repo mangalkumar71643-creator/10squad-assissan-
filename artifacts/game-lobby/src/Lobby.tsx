@@ -1034,12 +1034,53 @@ const MAP4_OBSTACLE_BIG = CRATE_HALF_EXTENT * 2;
 // (taller than it is wide) rather than a small/big pair.
 const MAP4_DRUM_RADIUS = 0.55;
 const MAP4_DRUM_HEIGHT = 1.5;
+// The Cypher Phunk reference palette — every colorable piece below (walls,
+// floor tiles, pillars, railings, doors, lights, stairs) picks one of these
+// six, matching the color-coded asset sheet the user supplied.
+const BUILD_COLORS: { color: number; label: string }[] = [
+  { color: 0xb46cff, label: "PURPLE" },
+  { color: 0x4fe0d4, label: "CYAN" },
+  { color: 0xffa64f, label: "ORANGE" },
+  { color: 0xff4d5e, label: "RED" },
+  { color: 0x4dff8a, label: "GREEN" },
+  { color: 0xe8ecf5, label: "WHITE" },
+];
+// Sentinel for "the classic plain gray textured wall" (Map 4's original
+// look, from before colored walls existed) — 0 is safe to reuse since none
+// of BUILD_COLORS is black, and it doubles as the fallback for every
+// legacy saved wall (no color field at all, so `item.color` reads
+// undefined, which is just as falsy as 0).
+const BUILD_DEFAULT_WALL_COLOR = 0;
+const MAP4_FLOOR_TILE_SIZE = 4;
+const MAP4_PILLAR_RADIUS = 0.5;
+const MAP4_RAILING_LENGTH = 4;
+const MAP4_RAILING_THICKNESS = 0.4;
+const MAP4_RAILING_HEIGHT = 1.1;
+const MAP4_DOOR_WIDTH = 4;
+const MAP4_DOOR_POST_THICKNESS = 0.3;
+const MAP4_LIGHT_LENGTH = 2;
+// Stairs are the one placeable piece that's actually walkable up, not just
+// collision geometry — see the mapId===4||5 stairs block in the tick loop
+// below. Deliberately modest (a 1.2m rise, not a dramatic platform) so that
+// if the player wanders off the small landing at the top — Build Mode's
+// ground is a single flat plane at y=0, there's no real elevated floor
+// past it — the resulting float is a small hop, not the old Map 5
+// "flying" bug at 3x the height.
+const MAP4_STAIRS_WIDTH = 3;
+const MAP4_STAIRS_RUN = 4;
+const MAP4_STAIRS_STEPS = 4;
+const MAP4_STAIRS_RISE = 1.2;
+const MAP4_STAIRS_LANDING_DEPTH = 2.5;
 interface Map4Wall {
   kind: "wall";
   x: number;
   z: number;
   axis: "x" | "z"; // the wall's long axis — "x" blocks north/south movement, "z" blocks east/west
   length: number;
+  // Falsy (0 or absent, i.e. every wall saved before this existed) = the
+  // classic plain gray textured wall; one of BUILD_COLORS = a glowing
+  // Cypher Phunk accent wall instead.
+  color?: number;
 }
 interface Map4Crate {
   kind: "obstacle";
@@ -1054,7 +1095,57 @@ interface Map4Drum {
   z: number;
   rotY: number;
 }
-type Map4Item = Map4Wall | Map4Crate | Map4Drum;
+// Flat glowing floor patch — decorative, walkable, no collision.
+interface Map4FloorTile {
+  kind: "floorTile";
+  x: number;
+  z: number;
+  color: number;
+}
+// Round glowing column — collidable, like a crate but cylindrical.
+interface Map4Pillar {
+  kind: "pillar";
+  x: number;
+  z: number;
+  color: number;
+}
+// A low barrier segment — collidable, like a short thin wall.
+interface Map4Railing {
+  kind: "railing";
+  x: number;
+  z: number;
+  axis: "x" | "z";
+  color: number;
+}
+// A doorway frame (two posts + a lintel) marking an entrance — decorative,
+// walk-through, no collision (there's no gate-open mechanic here, unlike
+// the rooms' own gates).
+interface Map4Door {
+  kind: "door";
+  x: number;
+  z: number;
+  axis: "x" | "z";
+  color: number;
+}
+// A small glowing floor-mounted light strip — decorative, no collision.
+interface Map4Light {
+  kind: "light";
+  x: number;
+  z: number;
+  color: number;
+}
+// A short flight of steps up to a small landing — the one placeable piece
+// that's actually functional (see MAP4_STAIRS_RISE above), so it needs a
+// clear "which way is up" direction, not just a symmetric axis like a wall.
+interface Map4Stairs {
+  kind: "stairs";
+  x: number;
+  z: number;
+  dirX: number; // cardinal unit vector (one of dirX/dirZ is ±1, the other 0)
+  dirZ: number;
+  color: number;
+}
+type Map4Item = Map4Wall | Map4Crate | Map4Drum | Map4FloorTile | Map4Pillar | Map4Railing | Map4Door | Map4Light | Map4Stairs;
 // Absolute, not relative — the Android build's WebView doesn't share an
 // origin with this deployment, so a relative "/api/house" would resolve
 // against the app's own local origin instead of actually reaching it.
@@ -1105,14 +1196,22 @@ const DEFAULT_MAP4_HOUSE: Map4Item[] = [
   { kind: "drum", x: MAP4_ORIGIN.x - 6, z: MAP4_ORIGIN.z, rotY: 0 },
 ];
 function isValidMap4Item(it: unknown): it is Map4Item {
-  const i = it as { kind?: unknown; x?: unknown; z?: unknown; axis?: unknown; length?: unknown; size?: unknown } | null;
+  const i = it as
+    | { kind?: unknown; x?: unknown; z?: unknown; axis?: unknown; length?: unknown; size?: unknown; color?: unknown; dirX?: unknown; dirZ?: unknown }
+    | null;
   return (
     !!i &&
     typeof i.x === "number" &&
     typeof i.z === "number" &&
     ((i.kind === "wall" && (i.axis === "x" || i.axis === "z") && typeof i.length === "number") ||
       (i.kind === "obstacle" && typeof i.size === "number") ||
-      i.kind === "drum")
+      i.kind === "drum" ||
+      (i.kind === "floorTile" && typeof i.color === "number") ||
+      (i.kind === "pillar" && typeof i.color === "number") ||
+      (i.kind === "railing" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
+      (i.kind === "door" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
+      (i.kind === "light" && typeof i.color === "number") ||
+      (i.kind === "stairs" && typeof i.dirX === "number" && typeof i.dirZ === "number" && typeof i.color === "number"))
   );
 }
 // key/legacyKey/defaultItems are passed in rather than hardcoded so this one
@@ -1159,6 +1258,15 @@ function saveMap4Items(key: string, items: Map4Item[]) {
     // rest of this session, they just won't persist to the next one.
   }
 }
+// Whether an item's footprint should block movement at all — walls,
+// crates, drums, pillars and railings do; floor tiles, doors, lights and
+// stairs are all walkable-over decoration/ramp geometry, never collision
+// (see map4ItemRect below, which is only ever called for the blocking
+// kinds — the non-blocking ones there just return a degenerate rect to
+// keep the function total).
+function map4ItemBlocksMovement(it: Map4Item): boolean {
+  return it.kind !== "floorTile" && it.kind !== "door" && it.kind !== "light" && it.kind !== "stairs";
+}
 function map4ItemRect(it: Map4Item): Obstacle {
   if (it.kind === "wall") {
     return it.axis === "x"
@@ -1171,7 +1279,21 @@ function map4ItemRect(it: Map4Item): Obstacle {
     // same approximation the crates already use for their own cubes.
     return { x: it.x, z: it.z, halfX: MAP4_DRUM_RADIUS, halfZ: MAP4_DRUM_RADIUS, pad: ROOM_PAD };
   }
-  return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD };
+  if (it.kind === "obstacle") {
+    return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD };
+  }
+  if (it.kind === "pillar") {
+    return { x: it.x, z: it.z, halfX: MAP4_PILLAR_RADIUS, halfZ: MAP4_PILLAR_RADIUS, pad: ROOM_PAD };
+  }
+  if (it.kind === "railing") {
+    return it.axis === "x"
+      ? { x: it.x, z: it.z, halfX: MAP4_RAILING_LENGTH / 2, halfZ: MAP4_RAILING_THICKNESS / 2, pad: ROOM_PAD }
+      : { x: it.x, z: it.z, halfX: MAP4_RAILING_THICKNESS / 2, halfZ: MAP4_RAILING_LENGTH / 2, pad: ROOM_PAD };
+  }
+  // floorTile / door / light / stairs never reach here — map4ItemBlocksMovement
+  // guards every ACTIVE_OBSTACLES.push call site — but the function needs an
+  // exhaustive return, so give them a harmless zero-size rect.
+  return { x: it.x, z: it.z, halfX: 0, halfZ: 0, pad: 0 };
 }
 
 // An underground tunnel actually running beneath the real path between
@@ -2791,7 +2913,7 @@ function CombatArena({
   // SAVE button handlers below — plain component functions, not part of
   // that effect's closure — can still reach into the live scene.
   const buildModeRef = useRef<{
-    getPlayerFacing: () => { x: number; z: number; axis: "x" | "z"; rotY: number } | null;
+    getPlayerFacing: () => { x: number; z: number; axis: "x" | "z"; rotY: number; dirX: number; dirZ: number } | null;
     addPreviewMesh: (item: Map4Item) => THREE.Object3D;
     removeMesh: (obj: THREE.Object3D) => void;
     commitItem: (item: Map4Item) => THREE.Object3D;
@@ -2815,9 +2937,17 @@ function CombatArena({
   // state re-renders — the ref itself is intentionally not React state.
   const [buildItemCount, setBuildItemCount] = useState(0);
   // Which kind SELECT stages next, and the size/length chosen for it.
-  const [buildPlaceKind, setBuildPlaceKind] = useState<"wall" | "obstacle" | "drum">("wall");
+  const [buildPlaceKind, setBuildPlaceKind] = useState<"wall" | "obstacle" | "drum" | "floorTile" | "pillar" | "railing" | "door" | "light" | "stairs">(
+    "wall",
+  );
   const [buildWallLength, setBuildWallLength] = useState(3);
   const [buildObstacleSize, setBuildObstacleSize] = useState(MAP4_OBSTACLE_SMALL);
+  // Which Cypher Phunk palette color the next colorable piece (wall,
+  // floor tile, pillar, railing, door, light, stairs) uses — irrelevant for
+  // obstacle/drum, which aren't colorable. Starts at BUILD_DEFAULT_WALL_COLOR
+  // so a freshly opened Build Mode still places the classic plain wall by
+  // default, matching Map 4's original look.
+  const [buildColor, setBuildColor] = useState<number>(BUILD_DEFAULT_WALL_COLOR);
   const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
   // BACKUP: shows both a short cloud code (a few characters, needs
   // internet — see MAP4_CLOUD_API) and a longer text code that works
@@ -3549,11 +3679,95 @@ function CombatArena({
         const sumZ = customItemsRef.current.reduce((s, it) => s + it.z, 0);
         map4DynamicSpawn = { x: sumX / customItemsRef.current.length, z: sumZ / customItemsRef.current.length };
       }
+      // Group meshes (doors, stairs) return a THREE.Group as their single
+      // Object3D — removeMesh below just calls scene.remove on whatever
+      // addBuildItemMesh/addPreviewMesh handed back, group or single mesh
+      // alike, so no special-casing needed there.
+      const addDoorFrame = (item: Map4Door, mat: THREE.Material): THREE.Object3D => {
+        const group = new THREE.Group();
+        const postH = ROOM_WALL_HEIGHT;
+        const postGeo = new THREE.BoxGeometry(MAP4_DOOR_POST_THICKNESS, postH, MAP4_DOOR_POST_THICKNESS);
+        const lintelLen = MAP4_DOOR_WIDTH + MAP4_DOOR_POST_THICKNESS;
+        const lintelGeo =
+          item.axis === "x"
+            ? new THREE.BoxGeometry(lintelLen, MAP4_DOOR_POST_THICKNESS, MAP4_DOOR_POST_THICKNESS)
+            : new THREE.BoxGeometry(MAP4_DOOR_POST_THICKNESS, MAP4_DOOR_POST_THICKNESS, lintelLen);
+        const postA = new THREE.Mesh(postGeo, mat);
+        const postB = new THREE.Mesh(postGeo, mat);
+        const lintel = new THREE.Mesh(lintelGeo, mat);
+        if (item.axis === "x") {
+          postA.position.set(item.x - MAP4_DOOR_WIDTH / 2, postH / 2, item.z);
+          postB.position.set(item.x + MAP4_DOOR_WIDTH / 2, postH / 2, item.z);
+        } else {
+          postA.position.set(item.x, postH / 2, item.z - MAP4_DOOR_WIDTH / 2);
+          postB.position.set(item.x, postH / 2, item.z + MAP4_DOOR_WIDTH / 2);
+        }
+        lintel.position.set(item.x, postH, item.z);
+        group.add(postA, postB, lintel);
+        scene.add(group);
+        return group;
+      };
+      // Steps climbing from (x,z) to a small flat landing at MAP4_STAIRS_RISE
+      // — see the mapId===4||5 stairs block in the tick loop below for the
+      // matching along/perp Y-lerp that makes this actually walkable, not
+      // just a decorative ramp shape.
+      const addStairsMesh = (item: Map4Stairs, mat: THREE.Material): THREE.Object3D => {
+        const group = new THREE.Group();
+        const alongX = item.dirX !== 0;
+        for (let i = 0; i < MAP4_STAIRS_STEPS; i++) {
+          const t0 = i / MAP4_STAIRS_STEPS;
+          const t1 = (i + 1) / MAP4_STAIRS_STEPS;
+          const y0 = MAP4_STAIRS_RISE * t0;
+          const y1 = MAP4_STAIRS_RISE * t1;
+          const height = y1 - y0;
+          const depthAlong = (t1 - t0) * MAP4_STAIRS_RUN;
+          const centerAlong = ((t0 + t1) / 2) * MAP4_STAIRS_RUN;
+          const geo = alongX
+            ? new THREE.BoxGeometry(depthAlong, height, MAP4_STAIRS_WIDTH)
+            : new THREE.BoxGeometry(MAP4_STAIRS_WIDTH, height, depthAlong);
+          const step = new THREE.Mesh(geo, mat);
+          step.position.set(item.x + item.dirX * centerAlong, y0 + height / 2, item.z + item.dirZ * centerAlong);
+          step.receiveShadow = true;
+          group.add(step);
+        }
+        const landingCenterAlong = MAP4_STAIRS_RUN + MAP4_STAIRS_LANDING_DEPTH / 2;
+        const landingGeo = alongX
+          ? new THREE.BoxGeometry(MAP4_STAIRS_LANDING_DEPTH, 0.3, MAP4_STAIRS_WIDTH)
+          : new THREE.BoxGeometry(MAP4_STAIRS_WIDTH, 0.3, MAP4_STAIRS_LANDING_DEPTH);
+        const landing = new THREE.Mesh(landingGeo, mat);
+        landing.position.set(item.x + item.dirX * landingCenterAlong, MAP4_STAIRS_RISE - 0.15, item.z + item.dirZ * landingCenterAlong);
+        landing.receiveShadow = true;
+        group.add(landing);
+        scene.add(group);
+        return group;
+      };
       Promise.all([loadCrateMaterial(), loadDrumMaterial()]).then(([crateMaterial, drumMaterial]) => {
         if (disposed) return;
         const drumCapMat = getDrumCapMaterial();
+        // One material-factory for every new Cypher Phunk accent piece —
+        // {color, emissive, emissiveIntensity, roughness} together is what
+        // gives them the same glowing-panel look as the reference sheet,
+        // matching the flat markers Map 5 itself used to use.
+        const accentMat = (color: number, opacity = 1) =>
+          new THREE.MeshStandardMaterial({
+            color,
+            emissive: color,
+            emissiveIntensity: 0.7,
+            roughness: 0.45,
+            metalness: 0.2,
+            transparent: opacity < 1,
+            opacity,
+          });
         const addBuildItemMesh = (item: Map4Item): THREE.Object3D => {
-          if (item.kind === "wall") return addWallMesh(map4ItemRect(item), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
+          if (item.kind === "wall") {
+            if (!item.color) return addWallMesh(map4ItemRect(item), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
+            const ob = map4ItemRect(item);
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), accentMat(item.color));
+            mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            return mesh;
+          }
           if (item.kind === "drum") {
             const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
             const mesh = new THREE.Mesh(geo, [drumMaterial, drumCapMat, drumCapMat]);
@@ -3563,15 +3777,46 @@ function CombatArena({
             scene.add(mesh);
             return mesh;
           }
-          const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), crateMaterial);
-          mesh.rotation.y = item.rotY;
-          mesh.position.set(item.x, item.size / 2, item.z);
-          mesh.receiveShadow = true;
-          scene.add(mesh);
-          return mesh;
+          if (item.kind === "obstacle") {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), crateMaterial);
+            mesh.rotation.y = item.rotY;
+            mesh.position.set(item.x, item.size / 2, item.z);
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            return mesh;
+          }
+          if (item.kind === "floorTile") {
+            const mesh = new THREE.Mesh(new THREE.PlaneGeometry(MAP4_FLOOR_TILE_SIZE, MAP4_FLOOR_TILE_SIZE), accentMat(item.color, 0.55));
+            mesh.rotation.x = -Math.PI / 2;
+            mesh.position.set(item.x, 0.02, item.z);
+            scene.add(mesh);
+            return mesh;
+          }
+          if (item.kind === "pillar") {
+            const mesh = new THREE.Mesh(new THREE.CylinderGeometry(MAP4_PILLAR_RADIUS, MAP4_PILLAR_RADIUS, ROOM_WALL_HEIGHT, 16), accentMat(item.color));
+            mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            return mesh;
+          }
+          if (item.kind === "railing") {
+            const ob = map4ItemRect(item);
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, MAP4_RAILING_HEIGHT, ob.halfZ * 2), accentMat(item.color, 0.75));
+            mesh.position.set(item.x, MAP4_RAILING_HEIGHT / 2, item.z);
+            scene.add(mesh);
+            return mesh;
+          }
+          if (item.kind === "door") return addDoorFrame(item, accentMat(item.color));
+          if (item.kind === "light") {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(MAP4_LIGHT_LENGTH, 0.1, 0.25), accentMat(item.color));
+            mesh.position.set(item.x, 0.06, item.z);
+            scene.add(mesh);
+            return mesh;
+          }
+          return addStairsMesh(item, accentMat(item.color));
         };
         customItemMeshesRef.current = customItemsRef.current.map((item) => {
-          ACTIVE_OBSTACLES.push(map4ItemRect(item));
+          if (map4ItemBlocksMovement(item)) ACTIVE_OBSTACLES.push(map4ItemRect(item));
           return addBuildItemMesh(item);
         });
         setBuildItemCount(customItemsRef.current.length);
@@ -3594,12 +3839,19 @@ function CombatArena({
             // the opposite of that.
             const forwardX = Math.sin(cameraYaw.current);
             const forwardZ = Math.cos(cameraYaw.current);
+            // Cardinal-snapped forward vector — stairs need a clear "which
+            // way is up" (unlike a wall, symmetric along its axis), so this
+            // just picks whichever raw axis the player's facing more toward.
+            const dirX = Math.abs(forwardX) > Math.abs(forwardZ) ? Math.sign(forwardX) : 0;
+            const dirZ = Math.abs(forwardX) > Math.abs(forwardZ) ? 0 : Math.sign(forwardZ);
             const dist = 4;
             return {
               x: player.root.position.x + forwardX * dist,
               z: player.root.position.z + forwardZ * dist,
               axis,
               rotY: cameraYaw.current,
+              dirX,
+              dirZ,
             };
           },
           addPreviewMesh: (item) => {
@@ -3618,22 +3870,73 @@ function CombatArena({
               scene.add(mesh);
               return mesh;
             }
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), buildPreviewMat);
-            mesh.rotation.y = item.rotY;
-            mesh.position.set(item.x, item.size / 2, item.z);
+            if (item.kind === "obstacle") {
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), buildPreviewMat);
+              mesh.rotation.y = item.rotY;
+              mesh.position.set(item.x, item.size / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "floorTile") {
+              const mesh = new THREE.Mesh(new THREE.PlaneGeometry(MAP4_FLOOR_TILE_SIZE, MAP4_FLOOR_TILE_SIZE), buildPreviewMat);
+              mesh.rotation.x = -Math.PI / 2;
+              mesh.position.set(item.x, 0.02, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "pillar") {
+              const mesh = new THREE.Mesh(new THREE.CylinderGeometry(MAP4_PILLAR_RADIUS, MAP4_PILLAR_RADIUS, ROOM_WALL_HEIGHT, 16), buildPreviewMat);
+              mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "railing") {
+              const ob = map4ItemRect(item);
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, MAP4_RAILING_HEIGHT, ob.halfZ * 2), buildPreviewMat);
+              mesh.position.set(item.x, MAP4_RAILING_HEIGHT / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "door") {
+              const width = item.axis === "x" ? MAP4_DOOR_WIDTH + MAP4_DOOR_POST_THICKNESS : MAP4_DOOR_POST_THICKNESS;
+              const depth = item.axis === "x" ? MAP4_DOOR_POST_THICKNESS : MAP4_DOOR_WIDTH + MAP4_DOOR_POST_THICKNESS;
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, ROOM_WALL_HEIGHT, depth), buildPreviewMat);
+              mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "light") {
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(MAP4_LIGHT_LENGTH, 0.1, 0.25), buildPreviewMat);
+              mesh.position.set(item.x, 0.06, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            // stairs — a single bounding-box preview over the steps +
+            // landing footprint, rather than replicating the full stepped
+            // geometry twice.
+            const alongX = item.dirX !== 0;
+            const totalDepth = MAP4_STAIRS_RUN + MAP4_STAIRS_LANDING_DEPTH;
+            const dims: [number, number, number] = alongX
+              ? [totalDepth, MAP4_STAIRS_RISE, MAP4_STAIRS_WIDTH]
+              : [MAP4_STAIRS_WIDTH, MAP4_STAIRS_RISE, totalDepth];
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(...dims), buildPreviewMat);
+            mesh.position.set(item.x + item.dirX * (totalDepth / 2), MAP4_STAIRS_RISE / 2, item.z + item.dirZ * (totalDepth / 2));
             scene.add(mesh);
             return mesh;
           },
           removeMesh: (obj) => scene.remove(obj),
           commitItem: (item) => {
-            ACTIVE_OBSTACLES.push(map4ItemRect(item));
+            if (map4ItemBlocksMovement(item)) ACTIVE_OBSTACLES.push(map4ItemRect(item));
             return addBuildItemMesh(item);
           },
           // Collision rects aren't individually tagged, so find-by-value
-          // the exact one this item pushed — safe since every Map 4
-          // collision rect is one of these and each commit pushes
-          // exactly one.
+          // the exact one this item pushed — safe since every blocking
+          // item's collision rect is one of these and each commit pushes
+          // exactly one. Non-blocking kinds never pushed one, so this is a
+          // harmless no-op for them (map4ItemBlocksMovement guard here is
+          // just explicit about that, not load-bearing).
           removeCollisionRect: (item) => {
+            if (!map4ItemBlocksMovement(item)) return;
             const rect = map4ItemRect(item);
             const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === rect.x && o.z === rect.z && o.halfX === rect.halfX && o.halfZ === rect.halfZ);
             if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
@@ -4247,6 +4550,42 @@ function CombatArena({
           }
         }
 
+        // Player-placed Build Mode stairs (Map 4/5 only) — same along/perp
+        // ramp-band idea as Map 1's stairwells above, just per-instance
+        // (each placed stairs item carries its own base position and
+        // cardinal "up" direction, dirX/dirZ, instead of a fixed room grid)
+        // and with an extra flat band past the ramp for the small landing
+        // at the top. Unlike Map 1's stairwell, this explicitly resets Y to
+        // 0 when the player isn't within any placed stairs' band — Build
+        // Mode's ground is a single flat plane at y=0 everywhere else, so
+        // there's never a legitimate reason to stay elevated outside one,
+        // and leaving Y alone (Map 1's approach) would let the player drift
+        // off a landing's far edge and stay stuck floating, the same
+        // "flying" bug the old Map 5 had to solve with a full guard-rail.
+        if (mapId === 4 || mapId === 5) {
+          let onStairs = false;
+          for (const item of customItemsRef.current) {
+            if (item.kind !== "stairs") continue;
+            const dx = player.root.position.x - item.x;
+            const dz = player.root.position.z - item.z;
+            const along = dx * item.dirX + dz * item.dirZ;
+            const perp = dz * item.dirX - dx * item.dirZ;
+            if (Math.abs(perp) >= MAP4_STAIRS_WIDTH / 2) continue;
+            if (along >= -0.5 && along <= MAP4_STAIRS_RUN) {
+              const progress = clamp(along / MAP4_STAIRS_RUN, 0, 1);
+              player.root.position.y = THREE.MathUtils.lerp(0, MAP4_STAIRS_RISE, progress);
+              onStairs = true;
+              break;
+            }
+            if (along > MAP4_STAIRS_RUN && along <= MAP4_STAIRS_RUN + MAP4_STAIRS_LANDING_DEPTH) {
+              player.root.position.y = MAP4_STAIRS_RISE;
+              onStairs = true;
+              break;
+            }
+          }
+          if (!onStairs) player.root.position.y = 0;
+        }
+
         // Slide each gate open as the player nears its door, closed again
         // once they've moved away. Also opens for any bot, not just the
         // player — a gate that only ever reacted to the player would slide
@@ -4699,10 +5038,22 @@ function CombatArena({
     if (prev) api.removeMesh(prev.mesh);
     const item: Map4Item =
       buildPlaceKind === "wall"
-        ? { kind: "wall", x: facing.x, z: facing.z, axis: facing.axis, length: buildWallLength }
+        ? { kind: "wall", x: facing.x, z: facing.z, axis: facing.axis, length: buildWallLength, color: buildColor }
         : buildPlaceKind === "drum"
           ? { kind: "drum", x: facing.x, z: facing.z, rotY: facing.rotY }
-          : { kind: "obstacle", x: facing.x, z: facing.z, size: buildObstacleSize, rotY: facing.rotY };
+          : buildPlaceKind === "obstacle"
+            ? { kind: "obstacle", x: facing.x, z: facing.z, size: buildObstacleSize, rotY: facing.rotY }
+            : buildPlaceKind === "floorTile"
+              ? { kind: "floorTile", x: facing.x, z: facing.z, color: buildColor }
+              : buildPlaceKind === "pillar"
+                ? { kind: "pillar", x: facing.x, z: facing.z, color: buildColor }
+                : buildPlaceKind === "railing"
+                  ? { kind: "railing", x: facing.x, z: facing.z, axis: facing.axis, color: buildColor }
+                  : buildPlaceKind === "door"
+                    ? { kind: "door", x: facing.x, z: facing.z, axis: facing.axis, color: buildColor }
+                    : buildPlaceKind === "light"
+                      ? { kind: "light", x: facing.x, z: facing.z, color: buildColor }
+                      : { kind: "stairs", x: facing.x, z: facing.z, dirX: facing.dirX, dirZ: facing.dirZ, color: buildColor };
     const mesh = api.addPreviewMesh(item);
     buildSelectionRef.current = { item, mesh };
     setBuildHasSelection(true);
@@ -5265,99 +5616,98 @@ function CombatArena({
           )}
 
           {/* Build Mode (Map 4 and Map 5 both — see activeBuildItemsKey
-              above): the WALL/OBSTACLE tabs pick what SELECT stages next —
-              a wall (house/rooms) or a crate obstacle (cover/decoration) —
-              each with its own size row below the tabs. PLACE commits
-              whichever is staged; SAVE persists everything placed so far
-              (both kinds together). Sits in EXIT's usual top-center spot,
-              since EXIT moves to the side for Build Mode (see above). */}
+              above): the category tabs (BUILD_PLACE_KINDS) pick what SELECT
+              stages next — a wall, crate, drum, or one of the newer Cypher
+              Phunk pieces (floor tile, pillar, railing, door, light,
+              stairs) — each with its own size and/or color row below the
+              tabs (see BUILD_COLORS/kindHasColor). PLACE commits whichever
+              is staged; SAVE persists everything placed so far. Sits in
+              EXIT's usual top-center spot, since EXIT moves to the side
+              for Build Mode (see above). */}
           {(mapId === 4 || mapId === 5) && (
             <>
               <div
                 style={{
                   position: "absolute",
                   top: 16,
-                  left: "50%",
-                  transform: "translateX(-50%)",
+                  // Capped well short of center — EXIT/settings sit at
+                  // right:16 near the top-right corner (see the EXIT
+                  // position swap above), and this panel used to be narrow
+                  // enough (3 tabs) to never reach that far. Now that it
+                  // holds all 9 tabs, a true 50%-centered width tall/wide
+                  // enough to fit them wrapped actually reached under
+                  // EXIT and stole its clicks — a real regression caught
+                  // by the full 5-map regression test. Scrolling
+                  // horizontally within a fixed, safely narrow width (
+                  // instead of wrapping wider) keeps this panel's footprint
+                  // exactly where the original 3-tab version was.
+                  left: 16,
                   display: "flex",
                   flexDirection: "column",
-                  alignItems: "center",
+                  alignItems: "flex-start",
                   gap: 6,
+                  width: "min(70vw, 230px)",
                 }}
               >
                 <div
                   style={{
                     display: "flex",
-                    gap: 6,
+                    flexWrap: "nowrap",
+                    overflowX: "auto",
+                    gap: 5,
                     background: "rgba(8,14,24,0.7)",
                     border: "1px solid rgba(200,220,240,0.3)",
                     borderRadius: 8,
                     padding: 5,
+                    maxWidth: "100%",
                   }}
                 >
-                  {(["wall", "obstacle", "drum"] as const).map((kind) => (
+                  {(
+                    [
+                      { kind: "wall", label: "WALL" },
+                      { kind: "obstacle", label: "CRATE" },
+                      { kind: "drum", label: "DRUM" },
+                      { kind: "floorTile", label: "FLOOR" },
+                      { kind: "pillar", label: "PILLAR" },
+                      { kind: "railing", label: "RAIL" },
+                      { kind: "door", label: "DOOR" },
+                      { kind: "light", label: "LIGHT" },
+                      { kind: "stairs", label: "STAIRS" },
+                    ] as const
+                  ).map(({ kind, label }) => (
                     <button
                       key={kind}
                       onPointerDown={(e) => {
                         e.preventDefault();
                         setBuildPlaceKind(kind);
+                        // A wall's own DEFAULT swatch is 0 (the classic
+                        // plain textured look); every other colorable kind
+                        // has no such "no color" option, so switching to
+                        // one of them while 0 was still selected would
+                        // otherwise stage an invisible/degenerate accent —
+                        // land on the first real palette color instead.
+                        if (kind !== "wall" && buildColor === BUILD_DEFAULT_WALL_COLOR) setBuildColor(BUILD_COLORS[0].color);
                       }}
                       aria-label={`Place kind ${kind}`}
                       style={{
-                        padding: "6px 14px",
+                        padding: "6px 10px",
                         borderRadius: 6,
                         background: buildPlaceKind === kind ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
                         border: buildPlaceKind === kind ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
                         color: "#dce8f5",
                         fontFamily: "'Rajdhani', sans-serif",
                         fontWeight: 700,
-                        fontSize: 13,
-                        letterSpacing: "0.05em",
+                        fontSize: 12,
+                        letterSpacing: "0.04em",
                         cursor: "pointer",
                       }}
                     >
-                      {kind === "wall" ? "WALL" : kind === "obstacle" ? "OBSTACLE" : "DRUM"}
+                      {label}
                     </button>
                   ))}
                 </div>
 
-                {buildPlaceKind === "wall" ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 6,
-                      background: "rgba(8,14,24,0.7)",
-                      border: "1px solid rgba(200,220,240,0.3)",
-                      borderRadius: 8,
-                      padding: 5,
-                    }}
-                  >
-                    {Array.from({ length: MAP4_WALL_LENGTH_MAX - MAP4_WALL_LENGTH_MIN + 1 }, (_, i) => MAP4_WALL_LENGTH_MIN + i).map((n) => (
-                      <button
-                        key={n}
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          setBuildWallLength(n);
-                        }}
-                        aria-label={`Wall length ${n}m`}
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 6,
-                          background: buildWallLength === n ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
-                          border: buildWallLength === n ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
-                          color: "#dce8f5",
-                          fontFamily: "'Rajdhani', sans-serif",
-                          fontWeight: 700,
-                          fontSize: 14,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                ) : buildPlaceKind === "obstacle" ? (
+                {buildPlaceKind === "obstacle" && (
                   <div
                     style={{
                       display: "flex",
@@ -5396,7 +5746,85 @@ function CombatArena({
                       </button>
                     ))}
                   </div>
-                ) : null}
+                )}
+
+                {/* Wall length + color swatches share ONE scrolling row
+                    (not two stacked ones) — a wall is the only kind with
+                    both a size picker and a color picker, and stacking
+                    three rows total (tabs/length/color) made this panel
+                    tall enough to overlap SAVE/REMOVE below it, a real
+                    regression the layout-overlap test caught. Every other
+                    colorable kind (floor tile, pillar, railing, door,
+                    light, stairs — everything except crate/drum, neither
+                    of which has color variants in the reference sheet)
+                    just gets the color swatches alone, still one row. */}
+                {buildPlaceKind !== "obstacle" && buildPlaceKind !== "drum" && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "nowrap",
+                      overflowX: "auto",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "rgba(8,14,24,0.7)",
+                      border: "1px solid rgba(200,220,240,0.3)",
+                      borderRadius: 8,
+                      padding: 5,
+                      maxWidth: "100%",
+                    }}
+                  >
+                    {buildPlaceKind === "wall" &&
+                      Array.from({ length: MAP4_WALL_LENGTH_MAX - MAP4_WALL_LENGTH_MIN + 1 }, (_, i) => MAP4_WALL_LENGTH_MIN + i).map((n) => (
+                        <button
+                          key={n}
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildWallLength(n);
+                          }}
+                          aria-label={`Wall length ${n}m`}
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: buildWallLength === n ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                            border: buildWallLength === n ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 13,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    {buildPlaceKind === "wall" && <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />}
+                    {(buildPlaceKind === "wall" ? [{ color: BUILD_DEFAULT_WALL_COLOR, label: "DEFAULT" }, ...BUILD_COLORS] : BUILD_COLORS).map(
+                      ({ color, label }) => (
+                        <button
+                          key={label}
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildColor(color);
+                          }}
+                          aria-label={`Color ${label.toLowerCase()}`}
+                          title={label}
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: "50%",
+                            background: color === BUILD_DEFAULT_WALL_COLOR ? "#7a8290" : `#${color.toString(16).padStart(6, "0")}`,
+                            border: buildColor === color ? "2px solid #ffffff" : "1px solid rgba(200,220,240,0.4)",
+                            boxShadow: buildColor === color ? "0 0 8px rgba(255,255,255,0.8)" : "none",
+                            cursor: "pointer",
+                          }}
+                        />
+                      ),
+                    )}
+                  </div>
+                )}
               </div>
 
               <button
