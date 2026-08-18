@@ -1106,11 +1106,19 @@ interface Map4Drum {
   z: number;
   rotY: number;
 }
-// Flat glowing floor patch — decorative, walkable, no collision.
+// Flat glowing floor patch — walkable, no horizontal collision, but (unlike
+// every other decorative kind) it DOES support the player's Y: it's placed
+// at whatever height the player was standing at (see getPlayerFacing's own
+// y, and the mapId===4||5 stairs/floor block in the tick loop below), so
+// one placed at the top of a stairs chain becomes a real floating platform
+// to stand on there — never pulled back down to ground level. Optional and
+// falsy-defaults to 0 (ground) so floor tiles saved before this field
+// existed still load and render exactly where they always did.
 interface Map4FloorTile {
   kind: "floorTile";
   x: number;
   z: number;
+  y?: number;
   color: number;
 }
 // Round glowing column — collidable, like a crate but cylindrical.
@@ -1211,7 +1219,18 @@ const DEFAULT_MAP4_HOUSE: Map4Item[] = [
 ];
 function isValidMap4Item(it: unknown): it is Map4Item {
   const i = it as
-    | { kind?: unknown; x?: unknown; z?: unknown; axis?: unknown; length?: unknown; size?: unknown; color?: unknown; dirX?: unknown; dirZ?: unknown }
+    | {
+        kind?: unknown;
+        x?: unknown;
+        z?: unknown;
+        y?: unknown;
+        axis?: unknown;
+        length?: unknown;
+        size?: unknown;
+        color?: unknown;
+        dirX?: unknown;
+        dirZ?: unknown;
+      }
     | null;
   return (
     !!i &&
@@ -1220,7 +1239,7 @@ function isValidMap4Item(it: unknown): it is Map4Item {
     ((i.kind === "wall" && (i.axis === "x" || i.axis === "z") && typeof i.length === "number") ||
       (i.kind === "obstacle" && typeof i.size === "number") ||
       i.kind === "drum" ||
-      (i.kind === "floorTile" && typeof i.color === "number") ||
+      (i.kind === "floorTile" && typeof i.color === "number" && (i.y === undefined || typeof i.y === "number")) ||
       (i.kind === "pillar" && typeof i.color === "number") ||
       (i.kind === "railing" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
       (i.kind === "door" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
@@ -2976,7 +2995,7 @@ function CombatArena({
   // SAVE button handlers below — plain component functions, not part of
   // that effect's closure — can still reach into the live scene.
   const buildModeRef = useRef<{
-    getPlayerFacing: () => { x: number; z: number; axis: "x" | "z"; rotY: number; dirX: number; dirZ: number } | null;
+    getPlayerFacing: () => { x: number; y: number; z: number; axis: "x" | "z"; rotY: number; dirX: number; dirZ: number } | null;
     addPreviewMesh: (item: Map4Item) => THREE.Object3D;
     removeMesh: (obj: THREE.Object3D) => void;
     commitItem: (item: Map4Item) => THREE.Object3D;
@@ -3854,7 +3873,12 @@ function CombatArena({
               texturedAccentMat(item.color, MAP4_FLOOR_TILE_SIZE, MAP4_FLOOR_TILE_SIZE),
             );
             mesh.rotation.x = -Math.PI / 2;
-            mesh.position.set(item.x, 0.02, item.z);
+            // (item.y ?? 0) is wherever the player was standing when this
+            // was placed — ground level (0) only for tiles saved before
+            // that was tracked. Never snapped back down to 0 otherwise, so
+            // a tile placed at the top of a stairs chain stays exactly
+            // there, a real floating platform.
+            mesh.position.set(item.x, (item.y ?? 0) + 0.02, item.z);
             scene.add(mesh);
             return mesh;
           }
@@ -3923,6 +3947,11 @@ function CombatArena({
             const dist = 4;
             return {
               x: player.root.position.x + forwardX * dist,
+              // Wherever the player is currently standing — a floor tile
+              // placed at the top of a stairs chain reads this to become a
+              // real floating platform there instead of always landing
+              // near ground level (see the floorTile branches below).
+              y: player.root.position.y,
               z: player.root.position.z + forwardZ * dist,
               axis,
               rotY: cameraYaw.current,
@@ -3956,7 +3985,7 @@ function CombatArena({
             if (item.kind === "floorTile") {
               const mesh = new THREE.Mesh(new THREE.PlaneGeometry(MAP4_FLOOR_TILE_SIZE, MAP4_FLOOR_TILE_SIZE), buildPreviewMat);
               mesh.rotation.x = -Math.PI / 2;
-              mesh.position.set(item.x, 0.02, item.z);
+              mesh.position.set(item.x, (item.y ?? 0) + 0.02, item.z);
               scene.add(mesh);
               return mesh;
             }
@@ -4633,23 +4662,32 @@ function CombatArena({
           }
         }
 
-        // Player-placed Build Mode stairs (Map 4/5 only) — each placed
-        // stairs item is one single step (see computeStairRank), so the
-        // player's Y is a smooth lerp across just THAT step's own short
-        // MAP4_STAIRS_DEPTH span, from its rank's floor to its own tread
-        // height — climbing a whole chain is just walking through several
-        // of these bands back to back, each one rank higher than the last.
-        // MAP4_STAIRS_EDGE_MARGIN extends the band a little past the tread
-        // so stepping off the front of the topmost step in a chain doesn't
-        // immediately snap back to 0. Beyond that margin, this explicitly
-        // resets Y to 0 — Build Mode's ground is a single flat plane at
-        // y=0 everywhere else, so there's never a legitimate reason to
-        // stay elevated outside a step's own band, and leaving Y alone
-        // (Map 1's approach) would let the player drift off and stay stuck
+        // Player-placed Build Mode stairs and floor tiles (Map 4/5 only).
+        // Stairs: each placed item is one single step (see
+        // computeStairRank), so the player's Y is a smooth lerp across
+        // just THAT step's own short MAP4_STAIRS_DEPTH span, from its
+        // rank's floor to its own tread height — climbing a whole chain is
+        // just walking through several of these bands back to back, each
+        // one rank higher than the last. MAP4_STAIRS_EDGE_MARGIN extends
+        // the band a little past the tread so stepping off the front of
+        // the topmost step in a chain doesn't immediately snap back down —
+        // though in practice a floor tile placed right there (see below)
+        // makes that unnecessary.
+        // Floor tiles: unlike every other decorative kind, a floor tile
+        // holds the player at its own stored y (flat, no lerp — it's a
+        // platform, not a ramp) for as long as they're standing on its
+        // footprint. This is what actually lets stairs lead somewhere —
+        // build a floor at the top of a chain and it's real ground up
+        // there, not just a floating decal the player falls through.
+        // Outside of any stairs band or floor tile footprint, this
+        // explicitly resets Y to 0 — Build Mode's base ground is a single
+        // flat plane at y=0 everywhere else, so there's never a legitimate
+        // reason to stay elevated outside one, and leaving Y alone (Map
+        // 1's approach) would let the player drift off and stay stuck
         // floating, the same "flying" bug the old Map 5 had to solve with
         // a full guard-rail.
         if (mapId === 4 || mapId === 5) {
-          let onStairs = false;
+          let grounded = false;
           for (const item of customItemsRef.current) {
             if (item.kind !== "stairs") continue;
             const dx = player.root.position.x - item.x;
@@ -4662,10 +4700,23 @@ function CombatArena({
             const rank = computeStairRank(item, customItemsRef.current);
             const progress = clamp(along / MAP4_STAIRS_DEPTH, 0, 1);
             player.root.position.y = THREE.MathUtils.lerp(rank * MAP4_STAIRS_RISE, (rank + 1) * MAP4_STAIRS_RISE, progress);
-            onStairs = true;
+            grounded = true;
             break;
           }
-          if (!onStairs) player.root.position.y = 0;
+          if (!grounded) {
+            for (const item of customItemsRef.current) {
+              if (item.kind !== "floorTile") continue;
+              if (
+                Math.abs(player.root.position.x - item.x) < MAP4_FLOOR_TILE_SIZE / 2 &&
+                Math.abs(player.root.position.z - item.z) < MAP4_FLOOR_TILE_SIZE / 2
+              ) {
+                player.root.position.y = item.y ?? 0;
+                grounded = true;
+                break;
+              }
+            }
+          }
+          if (!grounded) player.root.position.y = 0;
         }
 
         // Slide each gate open as the player nears its door, closed again
@@ -5130,7 +5181,7 @@ function CombatArena({
           : buildPlaceKind === "obstacle"
             ? { kind: "obstacle", x, z, size: buildObstacleSize, rotY: facing.rotY }
             : buildPlaceKind === "floorTile"
-              ? { kind: "floorTile", x, z, color: buildColor }
+              ? { kind: "floorTile", x, z, y: facing.y, color: buildColor }
               : buildPlaceKind === "pillar"
                 ? { kind: "pillar", x, z, color: buildColor }
                 : buildPlaceKind === "railing"
