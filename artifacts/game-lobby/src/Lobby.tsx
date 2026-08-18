@@ -1077,6 +1077,11 @@ const MAP4_STAIRS_RISE = 0.35; // how tall one step's riser is
 // front of the topmost step in a chain into open air, since Build Mode's
 // ground has no real floor there to catch them.
 const MAP4_STAIRS_EDGE_MARGIN = 1;
+// How many chained steps a single SELECT can stage at once — see
+// buildStairsCount in CombatArena and the +/- stepper next to the color
+// swatches when the stairs tab is active.
+const MAP4_STAIRS_COUNT_MIN = 1;
+const MAP4_STAIRS_COUNT_MAX = 20;
 interface Map4Wall {
   kind: "wall";
   x: number;
@@ -2977,17 +2982,23 @@ function CombatArena({
     commitItem: (item: Map4Item) => THREE.Object3D;
     removeCollisionRect: (item: Map4Item) => void;
   } | null>(null);
-  // The piece currently staged by SELECT (world position + orientation)
-  // and its translucent preview mesh, cleared once PLACE commits it or
-  // SELECT is pressed again to re-aim. customItemsRef/customItemMeshesRef
-  // are the full placed-so-far list — walls and obstacles together, in
-  // placement order — loaded from localStorage on mount (recovering the
-  // original walls-only save if this is the first time under the new
-  // combined format), appended to by PLACE, popped from by REMOVE,
-  // written back out by SAVE. Kept outside React state since neither
-  // needs to trigger a re-render, only persist/stay in sync with the
-  // scene.
-  const buildSelectionRef = useRef<{ item: Map4Item; mesh: THREE.Object3D } | null>(null);
+  // The piece(s) currently staged by SELECT (world position + orientation)
+  // and their translucent preview meshes, cleared once PLACE commits them
+  // or SELECT is pressed again to re-aim. Almost always a single entry —
+  // stairs are the exception: SELECT stages a whole buildStairsCount-long
+  // chain at once (see handleBuildSelect), all measured from that one
+  // aim, so the chain always comes out straight and evenly spaced instead
+  // of drifting the way placing each step separately (walking forward and
+  // re-aiming by hand between every one) used to. customItemsRef/
+  // customItemMeshesRef are the full placed-so-far list — every kind
+  // together, in placement order — loaded from localStorage on mount
+  // (recovering the original walls-only save if this is the first time
+  // under the new combined format), appended to by PLACE, popped from by
+  // REMOVE (one at a time, regardless of whether it was placed solo or as
+  // part of a stairs batch), written back out by SAVE. Kept outside React
+  // state since neither needs to trigger a re-render, only persist/stay in
+  // sync with the scene.
+  const buildSelectionRef = useRef<{ item: Map4Item; mesh: THREE.Object3D }[]>([]);
   const customItemsRef = useRef<Map4Item[]>([]);
   const customItemMeshesRef = useRef<THREE.Object3D[]>([]);
   const [buildHasSelection, setBuildHasSelection] = useState(false);
@@ -3006,6 +3017,11 @@ function CombatArena({
   // so a freshly opened Build Mode still places the classic plain wall by
   // default, matching Map 4's original look.
   const [buildColor, setBuildColor] = useState<number>(BUILD_DEFAULT_WALL_COLOR);
+  // How many chained steps SELECT stages at once for stairs — tap +/- to
+  // change it, then SELECT stages that many in one straight line from the
+  // current aim (see handleBuildSelect) instead of placing them one at a
+  // time by hand.
+  const [buildStairsCount, setBuildStairsCount] = useState(MAP4_STAIRS_COUNT_MIN);
   const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
   // BACKUP: shows both a short cloud code (a few characters, needs
   // internet — see MAP4_CLOUD_API) and a longer text code that works
@@ -3971,11 +3987,15 @@ function CombatArena({
               scene.add(mesh);
               return mesh;
             }
-            // stairs — preview at this exact single step's own rank height
-            // (see computeStairRank), so re-aiming shows the real height it
-            // would land at, not a generic guess.
+            // stairs — preview at this exact step's own rank height (see
+            // computeStairRank), so re-aiming shows the real height it
+            // would land at, not a generic guess. Also folds in whatever
+            // else is staged in the same batch (buildSelectionRef) so a
+            // multi-step SELECT previews as an actual climbing staircase —
+            // step 3 of 10 needs to see steps 1-2 are already "there" even
+            // though none of them are committed to customItemsRef yet.
             {
-              const rank = computeStairRank(item, customItemsRef.current);
+              const rank = computeStairRank(item, [...customItemsRef.current, ...buildSelectionRef.current.map((s) => s.item)]);
               const topY = (rank + 1) * MAP4_STAIRS_RISE;
               const alongX = item.dirX !== 0;
               const dims: [number, number, number] = alongX
@@ -5085,50 +5105,65 @@ function CombatArena({
     lookTouchId.current = null;
   };
 
-  // Map 4 (Build Mode): SELECT stages a wall a few units ahead of wherever
-  // the player's currently facing (re-aiming just replaces the preview,
-  // no need to explicitly cancel first); WALL commits the staged spot into
-  // a real, permanent-for-this-session wall; SAVE writes everything placed
-  // so far out to localStorage so it's still there next time this map is
-  // opened.
+  // Map 4/5 (Build Mode): SELECT stages a piece a few units ahead of
+  // wherever the player's currently facing (re-aiming just replaces the
+  // preview, no need to explicitly cancel first); PLACE commits the staged
+  // spot(s) into real, permanent-for-this-session pieces; SAVE writes
+  // everything placed so far out to localStorage so it's still there next
+  // time this map is opened. Stairs are the one kind where SELECT stages
+  // more than one item at once — buildStairsCount of them, in a straight
+  // line from this single aim (see the +/- stepper next to the color
+  // swatches), instead of the player having to walk forward and re-aim by
+  // hand between every single step.
   const handleBuildSelect = () => {
     const api = buildModeRef.current;
     if (!api) return;
     const facing = api.getPlayerFacing();
     if (!facing) return;
-    const prev = buildSelectionRef.current;
-    if (prev) api.removeMesh(prev.mesh);
-    const item: Map4Item =
+    for (const prev of buildSelectionRef.current) api.removeMesh(prev.mesh);
+    buildSelectionRef.current = [];
+    const buildOneItem = (x: number, z: number): Map4Item =>
       buildPlaceKind === "wall"
-        ? { kind: "wall", x: facing.x, z: facing.z, axis: facing.axis, length: buildWallLength, color: buildColor }
+        ? { kind: "wall", x, z, axis: facing.axis, length: buildWallLength, color: buildColor }
         : buildPlaceKind === "drum"
-          ? { kind: "drum", x: facing.x, z: facing.z, rotY: facing.rotY }
+          ? { kind: "drum", x, z, rotY: facing.rotY }
           : buildPlaceKind === "obstacle"
-            ? { kind: "obstacle", x: facing.x, z: facing.z, size: buildObstacleSize, rotY: facing.rotY }
+            ? { kind: "obstacle", x, z, size: buildObstacleSize, rotY: facing.rotY }
             : buildPlaceKind === "floorTile"
-              ? { kind: "floorTile", x: facing.x, z: facing.z, color: buildColor }
+              ? { kind: "floorTile", x, z, color: buildColor }
               : buildPlaceKind === "pillar"
-                ? { kind: "pillar", x: facing.x, z: facing.z, color: buildColor }
+                ? { kind: "pillar", x, z, color: buildColor }
                 : buildPlaceKind === "railing"
-                  ? { kind: "railing", x: facing.x, z: facing.z, axis: facing.axis, color: buildColor }
+                  ? { kind: "railing", x, z, axis: facing.axis, color: buildColor }
                   : buildPlaceKind === "door"
-                    ? { kind: "door", x: facing.x, z: facing.z, axis: facing.axis, color: buildColor }
+                    ? { kind: "door", x, z, axis: facing.axis, color: buildColor }
                     : buildPlaceKind === "light"
-                      ? { kind: "light", x: facing.x, z: facing.z, color: buildColor }
-                      : { kind: "stairs", x: facing.x, z: facing.z, dirX: facing.dirX, dirZ: facing.dirZ, color: buildColor };
-    const mesh = api.addPreviewMesh(item);
-    buildSelectionRef.current = { item, mesh };
-    setBuildHasSelection(true);
+                      ? { kind: "light", x, z, color: buildColor }
+                      : { kind: "stairs", x, z, dirX: facing.dirX, dirZ: facing.dirZ, color: buildColor };
+    const count = buildPlaceKind === "stairs" ? buildStairsCount : 1;
+    for (let i = 0; i < count; i++) {
+      const item = buildOneItem(facing.x + facing.dirX * MAP4_STAIRS_DEPTH * i, facing.z + facing.dirZ * MAP4_STAIRS_DEPTH * i);
+      const mesh = api.addPreviewMesh(item);
+      buildSelectionRef.current = [...buildSelectionRef.current, { item, mesh }];
+    }
+    setBuildHasSelection(buildSelectionRef.current.length > 0);
   };
   const handleBuildPlaceItem = () => {
     const api = buildModeRef.current;
     const selection = buildSelectionRef.current;
-    if (!api || !selection) return;
-    api.removeMesh(selection.mesh);
-    const mesh = api.commitItem(selection.item);
-    customItemsRef.current = [...customItemsRef.current, selection.item];
-    customItemMeshesRef.current = [...customItemMeshesRef.current, mesh];
-    buildSelectionRef.current = null;
+    if (!api || selection.length === 0) return;
+    // Committed one at a time (not batched at the end) so that for a
+    // multi-step stairs selection, each step's own rank (see
+    // computeStairRank) already sees every step committed just before it —
+    // otherwise the whole batch would render at the same height instead of
+    // climbing.
+    for (const { item, mesh } of selection) {
+      api.removeMesh(mesh);
+      const committedMesh = api.commitItem(item);
+      customItemsRef.current = [...customItemsRef.current, item];
+      customItemMeshesRef.current = [...customItemMeshesRef.current, committedMesh];
+    }
+    buildSelectionRef.current = [];
     setBuildHasSelection(false);
     setBuildItemCount(customItemsRef.current.length);
   };
@@ -5861,7 +5896,72 @@ function CombatArena({
                           {n}
                         </button>
                       ))}
-                    {buildPlaceKind === "wall" && <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />}
+                    {buildPlaceKind === "stairs" && (
+                      <>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildStairsCount((n) => Math.max(MAP4_STAIRS_COUNT_MIN, n - 1));
+                          }}
+                          aria-label="Fewer stairs"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          −
+                        </button>
+                        <div
+                          style={{
+                            flex: "none",
+                            minWidth: 26,
+                            textAlign: "center",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 14,
+                          }}
+                        >
+                          {buildStairsCount}
+                        </div>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildStairsCount((n) => Math.min(MAP4_STAIRS_COUNT_MAX, n + 1));
+                          }}
+                          aria-label="More stairs"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          +
+                        </button>
+                      </>
+                    )}
+                    {(buildPlaceKind === "wall" || buildPlaceKind === "stairs") && (
+                      <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
+                    )}
                     {(buildPlaceKind === "wall" ? [{ color: BUILD_DEFAULT_WALL_COLOR, label: "DEFAULT" }, ...BUILD_COLORS] : BUILD_COLORS).map(
                       ({ color, label }) => (
                         <button
