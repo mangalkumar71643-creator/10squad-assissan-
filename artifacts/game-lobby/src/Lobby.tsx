@@ -392,7 +392,7 @@ function createSkyTexture(): THREE.CanvasTexture {
   return texture;
 }
 
-const ARENA_HALF = 650; // 1300x1300 arena, centered on the origin — sized to comfortably fit Map 5's tripled layout
+const ARENA_HALF = 350; // 700x700 arena, centered on the origin
 // Everything else that depends on the arena's size — floor tile density,
 // grid line density, fog distance, the sky sphere and the camera's far
 // clip plane — is derived from ARENA_HALF below instead of hand-tuned
@@ -1010,10 +1010,8 @@ const MAP4_ORIGIN = { x: 0, z: 200 };
 const MAP4_PLAYER_SPAWN = { x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z };
 // Map 4's own playable reach around MAP4_ORIGIN — a build/explore canvas
 // around a house, not a level meant to need walking hundreds of meters. A
-// fixed value (not derived from ARENA_HALF, which has since grown to fit
-// Map 5's tripled layout) so Map 4's own footprint stays exactly as it was.
-// The shared ground plane/fog/sky (sized off ARENA_HALF) are untouched —
-// only how far the player can actually walk from MAP4_ORIGIN shrinks.
+// fixed value (not derived from ARENA_HALF) so Map 4's own footprint stays
+// exactly as it was regardless of the shared arena's own size.
 const MAP4_PLAY_HALF = 175;
 const MAP4_WALL_LENGTH_DEFAULT = 6; // legacy fallback for pre-length-selector saves
 const MAP4_WALL_LENGTH_MIN = 1;
@@ -1154,90 +1152,6 @@ function map4ItemRect(it: Map4Item): Obstacle {
   }
   return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD };
 }
-
-// ============================================================================
-// MAP 5 — Cypher Phunk: a symmetric "wheel and spoke" facility laid out from
-// a schematic the user supplied (a Blue/Red spawn pair, 2 platforms, 2
-// tunnels, 2 areas around an 8-way ring, 2 flanking side rooms, and one
-// central core), reproduced here at real walkable scale (10x the
-// schematic's own units, then a further 3x on top of that — see
-// MAP5_SCALE — at the user's request). This is a geometry-only first pass —
-// no bots, no edit/texture tools yet (those come once the user has
-// reviewed this base layout), matching Map 4's treatment: default player
-// speed, FIRE/RUN hidden, movement clamped to a circular play radius around
-// MAP5_ORIGIN rather than walled rooms. Every zone is a flat glowing floor
-// marker (no elevation change), so ordinary ground collision just works —
-// nothing here needed new collision or stair code.
-// ============================================================================
-const MAP5_ORIGIN = { x: 0, z: 0 };
-// Overall size multiplier on top of the base 10x-schematic scale below —
-// bumped to 3 at the user's request ("cypher punk map ko 3 guna kar do").
-// Every position/radius in this section is one of the schematic's own
-// numbers times this, so re-tuning the whole map's size later is just this
-// one constant.
-const MAP5_SCALE = 3;
-const MAP5_PLAY_HALF = 210 * MAP5_SCALE;
-// The whole facility sits 3m up in the air, at the user's request — every
-// floor marker/path/marker below is offset by this on top of its own small
-// decal height, and the player spawns/stands at this Y instead of 0.
-const MAP5_FLOOR_Y = 3;
-// The raised platform's own footprint — smaller than MAP5_PLAY_HALF so
-// there's real lower ground (the shared map floor, already there at y=0)
-// beyond its edge, reachable via the staircase below. 605 comfortably
-// contains every node/side-room disc (the farthest, a side room, reaches
-// x=±590.7 including its own radius).
-const MAP5_PLATFORM_HALF = 605;
-// One staircase down, centered on x=0, on the south edge (the same side as
-// SOUTH_PLATFORM, clear of its own disc which only reaches z=543).
-const MAP5_STAIRS_X = 0;
-const MAP5_STAIRS_Z_TOP = MAP5_PLATFORM_HALF;
-const MAP5_STAIRS_RUN = 20;
-const MAP5_STAIRS_HALF_WIDTH = 12;
-const MAP5_STAIRS_STEPS = 8;
-const MAP5_COLOR_PLATFORM = 0xc98bff;
-const MAP5_COLOR_AREA = 0x4fe0d4;
-const MAP5_COLOR_BLUE = 0x4fa8ff;
-const MAP5_COLOR_RED = 0xff4d5e;
-interface Map5Node {
-  name: string;
-  x: number;
-  z: number;
-  radius: number;
-  color: number;
-}
-// 8 nodes 45° apart around a radius-150 ring, plus 2 side rooms further out
-// — angles/positions taken straight from the supplied schematic (angle 0 =
-// -z, going clockwise), scaled up 10x for a walkable footprint and then by
-// MAP5_SCALE on top of that.
-const MAP5_NODES: Map5Node[] = [
-  { name: "TOP PLATFORM", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z - 150 * MAP5_SCALE, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_PLATFORM }, // 0
-  { name: "B AREA", x: MAP5_ORIGIN.x + 106.1 * MAP5_SCALE, z: MAP5_ORIGIN.z - 106.1 * MAP5_SCALE, radius: 36 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 1
-  { name: "RIGHT TUNNEL", x: MAP5_ORIGIN.x + 150 * MAP5_SCALE, z: MAP5_ORIGIN.z, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 2
-  { name: "RED SPAWN", x: MAP5_ORIGIN.x + 106.1 * MAP5_SCALE, z: MAP5_ORIGIN.z + 106.1 * MAP5_SCALE, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_RED }, // 3
-  { name: "SOUTH PLATFORM", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z + 150 * MAP5_SCALE, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_PLATFORM }, // 4
-  { name: "BLUE SPAWN", x: MAP5_ORIGIN.x - 106.1 * MAP5_SCALE, z: MAP5_ORIGIN.z + 106.1 * MAP5_SCALE, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_BLUE }, // 5
-  { name: "LEFT TUNNEL", x: MAP5_ORIGIN.x - 150 * MAP5_SCALE, z: MAP5_ORIGIN.z, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 6
-  { name: "A AREA", x: MAP5_ORIGIN.x - 106.1 * MAP5_SCALE, z: MAP5_ORIGIN.z - 106.1 * MAP5_SCALE, radius: 36 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 7
-  { name: "A SIDE ROOM", x: MAP5_ORIGIN.x - 170.9 * MAP5_SCALE, z: MAP5_ORIGIN.z - 70.8 * MAP5_SCALE, radius: 26 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 8
-  { name: "B SIDE ROOM", x: MAP5_ORIGIN.x + 170.9 * MAP5_SCALE, z: MAP5_ORIGIN.z - 70.8 * MAP5_SCALE, radius: 26 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 9
-];
-const MAP5_CORE: Map5Node = { name: "CORE AREA", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z, radius: 36 * MAP5_SCALE, color: MAP5_COLOR_RED };
-// Outer ring loop (all 8 ring nodes in sequence, closed).
-const MAP5_RING_PATH: { x: number; z: number }[] = [0, 1, 2, 3, 4, 5, 6, 7, 0].map((i) => MAP5_NODES[i]);
-// The "Main" route through both side rooms: Blue Spawn -> A Side Room -> Top
-// Platform -> B Side Room -> Red Spawn -> South Platform.
-const MAP5_MAIN_PATH: { x: number; z: number }[] = [5, 8, 0, 9, 3, 4].map((i) => MAP5_NODES[i]);
-// Core spokes out to the 4 diagonal ring nodes (B/A Area, Red/Blue Spawn).
-const MAP5_CORE_SPOKES: { x: number; z: number }[][] = [1, 3, 5, 7].map((i) => [
-  { x: MAP5_CORE.x, z: MAP5_CORE.z },
-  { x: MAP5_NODES[i].x, z: MAP5_NODES[i].z },
-]);
-// Spawns near the staircase (not literally on the Blue Spawn disc) — the
-// platform is 600+ units across, so spawning in the middle of it (like
-// Blue Spawn's own marker) put the edge, the rail, and the stairs all out
-// of sight, and the raised platform just read as flat ground again. Right
-// next to the stairs, the drop and the way down are visible immediately.
-const MAP5_PLAYER_SPAWN = { x: MAP5_STAIRS_X, z: MAP5_STAIRS_Z_TOP - 15 };
 
 // An underground tunnel actually running beneath the real path between
 // houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
@@ -2728,16 +2642,15 @@ function CombatArena({
   onExit,
   onMatchEnd,
 }: {
-  mapId: 1 | 2 | 3 | 4 | 5;
+  mapId: 1 | 2 | 3 | 4;
   onExit: () => void;
   onMatchEnd: (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => void;
 }) {
-  // Map 4 (Build Mode) and Map 5 (Cypher Phunk, geometry-only first pass —
-  // see MAP5_ORIGIN above) are both combat-free: no bots, no FIRE/RUN, no
-  // level obstacles, movement clamped to a circular play radius instead of
-  // a walled level. mapId is fixed for this component's whole mount, so
+  // Map 4 (Build Mode) is combat-free: no bots, no FIRE/RUN, no level
+  // obstacles, movement clamped to a circular play radius instead of a
+  // walled level. mapId is fixed for this component's whole mount, so
   // deriving this once up front is safe.
-  const isNoCombatMap = mapId === 4 || mapId === 5;
+  const isNoCombatMap = mapId === 4;
   // Read once per match — the Settings panel lives in the lobby, outside
   // CombatArena's lifetime, so there's nothing to react to mid-match.
   const [settings] = useState(loadGameSettings);
@@ -2776,12 +2689,7 @@ function CombatArena({
   // Horizontal drag turns cameraYaw; vertical drag adds to cameraPitch,
   // which orbits the camera up/down around the player on top of its
   // default over-the-shoulder angle (see CAM_PITCH_MIN/MAX below).
-  // Map 5 spawns facing the stairs (yaw 0 -> forward (sin 0, cos 0) = +z,
-  // toward MAP5_STAIRS_Z_TOP) instead of the usual Math.PI, so the drop and
-  // the way down are the first thing on screen — this is what actually
-  // drives the camera's look direction, not the character rig's own
-  // rotation.y (that only orients the visible mesh, not the view).
-  const cameraYaw = useRef(mapId === 5 ? 0 : Math.PI);
+  const cameraYaw = useRef(Math.PI);
   const cameraPitch = useRef(0);
   const lookTouchId = useRef<number | null>(null);
   const lookLastX = useRef(0);
@@ -3700,153 +3608,6 @@ function CombatArena({
           },
         };
       });
-    } else if (mapId === 5) {
-      // Map 5 — Cypher Phunk (see the MAP5_ORIGIN comment above for the
-      // full rationale). Every node is a flat glowing floor disc + ring
-      // outline; paths between them are flat glowing floor strips. No
-      // walls, no obstacles, no bots — geometry only, for the user to
-      // review before deciding what comes next (an edit/texture UI, real
-      // walls, elevation, etc.).
-      // A real floor covering the whole play area at MAP5_FLOOR_Y — without
-      // this, the zone markers only cover small discs, so most of the
-      // ground the player actually walks on was still the shared map's
-      // floor at y=0, standing 3m below their feet (looked like flying).
-      // Every other map hides the shared ground's own finite outer edge
-      // behind walls/rooms — Map 5 is wide open with no walls, so instead
-      // of extending this floor out to hide that same edge (which pushed
-      // it uncomfortably close to CAMERA_FAR and triggered an unrelated
-      // depth-precision artifact), the platform is now a real, finite
-      // raised deck: it stops at MAP5_PLATFORM_HALF, and the shared map
-      // floor (already there at y=0, the same floor every other map
-      // stands on) is simply what's visible/walkable past its edge — one
-      // real staircase (below) connects the two.
-      const map5FloorSpan = MAP5_PLATFORM_HALF * 2;
-      const map5Floor = new THREE.Mesh(
-        new THREE.PlaneGeometry(map5FloorSpan, map5FloorSpan),
-        new THREE.MeshStandardMaterial({
-          map: createSciFiFloorTexture(map5FloorSpan / SCIFI_FLOOR_TILE_SIZE, wallMaxAnisotropy),
-          roughness: 0.6,
-          metalness: 0.35,
-        }),
-      );
-      map5Floor.rotation.x = -Math.PI / 2;
-      map5Floor.position.set(MAP5_ORIGIN.x, MAP5_FLOOR_Y, MAP5_ORIGIN.z);
-      // Not receiveShadow — the directional light's shadow camera frustum
-      // is a tiny ±20 units (fine for every other map's room-scale
-      // geometry), far smaller than this floor.
-      scene.add(map5Floor);
-      // The staircase down — a run of stepped boxes from the platform's
-      // south edge (MAP5_STAIRS_Z_TOP, at MAP5_FLOOR_Y) down to the lower
-      // ground (0). Purely visual; the actual walk-down feel comes from
-      // the Y-lerp keyed to the same span, in the tick loop below.
-      const stairMat = new THREE.MeshStandardMaterial({ color: 0x4a4f5a, roughness: 0.7, metalness: 0.25 });
-      for (let i = 0; i < MAP5_STAIRS_STEPS; i++) {
-        const t0 = i / MAP5_STAIRS_STEPS;
-        const t1 = (i + 1) / MAP5_STAIRS_STEPS;
-        const stepTopY = MAP5_FLOOR_Y * (1 - t0);
-        const stepBottomY = MAP5_FLOOR_Y * (1 - t1);
-        const stepDepth = (t1 - t0) * MAP5_STAIRS_RUN;
-        const stepHeight = stepTopY - stepBottomY;
-        const step = new THREE.Mesh(new THREE.BoxGeometry(MAP5_STAIRS_HALF_WIDTH * 2, stepHeight, stepDepth), stairMat);
-        step.position.set(MAP5_STAIRS_X, stepBottomY + stepHeight / 2, MAP5_STAIRS_Z_TOP + (t0 + t1) * 0.5 * MAP5_STAIRS_RUN);
-        step.receiveShadow = true;
-        scene.add(step);
-      }
-      // A guard-rail all around the platform's edge, gapped only at the
-      // staircase — without this, the player could walk off the platform
-      // anywhere else and stay stuck at MAP5_FLOOR_Y (the Y-lerp above only
-      // fires inside the stairs' own band), floating above the lower
-      // ground exactly like the original "flying" bug, just relocated to
-      // every edge but this one.
-      // Tall and glowing on purpose, not just a curb: standing anywhere on
-      // a platform this big (600+ units across), the edge itself is too
-      // far to ever see — this is what actually reads as "I'm up on a
-      // raised platform" from the middle of it, a glowing fence line
-      // visible over the horizon in every direction.
-      const MAP5_RAIL_HEIGHT = 14;
-      const MAP5_RAIL_THICKNESS = 0.8;
-      const railMat = new THREE.MeshStandardMaterial({
-        color: 0x6be2ff,
-        emissive: 0x6be2ff,
-        emissiveIntensity: 1.4,
-        roughness: 0.4,
-        transparent: true,
-        opacity: 0.55,
-      });
-      const addPlatformEdge = (x: number, z: number, halfX: number, halfZ: number) => {
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(halfX * 2, MAP5_RAIL_HEIGHT, halfZ * 2), railMat);
-        mesh.position.set(x, MAP5_FLOOR_Y + MAP5_RAIL_HEIGHT / 2, z);
-        scene.add(mesh);
-        // Collision only cares about the walkable footprint near the
-        // ground, not the fence's full visual height, so the obstacle rect
-        // uses the original curb-sized thickness regardless of how tall
-        // the fence reads visually.
-        ACTIVE_OBSTACLES.push({ x, z, halfX, halfZ, pad: ROOM_PAD });
-      };
-      addPlatformEdge(MAP5_ORIGIN.x, MAP5_ORIGIN.z - MAP5_PLATFORM_HALF, MAP5_PLATFORM_HALF, MAP5_RAIL_THICKNESS / 2);
-      addPlatformEdge(MAP5_ORIGIN.x + MAP5_PLATFORM_HALF, MAP5_ORIGIN.z, MAP5_RAIL_THICKNESS / 2, MAP5_PLATFORM_HALF);
-      addPlatformEdge(MAP5_ORIGIN.x - MAP5_PLATFORM_HALF, MAP5_ORIGIN.z, MAP5_RAIL_THICKNESS / 2, MAP5_PLATFORM_HALF);
-      const southSegHalf = (MAP5_PLATFORM_HALF - MAP5_STAIRS_HALF_WIDTH) / 2;
-      addPlatformEdge(MAP5_ORIGIN.x - MAP5_STAIRS_HALF_WIDTH - southSegHalf, MAP5_ORIGIN.z + MAP5_PLATFORM_HALF, southSegHalf, MAP5_RAIL_THICKNESS / 2);
-      addPlatformEdge(MAP5_ORIGIN.x + MAP5_STAIRS_HALF_WIDTH + southSegHalf, MAP5_ORIGIN.z + MAP5_PLATFORM_HALF, southSegHalf, MAP5_RAIL_THICKNESS / 2);
-      // Glow knob for the whole map — dropped 70% at the user's request
-      // ("chamak 70% minus"). Every emissive material below is multiplied
-      // by this instead of hand-tuning each one.
-      const MAP5_GLOW = 0.3;
-      const addZoneMarker = (x: number, z: number, radius: number, color: number) => {
-        const discMat = new THREE.MeshStandardMaterial({
-          color,
-          emissive: color,
-          emissiveIntensity: 0.35 * MAP5_GLOW,
-          roughness: 0.7,
-          transparent: true,
-          opacity: 0.55,
-        });
-        const disc = new THREE.Mesh(new THREE.CircleGeometry(radius, 32), discMat);
-        disc.rotation.x = -Math.PI / 2;
-        disc.position.set(x, MAP5_FLOOR_Y + 0.02, z);
-        scene.add(disc);
-        const ringMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.6 * MAP5_GLOW, roughness: 0.4 });
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.18 * MAP5_SCALE, 8, 48), ringMat);
-        ring.rotation.x = -Math.PI / 2;
-        ring.position.set(x, MAP5_FLOOR_Y + 0.05, z);
-        scene.add(ring);
-      };
-      const addPathStrip = (points: { x: number; z: number }[], color: number) => {
-        const stripMat = new THREE.MeshStandardMaterial({
-          color,
-          emissive: color,
-          emissiveIntensity: 0.9 * MAP5_GLOW,
-          roughness: 0.5,
-          transparent: true,
-          opacity: 0.7,
-        });
-        for (let i = 0; i < points.length - 1; i++) {
-          const a = points[i];
-          const b = points[i + 1];
-          const dx = b.x - a.x;
-          const dz = b.z - a.z;
-          const length = Math.hypot(dx, dz);
-          const strip = new THREE.Mesh(new THREE.PlaneGeometry(length, 3.5 * MAP5_SCALE), stripMat);
-          strip.rotation.x = -Math.PI / 2;
-          strip.rotation.z = -Math.atan2(dz, dx);
-          strip.position.set((a.x + b.x) / 2, MAP5_FLOOR_Y + 0.03, (a.z + b.z) / 2);
-          scene.add(strip);
-        }
-      };
-      for (const node of MAP5_NODES) addZoneMarker(node.x, node.z, node.radius, node.color);
-      addZoneMarker(MAP5_CORE.x, MAP5_CORE.z, MAP5_CORE.radius, MAP5_CORE.color);
-      addPathStrip(MAP5_RING_PATH, 0xf2eefc);
-      addPathStrip(MAP5_MAIN_PATH, 0xffb84f);
-      for (const spoke of MAP5_CORE_SPOKES) addPathStrip(spoke, 0xb46cff);
-      // A static marker floating over the core, echoing the source
-      // schematic's diamond — no tick-loop animation needed for this pass.
-      const coreMarker = new THREE.Mesh(
-        new THREE.OctahedronGeometry(2.2 * MAP5_SCALE, 0),
-        new THREE.MeshStandardMaterial({ color: MAP5_COLOR_RED, emissive: MAP5_COLOR_RED, emissiveIntensity: 1.5 * MAP5_GLOW, roughness: 0.3 }),
-      );
-      coreMarker.position.set(MAP5_CORE.x, MAP5_FLOOR_Y + 4.5 * MAP5_SCALE, MAP5_CORE.z);
-      scene.add(coreMarker);
     } else {
       // Map 2 / Map 3 — both built from the same generic Map2Zone system
       // (see MAP2_OBSTACLES/MAP2_CORRIDORS and MAP3_OBSTACLES/MAP3_CORRIDORS
@@ -4165,20 +3926,11 @@ function CombatArena({
           ? MAP3_PLAYER_SPAWN
           : mapId === 4
             ? map4DynamicSpawn
-            : mapId === 5
-              ? MAP5_PLAYER_SPAWN
-              : { x: 0, z: 3 };
+            : { x: 0, z: 3 };
     const spawnPlayer = (rig: FighterRig) => {
       if (disposed) return;
-      rig.root.position.set(playerSpawnPos.x, mapId === 5 ? MAP5_FLOOR_Y : 0, playerSpawnPos.z);
-      // Face into the facility at the start — for Map 5 specifically, that
-      // means facing the stairs/drop (+z, south) instead of the usual
-      // Math.PI, since spawn sits just north of them so the platform edge
-      // is the first thing the player sees, not their back turned to it.
-      // Matches cameraYaw's own initial value above (0 for Map 5, facing
-      // the stairs) so the camera is looking at the character's back, not
-      // its front.
-      rig.root.rotation.y = mapId === 5 ? 0 : Math.PI;
+      rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
+      rig.root.rotation.y = Math.PI; // face into the facility at the start
       player = rig;
       equipGun(rig);
     };
@@ -4415,8 +4167,7 @@ function CombatArena({
         const dirZ = joyMag > 0.0001 ? rawZ / joyMag : runningInPlace ? -camForwardZ : 0;
         const effectiveMag = runningInPlace ? 1 : joyMag;
 
-        // Maps 4/5 move at double speed — no bots there to balance against
-        // (Map 5's doubling is also an explicit user request).
+        // Map 4 moves at double speed — no bots there to balance against.
         const playerMaxSpeedForMatch = isNoCombatMap ? PLAYER_MAX_SPEED * 2 : PLAYER_MAX_SPEED;
         // How far the stick is pushed sets the target speed continuously —
         // a light tap walks, a full push runs, and holding full tilt ramps
@@ -4436,25 +4187,18 @@ function CombatArena({
         player.root.position.x =
           mapId === 4
             ? clamp(player.root.position.x + playerVelX * dt, MAP4_ORIGIN.x - MAP4_PLAY_HALF + 0.4, MAP4_ORIGIN.x + MAP4_PLAY_HALF - 0.4)
-            : mapId === 5
-              ? clamp(player.root.position.x + playerVelX * dt, MAP5_ORIGIN.x - MAP5_PLAY_HALF + 0.4, MAP5_ORIGIN.x + MAP5_PLAY_HALF - 0.4)
-              : clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            : clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         player.root.position.z =
           mapId === 4
             ? clamp(player.root.position.z + playerVelZ * dt, MAP4_ORIGIN.z - MAP4_PLAY_HALF + 0.4, MAP4_ORIGIN.z + MAP4_PLAY_HALF - 0.4)
-            : mapId === 5
-              ? clamp(player.root.position.z + playerVelZ * dt, MAP5_ORIGIN.z - MAP5_PLAY_HALF + 0.4, MAP5_ORIGIN.z + MAP5_PLAY_HALF - 0.4)
-              : clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            : clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         resolveObstacleCollisions(player.root.position);
 
         // Walking down each house's stairwell (see ROOM_STAIRS_DOWN_POS/
         // ROOM_TUNNEL_DIR for its footprint) continuously follows the
         // stairs' own slope — height is just a function of how far along
         // the run the player currently is, not a separate fall/rise state.
-        // Map 1 only — ROOM_STAIRS_DOWN_POS is that map's own room grid, and
-        // now that Map 5's play area has grown well past ±200 it actually
-        // overlaps those same world coordinates, which would otherwise snap
-        // the player's Y toward TUNNEL_Y there for no reason.
+        // Map 1 only — ROOM_STAIRS_DOWN_POS is that map's own room grid.
         if (mapId === 1) {
           for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
             const spot = ROOM_STAIRS_DOWN_POS[i];
@@ -4468,22 +4212,6 @@ function CombatArena({
               player.root.position.y = THREE.MathUtils.lerp(0, TUNNEL_Y, progress);
               break;
             }
-          }
-        }
-
-        // Map 5's one staircase down off the raised platform — same
-        // along/perp ramp-band approach as Map 1's stairwells above, just
-        // for a single fixed run (MAP5_STAIRS_X/Z_TOP, descending +z) instead
-        // of one per room. Outside the stairs' band, Y is simply left alone
-        // (stays at MAP5_FLOOR_Y on the platform, or 0 once fully descended
-        // and walked away — matching how Map 1's stairwell also just leaves
-        // Y wherever the last crossing put it).
-        if (mapId === 5) {
-          const dx = player.root.position.x - MAP5_STAIRS_X;
-          const dz = player.root.position.z - MAP5_STAIRS_Z_TOP;
-          if (Math.abs(dx) < MAP5_STAIRS_HALF_WIDTH && dz > -5 && dz < MAP5_STAIRS_RUN + 5) {
-            const progress = clamp(dz / MAP5_STAIRS_RUN, 0, 1);
-            player.root.position.y = THREE.MathUtils.lerp(MAP5_FLOOR_Y, 0, progress);
           }
         }
 
@@ -5422,10 +5150,9 @@ function CombatArena({
                   attackRequested consumption in the tick loop), not just once per
                   tap. setPointerCapture keeps the up/cancel events firing on this
                   button even if the finger slides off it while held, so a drag-off
-                  reliably stops the fire instead of leaving it stuck on. Maps 4/5
-                  have no bots to shoot, so this (and RUN) don't show there — Map 4
-                  puts SELECT and PLACE in their slots instead; Map 5 has nothing
-                  there yet (see isNoCombatMap above). */}
+                  reliably stops the fire instead of leaving it stuck on. Map 4 has
+                  no bots to shoot, so this (and RUN) don't show there — it puts
+                  SELECT and PLACE in their slots instead (see isNoCombatMap above). */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -6951,15 +6678,14 @@ function StorePanel({
   );
 }
 
-const MAP_CARDS: { id: 1 | 2 | 3 | 4 | 5; title: string; subtitle: string }[] = [
+const MAP_CARDS: { id: 1 | 2 | 3 | 4; title: string; subtitle: string }[] = [
   { id: 1, title: "MAP 1", subtitle: "Outpost — the original 6-room facility" },
   { id: 2, title: "MAP 2", subtitle: "Central Hall — an 11-zone military complex" },
   { id: 3, title: "MAP 3", subtitle: "Safehouse — a big house, one way through" },
   { id: 4, title: "MAP 4", subtitle: "Build Mode — place walls, design your own" },
-  { id: 5, title: "MAP 5", subtitle: "Cypher Phunk — symmetric facility (preview)" },
 ];
 
-function MapSelectPanel({ onClose, onSelect }: { onClose: () => void; onSelect: (mapId: 1 | 2 | 3 | 4 | 5) => void }) {
+function MapSelectPanel({ onClose, onSelect }: { onClose: () => void; onSelect: (mapId: 1 | 2 | 3 | 4) => void }) {
   return (
     <div
       role="dialog"
@@ -8724,7 +8450,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployPressed, setDeployPressed] = useState(false);
   const [mapSelectOpen, setMapSelectOpen] = useState(false);
-  const [selectedMapId, setSelectedMapId] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [selectedMapId, setSelectedMapId] = useState<1 | 2 | 3 | 4>(1);
   const [rankOpen, setRankOpen] = useState(false);
   const [characterOpen, setCharacterOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
