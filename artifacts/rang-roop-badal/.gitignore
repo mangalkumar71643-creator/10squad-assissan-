@@ -5,3 +5,6 @@
 
 # Release signing key and credentials — never commit these.
 /secrets
+
+# Scratch copy of the build output used for Vercel hosting.
+/aab_dist
