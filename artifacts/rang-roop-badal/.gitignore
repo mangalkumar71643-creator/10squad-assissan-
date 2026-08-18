@@ -2,3 +2,6 @@
 # not checked in for a managed Expo workflow.
 /android
 /ios
+
+# Release signing key and credentials — never commit these.
+/secrets
