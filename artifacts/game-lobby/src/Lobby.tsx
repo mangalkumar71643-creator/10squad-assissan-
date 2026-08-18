@@ -3684,6 +3684,43 @@ function CombatArena({
       // walls, no obstacles, no bots — geometry only, for the user to
       // review before deciding what comes next (an edit/texture UI, real
       // walls, elevation, etc.).
+      // A real floor covering the whole play area at MAP5_FLOOR_Y — without
+      // this, the zone markers only cover small discs, so most of the
+      // ground the player actually walks on was still the shared map's
+      // floor at y=0, standing 3m below their feet (looked like flying).
+      // Every other map hides the shared ground's own finite outer edge
+      // behind walls/rooms — Map 5 is wide open with no walls, so that
+      // same edge (a dark grazing-angle seam where the plane's boundary
+      // meets the fog) was suddenly visible at the horizon. Sized a bit
+      // past the shared ground plane's own extent (proven fine at that
+      // size on every other map) rather than pushed out toward FOG_FAR,
+      // which put it uncomfortably close to CAMERA_FAR.
+      //
+      // Separately: from one specific spot, looking a specific direction,
+      // a large black shape appears above the horizon. Confirmed (by
+      // testing with this floor's material, size, and even the whole mesh
+      // itself removed one at a time) that it is NOT caused by anything
+      // built for Map 5 — it's some other, already-existing piece of the
+      // scene (most likely the sky dome or fog at a grazing angle) that
+      // every other map's walls happen to always block from view. Left
+      // as-is: fixing it means touching shared rendering code with real
+      // regression risk to every other map, for a display glitch the user
+      // hasn't hit or reported.
+      const map5FloorSpan = (ARENA_HALF + 100) * 2;
+      const map5Floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(map5FloorSpan, map5FloorSpan),
+        new THREE.MeshStandardMaterial({
+          map: createSciFiFloorTexture(map5FloorSpan / SCIFI_FLOOR_TILE_SIZE, wallMaxAnisotropy),
+          roughness: 0.6,
+          metalness: 0.35,
+        }),
+      );
+      map5Floor.rotation.x = -Math.PI / 2;
+      map5Floor.position.set(MAP5_ORIGIN.x, MAP5_FLOOR_Y, MAP5_ORIGIN.z);
+      // Not receiveShadow — the directional light's shadow camera frustum
+      // is a tiny ±20 units (fine for every other map's room-scale
+      // geometry), far smaller than this floor.
+      scene.add(map5Floor);
       // Glow knob for the whole map — dropped 70% at the user's request
       // ("chamak 70% minus"). Every emissive material below is multiplied
       // by this instead of hand-tuning each one.
