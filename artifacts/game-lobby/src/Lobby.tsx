@@ -392,7 +392,7 @@ function createSkyTexture(): THREE.CanvasTexture {
   return texture;
 }
 
-const ARENA_HALF = 350; // 700x700 arena, centered on the origin
+const ARENA_HALF = 650; // 1300x1300 arena, centered on the origin — sized to comfortably fit Map 5's tripled layout
 // Everything else that depends on the arena's size — floor tile density,
 // grid line density, fog distance, the sky sphere and the camera's far
 // clip plane — is derived from ARENA_HALF below instead of hand-tuned
@@ -1008,12 +1008,13 @@ function pickMap3ZoneTarget(guardIndex: number): { x: number; z: number } {
 // ============================================================================
 const MAP4_ORIGIN = { x: 0, z: 200 };
 const MAP4_PLAYER_SPAWN = { x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z };
-// Map 4's own playable reach around MAP4_ORIGIN — half of every other
-// map's ARENA_HALF, since it's a build/explore canvas around a house, not
-// a level meant to need walking hundreds of meters. The shared ground
-// plane/fog/sky (sized off ARENA_HALF) are untouched — only how far the
-// player can actually walk from MAP4_ORIGIN shrinks.
-const MAP4_PLAY_HALF = ARENA_HALF / 2;
+// Map 4's own playable reach around MAP4_ORIGIN — a build/explore canvas
+// around a house, not a level meant to need walking hundreds of meters. A
+// fixed value (not derived from ARENA_HALF, which has since grown to fit
+// Map 5's tripled layout) so Map 4's own footprint stays exactly as it was.
+// The shared ground plane/fog/sky (sized off ARENA_HALF) are untouched —
+// only how far the player can actually walk from MAP4_ORIGIN shrinks.
+const MAP4_PLAY_HALF = 175;
 const MAP4_WALL_LENGTH_DEFAULT = 6; // legacy fallback for pre-length-selector saves
 const MAP4_WALL_LENGTH_MIN = 1;
 const MAP4_WALL_LENGTH_MAX = 5;
@@ -1159,16 +1160,23 @@ function map4ItemRect(it: Map4Item): Obstacle {
 // a schematic the user supplied (a Blue/Red spawn pair, 2 platforms, 2
 // tunnels, 2 areas around an 8-way ring, 2 flanking side rooms, and one
 // central core), reproduced here at real walkable scale (10x the
-// schematic's own units). This is a geometry-only first pass — no bots, no
-// edit/texture tools yet (those come once the user has reviewed this base
-// layout), matching Map 4's treatment: default player speed, FIRE/RUN
-// hidden, movement clamped to a circular play radius around MAP5_ORIGIN
-// rather than walled rooms. Every zone is a flat glowing floor marker (no
-// elevation change), so ordinary ground collision just works — nothing here
-// needed new collision or stair code.
+// schematic's own units, then a further 3x on top of that — see
+// MAP5_SCALE — at the user's request). This is a geometry-only first pass —
+// no bots, no edit/texture tools yet (those come once the user has
+// reviewed this base layout), matching Map 4's treatment: default player
+// speed, FIRE/RUN hidden, movement clamped to a circular play radius around
+// MAP5_ORIGIN rather than walled rooms. Every zone is a flat glowing floor
+// marker (no elevation change), so ordinary ground collision just works —
+// nothing here needed new collision or stair code.
 // ============================================================================
 const MAP5_ORIGIN = { x: 0, z: 0 };
-const MAP5_PLAY_HALF = 210;
+// Overall size multiplier on top of the base 10x-schematic scale below —
+// bumped to 3 at the user's request ("cypher punk map ko 3 guna kar do").
+// Every position/radius in this section is one of the schematic's own
+// numbers times this, so re-tuning the whole map's size later is just this
+// one constant.
+const MAP5_SCALE = 3;
+const MAP5_PLAY_HALF = 210 * MAP5_SCALE;
 const MAP5_COLOR_PLATFORM = 0xc98bff;
 const MAP5_COLOR_AREA = 0x4fe0d4;
 const MAP5_COLOR_BLUE = 0x4fa8ff;
@@ -1182,20 +1190,21 @@ interface Map5Node {
 }
 // 8 nodes 45° apart around a radius-150 ring, plus 2 side rooms further out
 // — angles/positions taken straight from the supplied schematic (angle 0 =
-// -z, going clockwise), just scaled up 10x for a walkable footprint.
+// -z, going clockwise), scaled up 10x for a walkable footprint and then by
+// MAP5_SCALE on top of that.
 const MAP5_NODES: Map5Node[] = [
-  { name: "TOP PLATFORM", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z - 150, radius: 31, color: MAP5_COLOR_PLATFORM }, // 0
-  { name: "B AREA", x: MAP5_ORIGIN.x + 106.1, z: MAP5_ORIGIN.z - 106.1, radius: 36, color: MAP5_COLOR_AREA }, // 1
-  { name: "RIGHT TUNNEL", x: MAP5_ORIGIN.x + 150, z: MAP5_ORIGIN.z, radius: 31, color: MAP5_COLOR_AREA }, // 2
-  { name: "RED SPAWN", x: MAP5_ORIGIN.x + 106.1, z: MAP5_ORIGIN.z + 106.1, radius: 31, color: MAP5_COLOR_RED }, // 3
-  { name: "SOUTH PLATFORM", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z + 150, radius: 31, color: MAP5_COLOR_PLATFORM }, // 4
-  { name: "BLUE SPAWN", x: MAP5_ORIGIN.x - 106.1, z: MAP5_ORIGIN.z + 106.1, radius: 31, color: MAP5_COLOR_BLUE }, // 5
-  { name: "LEFT TUNNEL", x: MAP5_ORIGIN.x - 150, z: MAP5_ORIGIN.z, radius: 31, color: MAP5_COLOR_AREA }, // 6
-  { name: "A AREA", x: MAP5_ORIGIN.x - 106.1, z: MAP5_ORIGIN.z - 106.1, radius: 36, color: MAP5_COLOR_AREA }, // 7
-  { name: "A SIDE ROOM", x: MAP5_ORIGIN.x - 170.9, z: MAP5_ORIGIN.z - 70.8, radius: 26, color: MAP5_COLOR_AREA }, // 8
-  { name: "B SIDE ROOM", x: MAP5_ORIGIN.x + 170.9, z: MAP5_ORIGIN.z - 70.8, radius: 26, color: MAP5_COLOR_AREA }, // 9
+  { name: "TOP PLATFORM", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z - 150 * MAP5_SCALE, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_PLATFORM }, // 0
+  { name: "B AREA", x: MAP5_ORIGIN.x + 106.1 * MAP5_SCALE, z: MAP5_ORIGIN.z - 106.1 * MAP5_SCALE, radius: 36 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 1
+  { name: "RIGHT TUNNEL", x: MAP5_ORIGIN.x + 150 * MAP5_SCALE, z: MAP5_ORIGIN.z, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 2
+  { name: "RED SPAWN", x: MAP5_ORIGIN.x + 106.1 * MAP5_SCALE, z: MAP5_ORIGIN.z + 106.1 * MAP5_SCALE, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_RED }, // 3
+  { name: "SOUTH PLATFORM", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z + 150 * MAP5_SCALE, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_PLATFORM }, // 4
+  { name: "BLUE SPAWN", x: MAP5_ORIGIN.x - 106.1 * MAP5_SCALE, z: MAP5_ORIGIN.z + 106.1 * MAP5_SCALE, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_BLUE }, // 5
+  { name: "LEFT TUNNEL", x: MAP5_ORIGIN.x - 150 * MAP5_SCALE, z: MAP5_ORIGIN.z, radius: 31 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 6
+  { name: "A AREA", x: MAP5_ORIGIN.x - 106.1 * MAP5_SCALE, z: MAP5_ORIGIN.z - 106.1 * MAP5_SCALE, radius: 36 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 7
+  { name: "A SIDE ROOM", x: MAP5_ORIGIN.x - 170.9 * MAP5_SCALE, z: MAP5_ORIGIN.z - 70.8 * MAP5_SCALE, radius: 26 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 8
+  { name: "B SIDE ROOM", x: MAP5_ORIGIN.x + 170.9 * MAP5_SCALE, z: MAP5_ORIGIN.z - 70.8 * MAP5_SCALE, radius: 26 * MAP5_SCALE, color: MAP5_COLOR_AREA }, // 9
 ];
-const MAP5_CORE: Map5Node = { name: "CORE AREA", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z, radius: 36, color: MAP5_COLOR_RED };
+const MAP5_CORE: Map5Node = { name: "CORE AREA", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z, radius: 36 * MAP5_SCALE, color: MAP5_COLOR_RED };
 // Outer ring loop (all 8 ring nodes in sequence, closed).
 const MAP5_RING_PATH: { x: number; z: number }[] = [0, 1, 2, 3, 4, 5, 6, 7, 0].map((i) => MAP5_NODES[i]);
 // The "Main" route through both side rooms: Blue Spawn -> A Side Room -> Top
@@ -3685,7 +3694,7 @@ function CombatArena({
         disc.position.set(x, 0.02, z);
         scene.add(disc);
         const ringMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.6, roughness: 0.4 });
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.18, 8, 48), ringMat);
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.18 * MAP5_SCALE, 8, 48), ringMat);
         ring.rotation.x = -Math.PI / 2;
         ring.position.set(x, 0.05, z);
         scene.add(ring);
@@ -3705,7 +3714,7 @@ function CombatArena({
           const dx = b.x - a.x;
           const dz = b.z - a.z;
           const length = Math.hypot(dx, dz);
-          const strip = new THREE.Mesh(new THREE.PlaneGeometry(length, 3.5), stripMat);
+          const strip = new THREE.Mesh(new THREE.PlaneGeometry(length, 3.5 * MAP5_SCALE), stripMat);
           strip.rotation.x = -Math.PI / 2;
           strip.rotation.z = -Math.atan2(dz, dx);
           strip.position.set((a.x + b.x) / 2, 0.03, (a.z + b.z) / 2);
@@ -3720,10 +3729,10 @@ function CombatArena({
       // A static marker floating over the core, echoing the source
       // schematic's diamond — no tick-loop animation needed for this pass.
       const coreMarker = new THREE.Mesh(
-        new THREE.OctahedronGeometry(2.2, 0),
+        new THREE.OctahedronGeometry(2.2 * MAP5_SCALE, 0),
         new THREE.MeshStandardMaterial({ color: MAP5_COLOR_RED, emissive: MAP5_COLOR_RED, emissiveIntensity: 1.5, roughness: 0.3 }),
       );
-      coreMarker.position.set(MAP5_CORE.x, 4.5, MAP5_CORE.z);
+      coreMarker.position.set(MAP5_CORE.x, 4.5 * MAP5_SCALE, MAP5_CORE.z);
       scene.add(coreMarker);
     } else {
       // Map 2 / Map 3 — both built from the same generic Map2Zone system
