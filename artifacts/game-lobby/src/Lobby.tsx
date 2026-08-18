@@ -1059,6 +1059,15 @@ const BUILD_COLORS: { color: number; label: string }[] = [
 // undefined, which is just as falsy as 0).
 const BUILD_DEFAULT_WALL_COLOR = 0;
 const MAP4_FLOOR_TILE_SIZE = 4;
+// How far ahead of the player SELECT stages the next piece — adjustable
+// (see the DIST +/- stepper next to the color swatches) so a wall/rail/etc.
+// can be dropped right up close (almost at the player's own feet) or way
+// out at range, gloo-wall style, instead of always landing at one fixed
+// spot no matter how the player's holding the aim.
+const MAP4_PLACE_DISTANCE_MIN = 1.5;
+const MAP4_PLACE_DISTANCE_MAX = 15;
+const MAP4_PLACE_DISTANCE_DEFAULT = 4;
+const MAP4_PLACE_DISTANCE_STEP = 1;
 // How close the player's own Y already needs to be to a stairs step's or
 // floor tile's own height before either will hold them there (see the
 // mapId===4||5 stairs/floor block in the tick loop) — arriving off the
@@ -3118,6 +3127,17 @@ function CombatArena({
   // current aim (see handleBuildSelect) instead of placing them one at a
   // time by hand.
   const [buildStairsCount, setBuildStairsCount] = useState(MAP4_STAIRS_COUNT_MIN);
+  // How far ahead of the player SELECT stages the next piece — tap +/- to
+  // change it (see MAP4_PLACE_DISTANCE_MIN/MAX). getPlayerFacing lives
+  // inside the Three.js scene-building effect (only re-created when the
+  // map itself reloads), so it can't just close over this state directly
+  // and see later updates — buildPlaceDistanceRef is what it actually
+  // reads, kept in sync by the effect right below.
+  const [buildPlaceDistance, setBuildPlaceDistance] = useState(MAP4_PLACE_DISTANCE_DEFAULT);
+  const buildPlaceDistanceRef = useRef(MAP4_PLACE_DISTANCE_DEFAULT);
+  useEffect(() => {
+    buildPlaceDistanceRef.current = buildPlaceDistance;
+  }, [buildPlaceDistance]);
   const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
   // BACKUP: shows both a short cloud code (a few characters, needs
   // internet — see MAP4_CLOUD_API) and a longer text code that works
@@ -4037,7 +4057,7 @@ function CombatArena({
             // just picks whichever raw axis the player's facing more toward.
             const dirX = Math.abs(forwardX) > Math.abs(forwardZ) ? Math.sign(forwardX) : 0;
             const dirZ = Math.abs(forwardX) > Math.abs(forwardZ) ? 0 : Math.sign(forwardZ);
-            const dist = 4;
+            const dist = buildPlaceDistanceRef.current;
             return {
               x: player.root.position.x + forwardX * dist,
               // Wherever the player is currently standing — a floor tile
@@ -5444,6 +5464,76 @@ function CombatArena({
       .finally(() => setMap4CloudLoading(false));
   };
 
+  // Placement distance +/- stepper — shared markup dropped into whichever
+  // kind's own control row (see below), since every placeable kind should
+  // be droppable close-up or at range, not just the ones with a size/color
+  // row already. A plain local JSX value (not a helper function) so it's
+  // just built fresh with the render's current state, same as everything
+  // else here.
+  const distanceStepper = (
+    <>
+      <button
+        onPointerDown={(e) => {
+          e.preventDefault();
+          setBuildPlaceDistance((d) => Math.max(MAP4_PLACE_DISTANCE_MIN, d - MAP4_PLACE_DISTANCE_STEP));
+        }}
+        aria-label="Place closer"
+        style={{
+          flex: "none",
+          width: 28,
+          height: 28,
+          borderRadius: 6,
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(200,220,240,0.3)",
+          color: "#dce8f5",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 16,
+          lineHeight: 1,
+          cursor: "pointer",
+        }}
+      >
+        −
+      </button>
+      <div
+        style={{
+          flex: "none",
+          minWidth: 34,
+          textAlign: "center",
+          color: "#dce8f5",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+        }}
+      >
+        {buildPlaceDistance}m
+      </div>
+      <button
+        onPointerDown={(e) => {
+          e.preventDefault();
+          setBuildPlaceDistance((d) => Math.min(MAP4_PLACE_DISTANCE_MAX, d + MAP4_PLACE_DISTANCE_STEP));
+        }}
+        aria-label="Place farther"
+        style={{
+          flex: "none",
+          width: 28,
+          height: 28,
+          borderRadius: 6,
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(200,220,240,0.3)",
+          color: "#dce8f5",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 16,
+          lineHeight: 1,
+          cursor: "pointer",
+        }}
+      >
+        +
+      </button>
+    </>
+  );
+
   return (
     <div
       role="dialog"
@@ -5984,13 +6074,19 @@ function CombatArena({
                   <div
                     style={{
                       display: "flex",
+                      flexWrap: "nowrap",
+                      overflowX: "auto",
+                      alignItems: "center",
                       gap: 6,
                       background: "rgba(8,14,24,0.7)",
                       border: "1px solid rgba(200,220,240,0.3)",
                       borderRadius: 8,
                       padding: 5,
+                      maxWidth: "100%",
                     }}
                   >
+                    {distanceStepper}
+                    <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
                     {[
                       { size: MAP4_OBSTACLE_SMALL, label: "SMALL" },
                       { size: MAP4_OBSTACLE_BIG, label: "BIG" },
@@ -6021,16 +6117,40 @@ function CombatArena({
                   </div>
                 )}
 
-                {/* Wall length + color swatches share ONE scrolling row
-                    (not two stacked ones) — a wall is the only kind with
-                    both a size picker and a color picker, and stacking
-                    three rows total (tabs/length/color) made this panel
-                    tall enough to overlap SAVE/REMOVE below it, a real
+                {/* Drum has no size or color picker of its own (unlike
+                    every other kind), so it's the only one that would
+                    otherwise never show the distance stepper at all —
+                    give it a lone one-row panel just for that. */}
+                {buildPlaceKind === "drum" && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "nowrap",
+                      overflowX: "auto",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "rgba(8,14,24,0.7)",
+                      border: "1px solid rgba(200,220,240,0.3)",
+                      borderRadius: 8,
+                      padding: 5,
+                      maxWidth: "100%",
+                    }}
+                  >
+                    {distanceStepper}
+                  </div>
+                )}
+
+                {/* Distance stepper + wall length/stairs count + color
+                    swatches all share ONE scrolling row (not several
+                    stacked ones) — a wall is the kind with the most
+                    controls at once (distance, length, color), and
+                    stacking them into separate rows made this panel tall
+                    enough to overlap SAVE/REMOVE below it, a real
                     regression the layout-overlap test caught. Every other
                     colorable kind (floor tile, pillar, railing, door,
                     light, stairs — everything except crate/drum, neither
                     of which has color variants in the reference sheet)
-                    just gets the color swatches alone, still one row. */}
+                    just gets distance + color swatches, still one row. */}
                 {buildPlaceKind !== "obstacle" && buildPlaceKind !== "drum" && (
                   <div
                     style={{
@@ -6046,6 +6166,8 @@ function CombatArena({
                       maxWidth: "100%",
                     }}
                   >
+                    {distanceStepper}
+                    <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
                     {buildPlaceKind === "wall" &&
                       Array.from({ length: MAP4_WALL_LENGTH_MAX - MAP4_WALL_LENGTH_MIN + 1 }, (_, i) => MAP4_WALL_LENGTH_MIN + i).map((n) => (
                         <button
