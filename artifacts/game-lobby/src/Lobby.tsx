@@ -1332,8 +1332,49 @@ function map4ItemRect(it: Map4Item): Obstacle {
   }
   // floorTile / door / light / stairs never reach here — map4ItemBlocksMovement
   // guards every ACTIVE_OBSTACLES.push call site — but the function needs an
-  // exhaustive return, so give them a harmless zero-size rect.
+  // exhaustive return, so give them a harmless zero-size rect. Stairs get
+  // their own two-rect collision (see stairSideRects below) instead of
+  // going through this single-rect path at all.
   return { x: it.x, z: it.z, halfX: 0, halfZ: 0, pad: 0 };
+}
+// A stairs step's own collision, separate from map4ItemBlocksMovement's
+// simple single-rect path: two thin rails down its left and right edges
+// (perpendicular to the climbing direction), leaving the actual tread —
+// straight ahead, the way the step is meant to be climbed — completely
+// open. Without this, the step's own solid-looking box had zero collision
+// at all (it has to stay walkable to climb), so walking into its side or
+// straight into a mid-chain step's riser just passed through it like it
+// wasn't there — "ghus ja raha hoon" — even though it visually reads as
+// a solid block. A real staircase has solid sides you can't walk through
+// laterally; only the tread itself is open, which is exactly what these
+// two rails (plus the untouched along/perp climbing band) reproduce.
+function stairSideRects(item: Map4Stairs): [Obstacle, Obstacle] {
+  const alongX = item.dirX !== 0;
+  const cx = item.x + item.dirX * (MAP4_STAIRS_DEPTH / 2);
+  const cz = item.z + item.dirZ * (MAP4_STAIRS_DEPTH / 2);
+  const halfWidth = MAP4_STAIRS_WIDTH / 2;
+  // Cardinal-only dir, so the "positive perp" direction (-dirZ, dirX) is
+  // always axis-aligned too — no rotation needed, just which coordinate it
+  // offsets.
+  const perpX = -item.dirZ;
+  const perpZ = item.dirX;
+  const mk = (sign: 1 | -1): Obstacle =>
+    alongX
+      ? {
+          x: cx,
+          z: cz + sign * halfWidth * perpZ,
+          halfX: MAP4_STAIRS_DEPTH / 2,
+          halfZ: ROOM_WALL_THICKNESS / 2,
+          pad: ROOM_PAD,
+        }
+      : {
+          x: cx + sign * halfWidth * perpX,
+          z: cz,
+          halfX: ROOM_WALL_THICKNESS / 2,
+          halfZ: MAP4_STAIRS_DEPTH / 2,
+          pad: ROOM_PAD,
+        };
+  return [mk(1), mk(-1)];
 }
 // How many steps deep into its own chain a given stairs item is — 0 for the
 // first step off the ground, 1 for the one placed behind that, and so on.
@@ -3939,6 +3980,7 @@ function CombatArena({
         };
         customItemMeshesRef.current = customItemsRef.current.map((item) => {
           if (map4ItemBlocksMovement(item)) ACTIVE_OBSTACLES.push(map4ItemRect(item));
+          if (item.kind === "stairs") ACTIVE_OBSTACLES.push(...stairSideRects(item));
           return addBuildItemMesh(item);
         });
         setBuildItemCount(customItemsRef.current.length);
@@ -4061,19 +4103,27 @@ function CombatArena({
           removeMesh: (obj) => scene.remove(obj),
           commitItem: (item) => {
             if (map4ItemBlocksMovement(item)) ACTIVE_OBSTACLES.push(map4ItemRect(item));
+            if (item.kind === "stairs") ACTIVE_OBSTACLES.push(...stairSideRects(item));
             return addBuildItemMesh(item);
           },
           // Collision rects aren't individually tagged, so find-by-value
-          // the exact one this item pushed — safe since every blocking
+          // the exact one(s) this item pushed — safe since every blocking
           // item's collision rect is one of these and each commit pushes
-          // exactly one. Non-blocking kinds never pushed one, so this is a
-          // harmless no-op for them (map4ItemBlocksMovement guard here is
-          // just explicit about that, not load-bearing).
+          // exactly one (or, for stairs, exactly two side rails). Non-
+          // blocking, non-stairs kinds never pushed one, so this is a
+          // harmless no-op for them.
           removeCollisionRect: (item) => {
-            if (!map4ItemBlocksMovement(item)) return;
-            const rect = map4ItemRect(item);
-            const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === rect.x && o.z === rect.z && o.halfX === rect.halfX && o.halfZ === rect.halfZ);
-            if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
+            if (map4ItemBlocksMovement(item)) {
+              const rect = map4ItemRect(item);
+              const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === rect.x && o.z === rect.z && o.halfX === rect.halfX && o.halfZ === rect.halfZ);
+              if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
+            }
+            if (item.kind === "stairs") {
+              for (const rail of stairSideRects(item)) {
+                const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === rail.x && o.z === rail.z && o.halfX === rail.halfX && o.halfZ === rail.halfZ);
+                if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
+              }
+            }
           },
         };
       });
