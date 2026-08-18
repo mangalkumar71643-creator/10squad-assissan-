@@ -1177,6 +1177,10 @@ const MAP5_ORIGIN = { x: 0, z: 0 };
 // one constant.
 const MAP5_SCALE = 3;
 const MAP5_PLAY_HALF = 210 * MAP5_SCALE;
+// The whole facility sits 3m up in the air, at the user's request — every
+// floor marker/path/marker below is offset by this on top of its own small
+// decal height, and the player spawns/stands at this Y instead of 0.
+const MAP5_FLOOR_Y = 3;
 const MAP5_COLOR_PLATFORM = 0xc98bff;
 const MAP5_COLOR_AREA = 0x4fe0d4;
 const MAP5_COLOR_BLUE = 0x4fa8ff;
@@ -3695,12 +3699,12 @@ function CombatArena({
         });
         const disc = new THREE.Mesh(new THREE.CircleGeometry(radius, 32), discMat);
         disc.rotation.x = -Math.PI / 2;
-        disc.position.set(x, 0.02, z);
+        disc.position.set(x, MAP5_FLOOR_Y + 0.02, z);
         scene.add(disc);
         const ringMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.6 * MAP5_GLOW, roughness: 0.4 });
         const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.18 * MAP5_SCALE, 8, 48), ringMat);
         ring.rotation.x = -Math.PI / 2;
-        ring.position.set(x, 0.05, z);
+        ring.position.set(x, MAP5_FLOOR_Y + 0.05, z);
         scene.add(ring);
       };
       const addPathStrip = (points: { x: number; z: number }[], color: number) => {
@@ -3721,7 +3725,7 @@ function CombatArena({
           const strip = new THREE.Mesh(new THREE.PlaneGeometry(length, 3.5 * MAP5_SCALE), stripMat);
           strip.rotation.x = -Math.PI / 2;
           strip.rotation.z = -Math.atan2(dz, dx);
-          strip.position.set((a.x + b.x) / 2, 0.03, (a.z + b.z) / 2);
+          strip.position.set((a.x + b.x) / 2, MAP5_FLOOR_Y + 0.03, (a.z + b.z) / 2);
           scene.add(strip);
         }
       };
@@ -3736,7 +3740,7 @@ function CombatArena({
         new THREE.OctahedronGeometry(2.2 * MAP5_SCALE, 0),
         new THREE.MeshStandardMaterial({ color: MAP5_COLOR_RED, emissive: MAP5_COLOR_RED, emissiveIntensity: 1.5 * MAP5_GLOW, roughness: 0.3 }),
       );
-      coreMarker.position.set(MAP5_CORE.x, 4.5 * MAP5_SCALE, MAP5_CORE.z);
+      coreMarker.position.set(MAP5_CORE.x, MAP5_FLOOR_Y + 4.5 * MAP5_SCALE, MAP5_CORE.z);
       scene.add(coreMarker);
     } else {
       // Map 2 / Map 3 — both built from the same generic Map2Zone system
@@ -4061,7 +4065,7 @@ function CombatArena({
               : { x: 0, z: 3 };
     const spawnPlayer = (rig: FighterRig) => {
       if (disposed) return;
-      rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
+      rig.root.position.set(playerSpawnPos.x, mapId === 5 ? MAP5_FLOOR_Y : 0, playerSpawnPos.z);
       rig.root.rotation.y = Math.PI; // face into the facility at the start
       player = rig;
       equipGun(rig);
@@ -4334,17 +4338,23 @@ function CombatArena({
         // ROOM_TUNNEL_DIR for its footprint) continuously follows the
         // stairs' own slope — height is just a function of how far along
         // the run the player currently is, not a separate fall/rise state.
-        for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
-          const spot = ROOM_STAIRS_DOWN_POS[i];
-          const dir = ROOM_TUNNEL_DIR[i];
-          const dx = player.root.position.x - spot.x;
-          const dz = player.root.position.z - spot.z;
-          const along = dx * dir.x + dz * dir.z;
-          const perp = dz * dir.x - dx * dir.z;
-          if (Math.abs(perp) < RAMP_HALF_WIDTH && along > -RAMP_BAND && along < RAMP_RUN_LENGTH + RAMP_BAND) {
-            const progress = clamp(along / RAMP_RUN_LENGTH, 0, 1);
-            player.root.position.y = THREE.MathUtils.lerp(0, TUNNEL_Y, progress);
-            break;
+        // Map 1 only — ROOM_STAIRS_DOWN_POS is that map's own room grid, and
+        // now that Map 5's play area has grown well past ±200 it actually
+        // overlaps those same world coordinates, which would otherwise snap
+        // the player's Y toward TUNNEL_Y there for no reason.
+        if (mapId === 1) {
+          for (let i = 0; i < ROOM_STAIRS_DOWN_POS.length; i++) {
+            const spot = ROOM_STAIRS_DOWN_POS[i];
+            const dir = ROOM_TUNNEL_DIR[i];
+            const dx = player.root.position.x - spot.x;
+            const dz = player.root.position.z - spot.z;
+            const along = dx * dir.x + dz * dir.z;
+            const perp = dz * dir.x - dx * dir.z;
+            if (Math.abs(perp) < RAMP_HALF_WIDTH && along > -RAMP_BAND && along < RAMP_RUN_LENGTH + RAMP_BAND) {
+              const progress = clamp(along / RAMP_RUN_LENGTH, 0, 1);
+              player.root.position.y = THREE.MathUtils.lerp(0, TUNNEL_Y, progress);
+              break;
+            }
           }
         }
 
