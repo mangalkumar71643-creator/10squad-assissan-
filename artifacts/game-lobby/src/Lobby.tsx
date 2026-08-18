@@ -1154,6 +1154,60 @@ function map4ItemRect(it: Map4Item): Obstacle {
   return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD };
 }
 
+// ============================================================================
+// MAP 5 — Cypher Phunk: a symmetric "wheel and spoke" facility laid out from
+// a schematic the user supplied (a Blue/Red spawn pair, 2 platforms, 2
+// tunnels, 2 areas around an 8-way ring, 2 flanking side rooms, and one
+// central core), reproduced here at real walkable scale (10x the
+// schematic's own units). This is a geometry-only first pass — no bots, no
+// edit/texture tools yet (those come once the user has reviewed this base
+// layout), matching Map 4's treatment: default player speed, FIRE/RUN
+// hidden, movement clamped to a circular play radius around MAP5_ORIGIN
+// rather than walled rooms. Every zone is a flat glowing floor marker (no
+// elevation change), so ordinary ground collision just works — nothing here
+// needed new collision or stair code.
+// ============================================================================
+const MAP5_ORIGIN = { x: 0, z: 0 };
+const MAP5_PLAY_HALF = 210;
+const MAP5_COLOR_PLATFORM = 0xc98bff;
+const MAP5_COLOR_AREA = 0x4fe0d4;
+const MAP5_COLOR_BLUE = 0x4fa8ff;
+const MAP5_COLOR_RED = 0xff4d5e;
+interface Map5Node {
+  name: string;
+  x: number;
+  z: number;
+  radius: number;
+  color: number;
+}
+// 8 nodes 45° apart around a radius-150 ring, plus 2 side rooms further out
+// — angles/positions taken straight from the supplied schematic (angle 0 =
+// -z, going clockwise), just scaled up 10x for a walkable footprint.
+const MAP5_NODES: Map5Node[] = [
+  { name: "TOP PLATFORM", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z - 150, radius: 31, color: MAP5_COLOR_PLATFORM }, // 0
+  { name: "B AREA", x: MAP5_ORIGIN.x + 106.1, z: MAP5_ORIGIN.z - 106.1, radius: 36, color: MAP5_COLOR_AREA }, // 1
+  { name: "RIGHT TUNNEL", x: MAP5_ORIGIN.x + 150, z: MAP5_ORIGIN.z, radius: 31, color: MAP5_COLOR_AREA }, // 2
+  { name: "RED SPAWN", x: MAP5_ORIGIN.x + 106.1, z: MAP5_ORIGIN.z + 106.1, radius: 31, color: MAP5_COLOR_RED }, // 3
+  { name: "SOUTH PLATFORM", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z + 150, radius: 31, color: MAP5_COLOR_PLATFORM }, // 4
+  { name: "BLUE SPAWN", x: MAP5_ORIGIN.x - 106.1, z: MAP5_ORIGIN.z + 106.1, radius: 31, color: MAP5_COLOR_BLUE }, // 5
+  { name: "LEFT TUNNEL", x: MAP5_ORIGIN.x - 150, z: MAP5_ORIGIN.z, radius: 31, color: MAP5_COLOR_AREA }, // 6
+  { name: "A AREA", x: MAP5_ORIGIN.x - 106.1, z: MAP5_ORIGIN.z - 106.1, radius: 36, color: MAP5_COLOR_AREA }, // 7
+  { name: "A SIDE ROOM", x: MAP5_ORIGIN.x - 170.9, z: MAP5_ORIGIN.z - 70.8, radius: 26, color: MAP5_COLOR_AREA }, // 8
+  { name: "B SIDE ROOM", x: MAP5_ORIGIN.x + 170.9, z: MAP5_ORIGIN.z - 70.8, radius: 26, color: MAP5_COLOR_AREA }, // 9
+];
+const MAP5_CORE: Map5Node = { name: "CORE AREA", x: MAP5_ORIGIN.x, z: MAP5_ORIGIN.z, radius: 36, color: MAP5_COLOR_RED };
+// Outer ring loop (all 8 ring nodes in sequence, closed).
+const MAP5_RING_PATH: { x: number; z: number }[] = [0, 1, 2, 3, 4, 5, 6, 7, 0].map((i) => MAP5_NODES[i]);
+// The "Main" route through both side rooms: Blue Spawn -> A Side Room -> Top
+// Platform -> B Side Room -> Red Spawn -> South Platform.
+const MAP5_MAIN_PATH: { x: number; z: number }[] = [5, 8, 0, 9, 3, 4].map((i) => MAP5_NODES[i]);
+// Core spokes out to the 4 diagonal ring nodes (B/A Area, Red/Blue Spawn).
+const MAP5_CORE_SPOKES: { x: number; z: number }[][] = [1, 3, 5, 7].map((i) => [
+  { x: MAP5_CORE.x, z: MAP5_CORE.z },
+  { x: MAP5_NODES[i].x, z: MAP5_NODES[i].z },
+]);
+const MAP5_PLAYER_SPAWN = { x: MAP5_NODES[5].x, z: MAP5_NODES[5].z }; // Blue Spawn
+
 // An underground tunnel actually running beneath the real path between
 // houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
 // unrelated empty arena. Since the collision system only checks X/Z (see
@@ -2643,10 +2697,16 @@ function CombatArena({
   onExit,
   onMatchEnd,
 }: {
-  mapId: 1 | 2 | 3 | 4;
+  mapId: 1 | 2 | 3 | 4 | 5;
   onExit: () => void;
   onMatchEnd: (result: "win" | "lose", kills: number, survivalSec: number, damageDealt: number) => void;
 }) {
+  // Map 4 (Build Mode) and Map 5 (Cypher Phunk, geometry-only first pass —
+  // see MAP5_ORIGIN above) are both combat-free: no bots, no FIRE/RUN, no
+  // level obstacles, movement clamped to a circular play radius instead of
+  // a walled level. mapId is fixed for this component's whole mount, so
+  // deriving this once up front is safe.
+  const isNoCombatMap = mapId === 4 || mapId === 5;
   // Read once per match — the Settings panel lives in the lobby, outside
   // CombatArena's lifetime, so there's nothing to react to mid-match.
   const [settings] = useState(loadGameSettings);
@@ -2697,8 +2757,8 @@ function CombatArena({
   // fighters at all — it's a combat-free build/explore canvas (mapId is
   // fixed for this component's whole mount, so sizing the initial state
   // off it is safe).
-  const [botHps, setBotHps] = useState<number[]>(() => new Array(mapId === 4 ? 0 : 6).fill(100));
-  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>(new Array(mapId === 4 ? 0 : 6).fill(null));
+  const [botHps, setBotHps] = useState<number[]>(() => new Array(isNoCombatMap ? 0 : 6).fill(100));
+  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>(new Array(isNoCombatMap ? 0 : 6).fill(null));
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   // Counts bot deaths this match, for the profile progress system's XP
   // award — read once when `result` leaves "playing" (see the effect
@@ -2834,7 +2894,7 @@ function CombatArena({
     // closures over this effect — reassigned once per match, before
     // anything can actually collide with it.
     ACTIVE_OBSTACLES =
-      mapId === 2 ? MAP2_OBSTACLES : mapId === 3 ? MAP3_OBSTACLES : mapId === 4 ? [] : MAP1_OBSTACLES;
+      mapId === 2 ? MAP2_OBSTACLES : mapId === 3 ? MAP3_OBSTACLES : isNoCombatMap ? [] : MAP1_OBSTACLES;
 
     const scene = new THREE.Scene();
     // A sky sphere plus matching fog — without these the canvas has no
@@ -3604,6 +3664,67 @@ function CombatArena({
           },
         };
       });
+    } else if (mapId === 5) {
+      // Map 5 — Cypher Phunk (see the MAP5_ORIGIN comment above for the
+      // full rationale). Every node is a flat glowing floor disc + ring
+      // outline; paths between them are flat glowing floor strips. No
+      // walls, no obstacles, no bots — geometry only, for the user to
+      // review before deciding what comes next (an edit/texture UI, real
+      // walls, elevation, etc.).
+      const addZoneMarker = (x: number, z: number, radius: number, color: number) => {
+        const discMat = new THREE.MeshStandardMaterial({
+          color,
+          emissive: color,
+          emissiveIntensity: 0.35,
+          roughness: 0.7,
+          transparent: true,
+          opacity: 0.55,
+        });
+        const disc = new THREE.Mesh(new THREE.CircleGeometry(radius, 32), discMat);
+        disc.rotation.x = -Math.PI / 2;
+        disc.position.set(x, 0.02, z);
+        scene.add(disc);
+        const ringMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.6, roughness: 0.4 });
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.18, 8, 48), ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(x, 0.05, z);
+        scene.add(ring);
+      };
+      const addPathStrip = (points: { x: number; z: number }[], color: number) => {
+        const stripMat = new THREE.MeshStandardMaterial({
+          color,
+          emissive: color,
+          emissiveIntensity: 0.9,
+          roughness: 0.5,
+          transparent: true,
+          opacity: 0.7,
+        });
+        for (let i = 0; i < points.length - 1; i++) {
+          const a = points[i];
+          const b = points[i + 1];
+          const dx = b.x - a.x;
+          const dz = b.z - a.z;
+          const length = Math.hypot(dx, dz);
+          const strip = new THREE.Mesh(new THREE.PlaneGeometry(length, 3.5), stripMat);
+          strip.rotation.x = -Math.PI / 2;
+          strip.rotation.z = -Math.atan2(dz, dx);
+          strip.position.set((a.x + b.x) / 2, 0.03, (a.z + b.z) / 2);
+          scene.add(strip);
+        }
+      };
+      for (const node of MAP5_NODES) addZoneMarker(node.x, node.z, node.radius, node.color);
+      addZoneMarker(MAP5_CORE.x, MAP5_CORE.z, MAP5_CORE.radius, MAP5_CORE.color);
+      addPathStrip(MAP5_RING_PATH, 0xf2eefc);
+      addPathStrip(MAP5_MAIN_PATH, 0xffb84f);
+      for (const spoke of MAP5_CORE_SPOKES) addPathStrip(spoke, 0xb46cff);
+      // A static marker floating over the core, echoing the source
+      // schematic's diamond — no tick-loop animation needed for this pass.
+      const coreMarker = new THREE.Mesh(
+        new THREE.OctahedronGeometry(2.2, 0),
+        new THREE.MeshStandardMaterial({ color: MAP5_COLOR_RED, emissive: MAP5_COLOR_RED, emissiveIntensity: 1.5, roughness: 0.3 }),
+      );
+      coreMarker.position.set(MAP5_CORE.x, 4.5, MAP5_CORE.z);
+      scene.add(coreMarker);
     } else {
       // Map 2 / Map 3 — both built from the same generic Map2Zone system
       // (see MAP2_OBSTACLES/MAP2_CORRIDORS and MAP3_OBSTACLES/MAP3_CORRIDORS
@@ -3701,7 +3822,7 @@ function CombatArena({
     const GATE_THICKNESS = ROOM_WALL_THICKNESS * 0.9;
     const GATE_OPEN_RADIUS = 3.5;
     const GATE_SLIDE_RATE = 4;
-    const doorsForLevel = mapId === 2 ? MAP2_DOORS : mapId === 3 ? MAP3_DOORS : mapId === 4 ? [] : DOORS;
+    const doorsForLevel = mapId === 2 ? MAP2_DOORS : mapId === 3 ? MAP3_DOORS : isNoCombatMap ? [] : DOORS;
     const gates = doorsForLevel.map((door) => {
       const doorGatePanelHeight = (door.wallHeight ?? ROOM_WALL_HEIGHT) - 0.4;
       const panelWidth = door.width / 2;
@@ -3916,7 +4037,15 @@ function CombatArena({
     // always being the SWAT model — CARD_MODELS/loadBotFighter are the same
     // lookup + retargeting pipeline the selection ring itself uses.
     const playerSpawnPos =
-      mapId === 2 ? MAP2_PLAYER_SPAWN : mapId === 3 ? MAP3_PLAYER_SPAWN : mapId === 4 ? map4DynamicSpawn : { x: 0, z: 3 };
+      mapId === 2
+        ? MAP2_PLAYER_SPAWN
+        : mapId === 3
+          ? MAP3_PLAYER_SPAWN
+          : mapId === 4
+            ? map4DynamicSpawn
+            : mapId === 5
+              ? MAP5_PLAYER_SPAWN
+              : { x: 0, z: 3 };
     const spawnPlayer = (rig: FighterRig) => {
       if (disposed) return;
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
@@ -3940,9 +4069,9 @@ function CombatArena({
     // (see tintBossFighter).
     // Map 4 spawns no fighters at all — it's a combat-free build/explore
     // canvas, not a level to fight through.
-    const botSpawns = mapId === 2 ? MAP2_BOT_SPAWNS : mapId === 3 ? MAP3_BOT_SPAWNS : mapId === 4 ? [] : BOT_SPAWNS;
+    const botSpawns = mapId === 2 ? MAP2_BOT_SPAWNS : mapId === 3 ? MAP3_BOT_SPAWNS : isNoCombatMap ? [] : BOT_SPAWNS;
     const bossSpawn = mapId === 2 ? MAP2_BOSS_SPAWN : mapId === 3 ? MAP3_BOSS_SPAWN : BOSS_SPAWN;
-    const bots: (FighterRig | null)[] = new Array(mapId === 4 ? 0 : 6).fill(null);
+    const bots: (FighterRig | null)[] = new Array(isNoCombatMap ? 0 : 6).fill(null);
     for (let i = 0; i < botSpawns.length; i++) {
       const spawn = botSpawns[i];
       loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
@@ -3952,7 +4081,7 @@ function CombatArena({
         equipGun(rig);
       });
     }
-    if (mapId !== 4) {
+    if (!isNoCombatMap) {
       loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
         if (disposed) return;
         rig.root.position.set(bossSpawn.x, 0, bossSpawn.z);
@@ -4010,7 +4139,7 @@ function CombatArena({
     // entry (see roomIndex); index 5 is the Boss — tougher, and isBoss
     // skips the patrol/chase behavior entirely in favor of holding its
     // ground. Map 4 has no fighters at all.
-    const botMaxHps = mapId === 4 ? [] : [100, 100, 100, 100, 100, BOSS_HP];
+    const botMaxHps = isNoCombatMap ? [] : [100, 100, 100, 100, 100, BOSS_HP];
     const botStates = botMaxHps.map((hp, i) => ({
       hp,
       cooldown: 0,
@@ -4177,11 +4306,15 @@ function CombatArena({
         player.root.position.x =
           mapId === 4
             ? clamp(player.root.position.x + playerVelX * dt, MAP4_ORIGIN.x - MAP4_PLAY_HALF + 0.4, MAP4_ORIGIN.x + MAP4_PLAY_HALF - 0.4)
-            : clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            : mapId === 5
+              ? clamp(player.root.position.x + playerVelX * dt, MAP5_ORIGIN.x - MAP5_PLAY_HALF + 0.4, MAP5_ORIGIN.x + MAP5_PLAY_HALF - 0.4)
+              : clamp(player.root.position.x + playerVelX * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         player.root.position.z =
           mapId === 4
             ? clamp(player.root.position.z + playerVelZ * dt, MAP4_ORIGIN.z - MAP4_PLAY_HALF + 0.4, MAP4_ORIGIN.z + MAP4_PLAY_HALF - 0.4)
-            : clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
+            : mapId === 5
+              ? clamp(player.root.position.z + playerVelZ * dt, MAP5_ORIGIN.z - MAP5_PLAY_HALF + 0.4, MAP5_ORIGIN.z + MAP5_PLAY_HALF - 0.4)
+              : clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
         resolveObstacleCollisions(player.root.position);
 
         // Walking down each house's stairwell (see ROOM_STAIRS_DOWN_POS/
@@ -5131,15 +5264,16 @@ function CombatArena({
             />
           </div>
 
-          {mapId !== 4 && (
+          {!isNoCombatMap && (
             <>
               {/* Fire button — auto-fires for as long as it's held down (see the
                   attackRequested consumption in the tick loop), not just once per
                   tap. setPointerCapture keeps the up/cancel events firing on this
                   button even if the finger slides off it while held, so a drag-off
-                  reliably stops the fire instead of leaving it stuck on. Map 4 has
-                  no bots to shoot, so this (and RUN) don't show there — SELECT and
-                  PLACE take their slots instead. */}
+                  reliably stops the fire instead of leaving it stuck on. Maps 4/5
+                  have no bots to shoot, so this (and RUN) don't show there — Map 4
+                  puts SELECT and PLACE in their slots instead; Map 5 has nothing
+                  there yet (see isNoCombatMap above). */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -6665,14 +6799,15 @@ function StorePanel({
   );
 }
 
-const MAP_CARDS: { id: 1 | 2 | 3 | 4; title: string; subtitle: string }[] = [
+const MAP_CARDS: { id: 1 | 2 | 3 | 4 | 5; title: string; subtitle: string }[] = [
   { id: 1, title: "MAP 1", subtitle: "Outpost — the original 6-room facility" },
   { id: 2, title: "MAP 2", subtitle: "Central Hall — an 11-zone military complex" },
   { id: 3, title: "MAP 3", subtitle: "Safehouse — a big house, one way through" },
   { id: 4, title: "MAP 4", subtitle: "Build Mode — place walls, design your own" },
+  { id: 5, title: "MAP 5", subtitle: "Cypher Phunk — symmetric facility (preview)" },
 ];
 
-function MapSelectPanel({ onClose, onSelect }: { onClose: () => void; onSelect: (mapId: 1 | 2 | 3 | 4) => void }) {
+function MapSelectPanel({ onClose, onSelect }: { onClose: () => void; onSelect: (mapId: 1 | 2 | 3 | 4 | 5) => void }) {
   return (
     <div
       role="dialog"
@@ -8437,7 +8572,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployPressed, setDeployPressed] = useState(false);
   const [mapSelectOpen, setMapSelectOpen] = useState(false);
-  const [selectedMapId, setSelectedMapId] = useState<1 | 2 | 3 | 4>(1);
+  const [selectedMapId, setSelectedMapId] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [rankOpen, setRankOpen] = useState(false);
   const [characterOpen, setCharacterOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
