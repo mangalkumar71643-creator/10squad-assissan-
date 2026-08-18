@@ -1060,17 +1060,23 @@ const MAP4_DOOR_WIDTH = 4;
 const MAP4_DOOR_POST_THICKNESS = 0.3;
 const MAP4_LIGHT_LENGTH = 2;
 // Stairs are the one placeable piece that's actually walkable up, not just
-// collision geometry — see the mapId===4||5 stairs block in the tick loop
-// below. Deliberately modest (a 1.2m rise, not a dramatic platform) so that
-// if the player wanders off the small landing at the top — Build Mode's
-// ground is a single flat plane at y=0, there's no real elevated floor
-// past it — the resulting float is a small hop, not the old Map 5
-// "flying" bug at 3x the height.
-const MAP4_STAIRS_WIDTH = 3;
-const MAP4_STAIRS_RUN = 4;
-const MAP4_STAIRS_STEPS = 4;
-const MAP4_STAIRS_RISE = 1.2;
-const MAP4_STAIRS_LANDING_DEPTH = 2.5;
+// collision geometry — see computeStairRank and the mapId===4||5 stairs
+// block in the tick loop below. Each placement is ONE single step, not a
+// whole flight — the user builds a full staircase by placing several in a
+// row, the same way walls are placed one at a time to build a house. A
+// step's own height in the world (and how high it lifts the player) isn't
+// stored on the item — it's derived every time from how many other
+// same-direction steps sit behind it (see computeStairRank), so removing
+// or re-placing steps anywhere in a chain always keeps every step's height
+// self-consistent instead of trusting a number that could go stale.
+const MAP4_STAIRS_WIDTH = 2.5;
+const MAP4_STAIRS_DEPTH = 1.2; // how deep one tread is, i.e. how far the player walks to climb one step
+const MAP4_STAIRS_RISE = 0.35; // how tall one step's riser is
+// A step's walkable band extends this far past its own tread depth — softens
+// (doesn't eliminate) the drop back to y=0 when the player walks off the
+// front of the topmost step in a chain into open air, since Build Mode's
+// ground has no real floor there to catch them.
+const MAP4_STAIRS_EDGE_MARGIN = 1;
 interface Map4Wall {
   kind: "wall";
   x: number;
@@ -1134,9 +1140,12 @@ interface Map4Light {
   z: number;
   color: number;
 }
-// A short flight of steps up to a small landing — the one placeable piece
-// that's actually functional (see MAP4_STAIRS_RISE above), so it needs a
-// clear "which way is up" direction, not just a symmetric axis like a wall.
+// A single stair step — the one placeable piece that's actually functional
+// (see computeStairRank/MAP4_STAIRS_RISE above), so it needs a clear
+// "which way is up" direction, not just a symmetric axis like a wall. Place
+// several in a row, each one step further and the chain climbs — nothing
+// about being "step N in a staircase" is stored here; it's derived fresh
+// from the full item list every time (see computeStairRank).
 interface Map4Stairs {
   kind: "stairs";
   x: number;
@@ -1294,6 +1303,55 @@ function map4ItemRect(it: Map4Item): Obstacle {
   // guards every ACTIVE_OBSTACLES.push call site — but the function needs an
   // exhaustive return, so give them a harmless zero-size rect.
   return { x: it.x, z: it.z, halfX: 0, halfZ: 0, pad: 0 };
+}
+// How many steps deep into its own chain a given stairs item is — 0 for the
+// first step off the ground, 1 for the one placed behind that, and so on.
+// Computed fresh from the current item list every time (never stored on the
+// item itself) so a step's height in the world always matches what's
+// actually placed: remove an earlier step and every step still behind it
+// (and the player's own Y while standing on them) drops by one rank
+// automatically, instead of trusting a baked-in number that could go stale.
+// "Behind" is purely a same-direction, same-lane position comparison — the
+// player doesn't have to place steps perfectly edge-to-edge for this to
+// order them correctly, just roughly in a line going the same way.
+function computeStairRank(item: Map4Stairs, allItems: Map4Item[]): number {
+  const along = item.x * item.dirX + item.z * item.dirZ;
+  let rank = 0;
+  for (const other of allItems) {
+    if (other === item || other.kind !== "stairs") continue;
+    if (other.dirX !== item.dirX || other.dirZ !== item.dirZ) continue;
+    const otherAlong = other.x * item.dirX + other.z * item.dirZ;
+    if (otherAlong >= along) continue;
+    // Lateral tolerance — only steps roughly in the same lane count, so an
+    // unrelated staircase built elsewhere facing the same compass
+    // direction doesn't bleed into this one's height.
+    const perp = (other.z - item.z) * item.dirX - (other.x - item.x) * item.dirZ;
+    if (Math.abs(perp) > MAP4_STAIRS_WIDTH) continue;
+    rank++;
+  }
+  return rank;
+}
+// Whether this step is the last one in its chain (nothing else placed
+// further ahead, same direction/lane) — only the true top of a chain
+// extends its walkable band by MAP4_STAIRS_EDGE_MARGIN in the tick loop.
+// Every step behind it hands off to the next one immediately at its own
+// tread's edge instead; if every step extended its band forward, an
+// earlier step's margin would reach into the next step's own tread and
+// (since the tick loop matches whichever step comes first in the placed
+// list) win the match there, freezing the player at the wrong height for
+// that stretch — exactly the bug caught by the chained-stairs test.
+function isTopOfStairChain(item: Map4Stairs, allItems: Map4Item[]): boolean {
+  const along = item.x * item.dirX + item.z * item.dirZ;
+  for (const other of allItems) {
+    if (other === item || other.kind !== "stairs") continue;
+    if (other.dirX !== item.dirX || other.dirZ !== item.dirZ) continue;
+    const otherAlong = other.x * item.dirX + other.z * item.dirZ;
+    if (otherAlong <= along) continue;
+    const perp = (other.z - item.z) * item.dirX - (other.x - item.x) * item.dirZ;
+    if (Math.abs(perp) > MAP4_STAIRS_WIDTH) continue;
+    return false;
+  }
+  return true;
 }
 
 // An underground tunnel actually running beneath the real path between
@@ -3707,62 +3765,51 @@ function CombatArena({
         scene.add(group);
         return group;
       };
-      // Steps climbing from (x,z) to a small flat landing at MAP4_STAIRS_RISE
-      // — see the mapId===4||5 stairs block in the tick loop below for the
-      // matching along/perp Y-lerp that makes this actually walkable, not
-      // just a decorative ramp shape.
+      // One step, solid from the ground up to this step's own rank height
+      // (see computeStairRank) — a chain of these placed one after another
+      // reads as one continuous ascending staircase, each block exactly
+      // one rise taller than the last, matching real stacked-box stair
+      // construction (the same idea Map 1's original stairwell used, just
+      // per player-placed unit here instead of a fixed room layout). The
+      // matching along/perp Y-lerp that makes this actually walkable lives
+      // in the mapId===4||5 stairs block in the tick loop below.
       const addStairsMesh = (item: Map4Stairs, mat: THREE.Material): THREE.Object3D => {
-        const group = new THREE.Group();
+        const rank = computeStairRank(item, customItemsRef.current);
+        const topY = (rank + 1) * MAP4_STAIRS_RISE;
         const alongX = item.dirX !== 0;
-        for (let i = 0; i < MAP4_STAIRS_STEPS; i++) {
-          const t0 = i / MAP4_STAIRS_STEPS;
-          const t1 = (i + 1) / MAP4_STAIRS_STEPS;
-          const y0 = MAP4_STAIRS_RISE * t0;
-          const y1 = MAP4_STAIRS_RISE * t1;
-          const height = y1 - y0;
-          const depthAlong = (t1 - t0) * MAP4_STAIRS_RUN;
-          const centerAlong = ((t0 + t1) / 2) * MAP4_STAIRS_RUN;
-          const geo = alongX
-            ? new THREE.BoxGeometry(depthAlong, height, MAP4_STAIRS_WIDTH)
-            : new THREE.BoxGeometry(MAP4_STAIRS_WIDTH, height, depthAlong);
-          const step = new THREE.Mesh(geo, mat);
-          step.position.set(item.x + item.dirX * centerAlong, y0 + height / 2, item.z + item.dirZ * centerAlong);
-          step.receiveShadow = true;
-          group.add(step);
-        }
-        const landingCenterAlong = MAP4_STAIRS_RUN + MAP4_STAIRS_LANDING_DEPTH / 2;
-        const landingGeo = alongX
-          ? new THREE.BoxGeometry(MAP4_STAIRS_LANDING_DEPTH, 0.3, MAP4_STAIRS_WIDTH)
-          : new THREE.BoxGeometry(MAP4_STAIRS_WIDTH, 0.3, MAP4_STAIRS_LANDING_DEPTH);
-        const landing = new THREE.Mesh(landingGeo, mat);
-        landing.position.set(item.x + item.dirX * landingCenterAlong, MAP4_STAIRS_RISE - 0.15, item.z + item.dirZ * landingCenterAlong);
-        landing.receiveShadow = true;
-        group.add(landing);
-        scene.add(group);
-        return group;
+        const geo = alongX
+          ? new THREE.BoxGeometry(MAP4_STAIRS_DEPTH, topY, MAP4_STAIRS_WIDTH)
+          : new THREE.BoxGeometry(MAP4_STAIRS_WIDTH, topY, MAP4_STAIRS_DEPTH);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(item.x + item.dirX * (MAP4_STAIRS_DEPTH / 2), topY / 2, item.z + item.dirZ * (MAP4_STAIRS_DEPTH / 2));
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        return mesh;
       };
       Promise.all([loadCrateMaterial(), loadDrumMaterial()]).then(([crateMaterial, drumMaterial]) => {
         if (disposed) return;
         const drumCapMat = getDrumCapMaterial();
-        // One material-factory for every new Cypher Phunk accent piece —
-        // {color, emissive, emissiveIntensity, roughness} together is what
-        // gives them the same glowing-panel look as the reference sheet,
-        // matching the flat markers Map 5 itself used to use.
-        const accentMat = (color: number, opacity = 1) =>
+        // Every colorable Cypher Phunk piece (wall, floor tile, pillar,
+        // railing, door, light, stairs) uses the exact same textured
+        // sci-fi wall material as addWallMesh — not a flat untextured glow
+        // block — tinted by the chosen palette color (white/no tint for
+        // the wall's own DEFAULT swatch, so it reads exactly like every
+        // other plain wall in the game).
+        const texturedAccentMat = (color: number, width: number, height: number) =>
           new THREE.MeshStandardMaterial({
-            color,
-            emissive: color,
-            emissiveIntensity: 0.7,
-            roughness: 0.45,
-            metalness: 0.2,
-            transparent: opacity < 1,
-            opacity,
+            map: createSciFiWallTexture(Math.max(width, 0.5) / SCIFI_WALL_TILE_SIZE, Math.max(height, 0.5) / SCIFI_WALL_TILE_SIZE, wallMaxAnisotropy, 0),
+            color: color || 0xffffff,
+            roughness: 0.7,
+            metalness: 0.3,
           });
         const addBuildItemMesh = (item: Map4Item): THREE.Object3D => {
           if (item.kind === "wall") {
             if (!item.color) return addWallMesh(map4ItemRect(item), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
             const ob = map4ItemRect(item);
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), accentMat(item.color));
+            const mesh = new THREE.Mesh(
+              new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2),
+              texturedAccentMat(item.color, Math.max(ob.halfX, ob.halfZ) * 2, ROOM_WALL_HEIGHT),
+            );
             mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
             mesh.receiveShadow = true;
             scene.add(mesh);
@@ -3786,14 +3833,23 @@ function CombatArena({
             return mesh;
           }
           if (item.kind === "floorTile") {
-            const mesh = new THREE.Mesh(new THREE.PlaneGeometry(MAP4_FLOOR_TILE_SIZE, MAP4_FLOOR_TILE_SIZE), accentMat(item.color, 0.55));
+            const mesh = new THREE.Mesh(
+              new THREE.PlaneGeometry(MAP4_FLOOR_TILE_SIZE, MAP4_FLOOR_TILE_SIZE),
+              texturedAccentMat(item.color, MAP4_FLOOR_TILE_SIZE, MAP4_FLOOR_TILE_SIZE),
+            );
             mesh.rotation.x = -Math.PI / 2;
             mesh.position.set(item.x, 0.02, item.z);
             scene.add(mesh);
             return mesh;
           }
           if (item.kind === "pillar") {
-            const mesh = new THREE.Mesh(new THREE.CylinderGeometry(MAP4_PILLAR_RADIUS, MAP4_PILLAR_RADIUS, ROOM_WALL_HEIGHT, 16), accentMat(item.color));
+            // A square column, not a cylinder — the wall texture's UVs are
+            // built for flat panels, so a box reads correctly where a
+            // cylinder would smear/distort it around the curve.
+            const mesh = new THREE.Mesh(
+              new THREE.BoxGeometry(MAP4_PILLAR_RADIUS * 2, ROOM_WALL_HEIGHT, MAP4_PILLAR_RADIUS * 2),
+              texturedAccentMat(item.color, MAP4_PILLAR_RADIUS * 2, ROOM_WALL_HEIGHT),
+            );
             mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
             mesh.receiveShadow = true;
             scene.add(mesh);
@@ -3801,19 +3857,23 @@ function CombatArena({
           }
           if (item.kind === "railing") {
             const ob = map4ItemRect(item);
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, MAP4_RAILING_HEIGHT, ob.halfZ * 2), accentMat(item.color, 0.75));
+            const mesh = new THREE.Mesh(
+              new THREE.BoxGeometry(ob.halfX * 2, MAP4_RAILING_HEIGHT, ob.halfZ * 2),
+              texturedAccentMat(item.color, Math.max(ob.halfX, ob.halfZ) * 2, MAP4_RAILING_HEIGHT),
+            );
             mesh.position.set(item.x, MAP4_RAILING_HEIGHT / 2, item.z);
             scene.add(mesh);
             return mesh;
           }
-          if (item.kind === "door") return addDoorFrame(item, accentMat(item.color));
+          if (item.kind === "door") return addDoorFrame(item, texturedAccentMat(item.color, MAP4_DOOR_WIDTH, ROOM_WALL_HEIGHT));
           if (item.kind === "light") {
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(MAP4_LIGHT_LENGTH, 0.1, 0.25), accentMat(item.color));
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(MAP4_LIGHT_LENGTH, 0.1, 0.25), texturedAccentMat(item.color, MAP4_LIGHT_LENGTH, 0.25));
             mesh.position.set(item.x, 0.06, item.z);
             scene.add(mesh);
             return mesh;
           }
-          return addStairsMesh(item, accentMat(item.color));
+          const stairRank = computeStairRank(item, customItemsRef.current);
+          return addStairsMesh(item, texturedAccentMat(item.color, MAP4_STAIRS_WIDTH, (stairRank + 1) * MAP4_STAIRS_RISE));
         };
         customItemMeshesRef.current = customItemsRef.current.map((item) => {
           if (map4ItemBlocksMovement(item)) ACTIVE_OBSTACLES.push(map4ItemRect(item));
@@ -3885,7 +3945,7 @@ function CombatArena({
               return mesh;
             }
             if (item.kind === "pillar") {
-              const mesh = new THREE.Mesh(new THREE.CylinderGeometry(MAP4_PILLAR_RADIUS, MAP4_PILLAR_RADIUS, ROOM_WALL_HEIGHT, 16), buildPreviewMat);
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(MAP4_PILLAR_RADIUS * 2, ROOM_WALL_HEIGHT, MAP4_PILLAR_RADIUS * 2), buildPreviewMat);
               mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
               scene.add(mesh);
               return mesh;
@@ -3911,18 +3971,21 @@ function CombatArena({
               scene.add(mesh);
               return mesh;
             }
-            // stairs — a single bounding-box preview over the steps +
-            // landing footprint, rather than replicating the full stepped
-            // geometry twice.
-            const alongX = item.dirX !== 0;
-            const totalDepth = MAP4_STAIRS_RUN + MAP4_STAIRS_LANDING_DEPTH;
-            const dims: [number, number, number] = alongX
-              ? [totalDepth, MAP4_STAIRS_RISE, MAP4_STAIRS_WIDTH]
-              : [MAP4_STAIRS_WIDTH, MAP4_STAIRS_RISE, totalDepth];
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(...dims), buildPreviewMat);
-            mesh.position.set(item.x + item.dirX * (totalDepth / 2), MAP4_STAIRS_RISE / 2, item.z + item.dirZ * (totalDepth / 2));
-            scene.add(mesh);
-            return mesh;
+            // stairs — preview at this exact single step's own rank height
+            // (see computeStairRank), so re-aiming shows the real height it
+            // would land at, not a generic guess.
+            {
+              const rank = computeStairRank(item, customItemsRef.current);
+              const topY = (rank + 1) * MAP4_STAIRS_RISE;
+              const alongX = item.dirX !== 0;
+              const dims: [number, number, number] = alongX
+                ? [MAP4_STAIRS_DEPTH, topY, MAP4_STAIRS_WIDTH]
+                : [MAP4_STAIRS_WIDTH, topY, MAP4_STAIRS_DEPTH];
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(...dims), buildPreviewMat);
+              mesh.position.set(item.x + item.dirX * (MAP4_STAIRS_DEPTH / 2), topY / 2, item.z + item.dirZ * (MAP4_STAIRS_DEPTH / 2));
+              scene.add(mesh);
+              return mesh;
+            }
           },
           removeMesh: (obj) => scene.remove(obj),
           commitItem: (item) => {
@@ -4550,18 +4613,21 @@ function CombatArena({
           }
         }
 
-        // Player-placed Build Mode stairs (Map 4/5 only) — same along/perp
-        // ramp-band idea as Map 1's stairwells above, just per-instance
-        // (each placed stairs item carries its own base position and
-        // cardinal "up" direction, dirX/dirZ, instead of a fixed room grid)
-        // and with an extra flat band past the ramp for the small landing
-        // at the top. Unlike Map 1's stairwell, this explicitly resets Y to
-        // 0 when the player isn't within any placed stairs' band — Build
-        // Mode's ground is a single flat plane at y=0 everywhere else, so
-        // there's never a legitimate reason to stay elevated outside one,
-        // and leaving Y alone (Map 1's approach) would let the player drift
-        // off a landing's far edge and stay stuck floating, the same
-        // "flying" bug the old Map 5 had to solve with a full guard-rail.
+        // Player-placed Build Mode stairs (Map 4/5 only) — each placed
+        // stairs item is one single step (see computeStairRank), so the
+        // player's Y is a smooth lerp across just THAT step's own short
+        // MAP4_STAIRS_DEPTH span, from its rank's floor to its own tread
+        // height — climbing a whole chain is just walking through several
+        // of these bands back to back, each one rank higher than the last.
+        // MAP4_STAIRS_EDGE_MARGIN extends the band a little past the tread
+        // so stepping off the front of the topmost step in a chain doesn't
+        // immediately snap back to 0. Beyond that margin, this explicitly
+        // resets Y to 0 — Build Mode's ground is a single flat plane at
+        // y=0 everywhere else, so there's never a legitimate reason to
+        // stay elevated outside a step's own band, and leaving Y alone
+        // (Map 1's approach) would let the player drift off and stay stuck
+        // floating, the same "flying" bug the old Map 5 had to solve with
+        // a full guard-rail.
         if (mapId === 4 || mapId === 5) {
           let onStairs = false;
           for (const item of customItemsRef.current) {
@@ -4571,17 +4637,13 @@ function CombatArena({
             const along = dx * item.dirX + dz * item.dirZ;
             const perp = dz * item.dirX - dx * item.dirZ;
             if (Math.abs(perp) >= MAP4_STAIRS_WIDTH / 2) continue;
-            if (along >= -0.5 && along <= MAP4_STAIRS_RUN) {
-              const progress = clamp(along / MAP4_STAIRS_RUN, 0, 1);
-              player.root.position.y = THREE.MathUtils.lerp(0, MAP4_STAIRS_RISE, progress);
-              onStairs = true;
-              break;
-            }
-            if (along > MAP4_STAIRS_RUN && along <= MAP4_STAIRS_RUN + MAP4_STAIRS_LANDING_DEPTH) {
-              player.root.position.y = MAP4_STAIRS_RISE;
-              onStairs = true;
-              break;
-            }
+            const margin = isTopOfStairChain(item, customItemsRef.current) ? MAP4_STAIRS_EDGE_MARGIN : 0;
+            if (along < -0.3 || along > MAP4_STAIRS_DEPTH + margin) continue;
+            const rank = computeStairRank(item, customItemsRef.current);
+            const progress = clamp(along / MAP4_STAIRS_DEPTH, 0, 1);
+            player.root.position.y = THREE.MathUtils.lerp(rank * MAP4_STAIRS_RISE, (rank + 1) * MAP4_STAIRS_RISE, progress);
+            onStairs = true;
+            break;
           }
           if (!onStairs) player.root.position.y = 0;
         }
