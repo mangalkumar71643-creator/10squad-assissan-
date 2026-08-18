@@ -1052,6 +1052,13 @@ const BUILD_COLORS: { color: number; label: string }[] = [
 // undefined, which is just as falsy as 0).
 const BUILD_DEFAULT_WALL_COLOR = 0;
 const MAP4_FLOOR_TILE_SIZE = 4;
+// How close the player's own Y already needs to be to a floor tile's
+// stored height before it'll hold them there (see the mapId===4||5
+// stairs/floor block in the tick loop) — arriving off the stairs' own top
+// step or an adjacent tile is always well within this; standing on the
+// ground under a meaningfully elevated tile is not, so walking underneath
+// one no longer teleports the player up onto it.
+const MAP4_FLOOR_TILE_SNAP_TOLERANCE = 0.5;
 const MAP4_PILLAR_RADIUS = 0.5;
 const MAP4_RAILING_LENGTH = 4;
 const MAP4_RAILING_THICKNESS = 0.4;
@@ -4691,9 +4698,18 @@ function CombatArena({
         // Floor tiles: unlike every other decorative kind, a floor tile
         // holds the player at its own stored y (flat, no lerp — it's a
         // platform, not a ramp) for as long as they're standing on its
-        // footprint. This is what actually lets stairs lead somewhere —
-        // build a floor at the top of a chain and it's real ground up
-        // there, not just a floating decal the player falls through.
+        // footprint AND already close to its height. This is what actually
+        // lets stairs lead somewhere — build a floor at the top of a chain
+        // and it's real ground up there, not just a floating decal the
+        // player falls through. The height check is what stops walking
+        // underneath a floor from teleporting the player up onto it —
+        // without it, being anywhere in the footprint (including standing
+        // on the ground directly below an elevated tile) snapped y straight
+        // up to the tile regardless of how far below it the player
+        // actually was, which read as randomly flying upward. A real
+        // arrival — off the stairs' own top step, or off an adjacent tile
+        // at the same height — always has the player already at very
+        // nearly the tile's own y, so this costs nothing there.
         // Outside of any stairs band or floor tile footprint, this
         // explicitly resets Y to 0 — Build Mode's base ground is a single
         // flat plane at y=0 everywhere else, so there's never a legitimate
@@ -4721,11 +4737,13 @@ function CombatArena({
           if (!grounded) {
             for (const item of customItemsRef.current) {
               if (item.kind !== "floorTile") continue;
+              const tileY = item.y ?? 0;
               if (
                 Math.abs(player.root.position.x - item.x) < MAP4_FLOOR_TILE_SIZE / 2 &&
-                Math.abs(player.root.position.z - item.z) < MAP4_FLOOR_TILE_SIZE / 2
+                Math.abs(player.root.position.z - item.z) < MAP4_FLOOR_TILE_SIZE / 2 &&
+                Math.abs(player.root.position.y - tileY) < MAP4_FLOOR_TILE_SNAP_TOLERANCE
               ) {
-                player.root.position.y = item.y ?? 0;
+                player.root.position.y = tileY;
                 grounded = true;
                 break;
               }
