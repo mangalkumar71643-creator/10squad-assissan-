@@ -462,6 +462,13 @@ interface Obstacle {
   halfX: number;
   halfZ: number;
   pad: number;
+  // Undefined (every ground-level obstacle) means "always collides,
+  // regardless of height" — the game has no vertical collision anywhere
+  // else, so this stays opt-in and only an elevated Map4/5 railing (see
+  // Map4Railing.y) ever sets it. When set, resolveObstacleCollisions only
+  // pushes the player out while their own y is within reach of this
+  // obstacle's actual vertical span (its base y up to y + its height).
+  y?: number;
 }
 
 // Two wall segments per side (north/south run along x, east/west run along
@@ -1063,6 +1070,12 @@ const MAP4_PILLAR_RADIUS = 0.5;
 const MAP4_RAILING_LENGTH = 4;
 const MAP4_RAILING_THICKNESS = 0.4;
 const MAP4_RAILING_HEIGHT = 1.1;
+// Vertical margin either side of a railing's own [y, y + MAP4_RAILING_HEIGHT]
+// span before its collision stops applying — generous enough to still block
+// someone approaching at foot level right at its base or its top landing,
+// but not so wide that a rail placed on an elevated floor tile reaches all
+// the way back down and blocks the ground underneath it too.
+const MAP4_RAILING_COLLISION_MARGIN = 0.5;
 const MAP4_DOOR_WIDTH = 4;
 const MAP4_DOOR_POST_THICKNESS = 0.3;
 const MAP4_LIGHT_LENGTH = 2;
@@ -1135,11 +1148,18 @@ interface Map4Pillar {
   z: number;
   color: number;
 }
-// A low barrier segment — collidable, like a short thin wall.
+// A low barrier segment — collidable, like a short thin wall. Same
+// player's-current-height placement as a floor tile (see Map4FloorTile):
+// optional and falsy-defaults to 0 (ground) so it can also be dropped on
+// top of a floor tile or a stair landing, not just on the ground — its
+// collision (see the Obstacle.y band check in resolveObstacleCollisions)
+// follows it up there too, instead of leaving an invisible ground-level
+// wall under an elevated rail nobody standing up there can see.
 interface Map4Railing {
   kind: "railing";
   x: number;
   z: number;
+  y?: number;
   axis: "x" | "z";
   color: number;
 }
@@ -1248,7 +1268,10 @@ function isValidMap4Item(it: unknown): it is Map4Item {
       i.kind === "drum" ||
       (i.kind === "floorTile" && typeof i.color === "number" && (i.y === undefined || typeof i.y === "number")) ||
       (i.kind === "pillar" && typeof i.color === "number") ||
-      (i.kind === "railing" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
+      (i.kind === "railing" &&
+        (i.axis === "x" || i.axis === "z") &&
+        typeof i.color === "number" &&
+        (i.y === undefined || typeof i.y === "number")) ||
       (i.kind === "door" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
       (i.kind === "light" && typeof i.color === "number") ||
       (i.kind === "stairs" && typeof i.dirX === "number" && typeof i.dirZ === "number" && typeof i.color === "number"))
@@ -1327,8 +1350,8 @@ function map4ItemRect(it: Map4Item): Obstacle {
   }
   if (it.kind === "railing") {
     return it.axis === "x"
-      ? { x: it.x, z: it.z, halfX: MAP4_RAILING_LENGTH / 2, halfZ: MAP4_RAILING_THICKNESS / 2, pad: ROOM_PAD }
-      : { x: it.x, z: it.z, halfX: MAP4_RAILING_THICKNESS / 2, halfZ: MAP4_RAILING_LENGTH / 2, pad: ROOM_PAD };
+      ? { x: it.x, z: it.z, halfX: MAP4_RAILING_LENGTH / 2, halfZ: MAP4_RAILING_THICKNESS / 2, pad: ROOM_PAD, y: it.y ?? 0 }
+      : { x: it.x, z: it.z, halfX: MAP4_RAILING_THICKNESS / 2, halfZ: MAP4_RAILING_LENGTH / 2, pad: ROOM_PAD, y: it.y ?? 0 };
   }
   // floorTile / door / light / stairs never reach here — map4ItemBlocksMovement
   // guards every ACTIVE_OBSTACLES.push call site — but the function needs an
@@ -1541,8 +1564,14 @@ const DOORS: Door[] = [
 
 // Pushes a fighter's x/z position out of any obstacle's footprint, kicking
 // it out along whichever axis has the least overlap.
-function resolveObstacleCollisions(pos: { x: number; z: number }) {
+function resolveObstacleCollisions(pos: { x: number; z: number }, currentY = 0) {
   for (const ob of ACTIVE_OBSTACLES) {
+    if (
+      ob.y !== undefined &&
+      (currentY < ob.y - MAP4_RAILING_COLLISION_MARGIN || currentY > ob.y + MAP4_RAILING_HEIGHT + MAP4_RAILING_COLLISION_MARGIN)
+    ) {
+      continue;
+    }
     const halfX = ob.halfX + ob.pad;
     const halfZ = ob.halfZ + ob.pad;
     const dx = pos.x - ob.x;
@@ -2369,7 +2398,7 @@ function moveWithAvoidance(
 
   rig.root.position.x = clamp(rig.root.position.x + moveX * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
   rig.root.position.z = clamp(rig.root.position.z + moveZ * speed * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-  resolveObstacleCollisions(rig.root.position);
+  resolveObstacleCollisions(rig.root.position, rig.root.position.y);
   const moved = Math.hypot(rig.root.position.x - beforeX, rig.root.position.z - beforeZ);
   if (moved < speed * dt * 0.3) {
     st.stuckT += dt;
@@ -3964,7 +3993,7 @@ function CombatArena({
               new THREE.BoxGeometry(ob.halfX * 2, MAP4_RAILING_HEIGHT, ob.halfZ * 2),
               texturedAccentMat(item.color, Math.max(ob.halfX, ob.halfZ) * 2, MAP4_RAILING_HEIGHT),
             );
-            mesh.position.set(item.x, MAP4_RAILING_HEIGHT / 2, item.z);
+            mesh.position.set(item.x, (item.y ?? 0) + MAP4_RAILING_HEIGHT / 2, item.z);
             scene.add(mesh);
             return mesh;
           }
@@ -4062,7 +4091,7 @@ function CombatArena({
             if (item.kind === "railing") {
               const ob = map4ItemRect(item);
               const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, MAP4_RAILING_HEIGHT, ob.halfZ * 2), buildPreviewMat);
-              mesh.position.set(item.x, MAP4_RAILING_HEIGHT / 2, item.z);
+              mesh.position.set(item.x, (item.y ?? 0) + MAP4_RAILING_HEIGHT / 2, item.z);
               scene.add(mesh);
               return mesh;
             }
@@ -4115,7 +4144,9 @@ function CombatArena({
           removeCollisionRect: (item) => {
             if (map4ItemBlocksMovement(item)) {
               const rect = map4ItemRect(item);
-              const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === rect.x && o.z === rect.z && o.halfX === rect.halfX && o.halfZ === rect.halfZ);
+              const idx = ACTIVE_OBSTACLES.findIndex(
+                (o) => o.x === rect.x && o.z === rect.z && o.halfX === rect.halfX && o.halfZ === rect.halfZ && o.y === rect.y,
+              );
               if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
             }
             if (item.kind === "stairs") {
@@ -4711,7 +4742,7 @@ function CombatArena({
           mapId === 4 || mapId === 5
             ? clamp(player.root.position.z + playerVelZ * dt, MAP4_ORIGIN.z - MAP4_PLAY_HALF + 0.4, MAP4_ORIGIN.z + MAP4_PLAY_HALF - 0.4)
             : clamp(player.root.position.z + playerVelZ * dt, -ARENA_HALF + 0.4, ARENA_HALF - 0.4);
-        resolveObstacleCollisions(player.root.position);
+        resolveObstacleCollisions(player.root.position, player.root.position.y);
 
         // Walking down each house's stairwell (see ROOM_STAIRS_DOWN_POS/
         // ROOM_TUNNEL_DIR for its footprint) continuously follows the
@@ -5279,7 +5310,7 @@ function CombatArena({
               : buildPlaceKind === "pillar"
                 ? { kind: "pillar", x, z, color: buildColor }
                 : buildPlaceKind === "railing"
-                  ? { kind: "railing", x, z, axis: facing.axis, color: buildColor }
+                  ? { kind: "railing", x, z, y: facing.y, axis: facing.axis, color: buildColor }
                   : buildPlaceKind === "door"
                     ? { kind: "door", x, z, axis: facing.axis, color: buildColor }
                     : buildPlaceKind === "light"
