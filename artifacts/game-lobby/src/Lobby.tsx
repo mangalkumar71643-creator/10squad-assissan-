@@ -1083,6 +1083,11 @@ const MAP4_PLACE_DISTANCE_STEP = 1;
 const MAP4_EDIT_PICK_MAX_DIST = 20;
 const MAP4_EDIT_PICK_CONE_TAN = 0.29;
 const MAP4_EDIT_NUDGE_STEP = 0.5;
+// UP/DOWN moves in much finer increments than the horizontal directions —
+// height differences read as much more noticeable at this scale (a stair
+// rise is only 0.35m) than the same distance sideways, so a coarser step
+// there would make it hard to land on a precise height.
+const MAP4_EDIT_VERTICAL_STEP = 0.1;
 // How close the player's own Y already needs to be to a stairs step's or
 // floor tile's own height before either will hold them there (see the
 // mapId===4||5 stairs/floor block in the tick loop) — arriving off the
@@ -5564,7 +5569,7 @@ function CombatArena({
     if (!item || !mesh) return;
     let movedItem: Map4Item;
     if (dir === "up" || dir === "down") {
-      const deltaY = (dir === "up" ? 1 : -1) * MAP4_EDIT_NUDGE_STEP;
+      const deltaY = (dir === "up" ? 1 : -1) * MAP4_EDIT_VERTICAL_STEP;
       movedItem =
         item.kind === "stairs" ? { ...item, baseY: Math.max(0, (item.baseY ?? 0) + deltaY) } : { ...item, y: Math.max(0, (item.y ?? 0) + deltaY) };
     } else {
