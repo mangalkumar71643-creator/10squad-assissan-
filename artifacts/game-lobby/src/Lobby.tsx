@@ -1068,6 +1068,14 @@ const MAP4_PLACE_DISTANCE_MIN = 1.5;
 const MAP4_PLACE_DISTANCE_MAX = 15;
 const MAP4_PLACE_DISTANCE_DEFAULT = 4;
 const MAP4_PLACE_DISTANCE_STEP = 1;
+// AIM (see handleBuildAimToggle/handleBuildNudge): re-picking an already
+// placed piece to nudge its position afterward, instead of only being able
+// to REMOVE and redo it from scratch. Aiming picks whichever placed piece
+// is most directly in front of the player, within this cone (perpendicular
+// offset from the aim line) and this max range.
+const MAP4_EDIT_PICK_MAX_DIST = 20;
+const MAP4_EDIT_PICK_PERP_MAX = 3;
+const MAP4_EDIT_NUDGE_STEP = 0.5;
 // How close the player's own Y already needs to be to a stairs step's or
 // floor tile's own height before either will hold them there (see the
 // mapId===4||5 stairs/floor block in the tick loop) — arriving off the
@@ -3086,6 +3094,8 @@ function CombatArena({
     removeMesh: (obj: THREE.Object3D) => void;
     commitItem: (item: Map4Item) => THREE.Object3D;
     removeCollisionRect: (item: Map4Item) => void;
+    pickAimedItem: (items: Map4Item[]) => number | null;
+    nudgeDirs: () => { fwdX: number; fwdZ: number; rightX: number; rightZ: number } | null;
   } | null>(null);
   // The piece(s) currently staged by SELECT (world position + orientation)
   // and their translucent preview meshes, cleared once PLACE commits them
@@ -3138,6 +3148,12 @@ function CombatArena({
   useEffect(() => {
     buildPlaceDistanceRef.current = buildPlaceDistance;
   }, [buildPlaceDistance]);
+  // AIM: index into customItemsRef.current of the already-placed piece
+  // currently being repositioned, or null when nothing's being edited —
+  // see handleBuildAimToggle/handleBuildNudge. Null-checked everywhere
+  // it's read since REMOVE (LIFO, unrelated to this) is disabled while
+  // editing specifically to avoid it ever going stale mid-edit.
+  const [buildEditIndex, setBuildEditIndex] = useState<number | null>(null);
   const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
   // BACKUP: shows both a short cloud code (a few characters, needs
   // internet — see MAP4_CLOUD_API) and a longer text code that works
@@ -4071,6 +4087,48 @@ function CombatArena({
               dirX,
               dirZ,
             };
+          },
+          // AIM: which already-placed item (if any) is the player currently
+          // looking at, so it can be picked up for nudging (see
+          // handleBuildAimToggle/handleBuildNudge) instead of only ever
+          // being removable outright. Same cardinal-snapped forward
+          // direction as getPlayerFacing, projected along/perp against
+          // every candidate the same way computeStairRank already does —
+          // the closest one within the forward cone wins.
+          pickAimedItem: (items) => {
+            if (!player) return null;
+            const playerPos = player.root.position;
+            const forwardX = Math.sin(cameraYaw.current);
+            const forwardZ = Math.cos(cameraYaw.current);
+            const dirX = Math.abs(forwardX) > Math.abs(forwardZ) ? Math.sign(forwardX) : 0;
+            const dirZ = Math.abs(forwardX) > Math.abs(forwardZ) ? 0 : Math.sign(forwardZ);
+            let bestIdx: number | null = null;
+            let bestAlong = Infinity;
+            items.forEach((item, idx) => {
+              const dx = item.x - playerPos.x;
+              const dz = item.z - playerPos.z;
+              const along = dx * dirX + dz * dirZ;
+              if (along <= 0 || along > MAP4_EDIT_PICK_MAX_DIST) return;
+              const perp = dz * dirX - dx * dirZ;
+              if (Math.abs(perp) > MAP4_EDIT_PICK_PERP_MAX) return;
+              if (along < bestAlong) {
+                bestAlong = along;
+                bestIdx = idx;
+              }
+            });
+            return bestIdx;
+          },
+          // The same cardinal forward/right vectors AIM's targeting uses,
+          // exposed so the nudge D-pad moves a picked item relative to
+          // wherever the player's currently looking — "forward" walks it
+          // further away, "right" slides it to the player's right, etc.
+          nudgeDirs: () => {
+            if (!player) return null;
+            const forwardX = Math.sin(cameraYaw.current);
+            const forwardZ = Math.cos(cameraYaw.current);
+            const fwdX = Math.abs(forwardX) > Math.abs(forwardZ) ? Math.sign(forwardX) : 0;
+            const fwdZ = Math.abs(forwardX) > Math.abs(forwardZ) ? 0 : Math.sign(forwardZ);
+            return { fwdX, fwdZ, rightX: -fwdZ, rightZ: fwdX };
           },
           addPreviewMesh: (item) => {
             if (item.kind === "wall") {
@@ -5365,10 +5423,14 @@ function CombatArena({
   };
   // Undoes the most recently committed piece — wall or obstacle,
   // whichever was placed last (last in, first out) — simpler and more
-  // predictable than targeting/raycasting a specific one.
+  // predictable than targeting/raycasting a specific one. Blocked while
+  // AIM has a piece picked up (see buildEditIndex): REMOVE is LIFO by
+  // array position, and the picked piece isn't necessarily the last one,
+  // so letting the two interleave could delete the wrong piece or leave
+  // buildEditIndex pointing at whatever shifted into its old slot.
   const handleBuildRemoveItem = () => {
     const api = buildModeRef.current;
-    if (!api || customItemsRef.current.length === 0) return;
+    if (!api || customItemsRef.current.length === 0 || buildEditIndex !== null) return;
     const lastItem = customItemsRef.current[customItemsRef.current.length - 1];
     const lastMesh = customItemMeshesRef.current[customItemMeshesRef.current.length - 1];
     api.removeMesh(lastMesh);
@@ -5376,6 +5438,48 @@ function CombatArena({
     customItemsRef.current = customItemsRef.current.slice(0, -1);
     customItemMeshesRef.current = customItemMeshesRef.current.slice(0, -1);
     setBuildItemCount(customItemsRef.current.length);
+  };
+  // AIM: pressed once with nothing picked up, it finds whichever placed
+  // piece the player's most directly facing (see pickAimedItem) and picks
+  // it up for repositioning; pressed again while one's already picked up,
+  // it just drops it back down (there's nothing to "confirm" — every nudge
+  // already committed the moved position live, see handleBuildNudge).
+  const handleBuildAimToggle = () => {
+    if (buildEditIndex !== null) {
+      setBuildEditIndex(null);
+      return;
+    }
+    const api = buildModeRef.current;
+    if (!api) return;
+    const idx = api.pickAimedItem(customItemsRef.current);
+    if (idx !== null) setBuildEditIndex(idx);
+  };
+  // Slides the picked-up piece one MAP4_EDIT_NUDGE_STEP in the given
+  // direction, relative to wherever the player's currently facing (see
+  // nudgeDirs). Reuses commitItem/removeCollisionRect wholesale rather
+  // than hand-rolling a "just move this mesh" path — that's what already
+  // rebuilds the right mesh geometry (a stairs step's own rank-dependent
+  // height, a railing's own placed-height, etc.) and re-pushes the right
+  // collision rect(s) (including stairs' two side rails) at the new spot,
+  // so a nudged piece behaves identically to one placed there fresh.
+  const handleBuildNudge = (dir: "forward" | "back" | "left" | "right") => {
+    const api = buildModeRef.current;
+    if (!api || buildEditIndex === null) return;
+    const dirs = api.nudgeDirs();
+    if (!dirs) return;
+    const item = customItemsRef.current[buildEditIndex];
+    const mesh = customItemMeshesRef.current[buildEditIndex];
+    if (!item || !mesh) return;
+    const sign = dir === "forward" || dir === "right" ? 1 : -1;
+    const useRight = dir === "left" || dir === "right";
+    const moveX = (useRight ? dirs.rightX : dirs.fwdX) * sign * MAP4_EDIT_NUDGE_STEP;
+    const moveZ = (useRight ? dirs.rightZ : dirs.fwdZ) * sign * MAP4_EDIT_NUDGE_STEP;
+    const movedItem: Map4Item = { ...item, x: item.x + moveX, z: item.z + moveZ };
+    api.removeMesh(mesh);
+    api.removeCollisionRect(item);
+    const newMesh = api.commitItem(movedItem);
+    customItemsRef.current = customItemsRef.current.map((it, i) => (i === buildEditIndex ? movedItem : it));
+    customItemMeshesRef.current = customItemMeshesRef.current.map((m, i) => (i === buildEditIndex ? newMesh : m));
   };
   const handleBuildSave = () => {
     saveMap4Items(activeBuildItemsKey, customItemsRef.current);
@@ -6287,62 +6391,127 @@ function CombatArena({
                 )}
               </div>
 
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleBuildSelect();
-                }}
-                aria-label="Select area"
-                style={{
-                  position: "absolute",
-                  right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
-                  bottom: "9%",
-                  width: "clamp(72px, 13vw, 100px)",
-                  height: "clamp(72px, 13vw, 100px)",
-                  borderRadius: "50%",
-                  background: "radial-gradient(circle, #baf0ff, #2f9fd8)",
-                  border: "2px solid rgba(210,245,255,0.85)",
-                  boxShadow: "0 0 20px rgba(80,190,255,0.6)",
-                  color: "#06212e",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.05em",
-                  fontSize: "clamp(12px, 1.9vw, 15px)",
-                  cursor: "pointer",
-                  opacity: settings.buttonOpacity,
-                }}
-              >
-                SELECT
-              </button>
+              {buildEditIndex === null && (
+                <>
+                  <button
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      handleBuildSelect();
+                    }}
+                    aria-label="Select area"
+                    style={{
+                      position: "absolute",
+                      right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+                      bottom: "9%",
+                      width: "clamp(72px, 13vw, 100px)",
+                      height: "clamp(72px, 13vw, 100px)",
+                      borderRadius: "50%",
+                      background: "radial-gradient(circle, #baf0ff, #2f9fd8)",
+                      border: "2px solid rgba(210,245,255,0.85)",
+                      boxShadow: "0 0 20px rgba(80,190,255,0.6)",
+                      color: "#06212e",
+                      fontFamily: "'Rajdhani', sans-serif",
+                      fontWeight: 700,
+                      letterSpacing: "0.05em",
+                      fontSize: "clamp(12px, 1.9vw, 15px)",
+                      cursor: "pointer",
+                      opacity: settings.buttonOpacity,
+                    }}
+                  >
+                    SELECT
+                  </button>
 
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleBuildPlaceItem();
-                }}
-                disabled={!buildHasSelection}
-                aria-label="Place item"
-                style={{
-                  position: "absolute",
-                  right: "7%",
-                  bottom: "9%",
-                  width: "clamp(72px, 13vw, 100px)",
-                  height: "clamp(72px, 13vw, 100px)",
-                  borderRadius: "50%",
-                  background: buildHasSelection ? "radial-gradient(circle, #ffe2a6, #d88a2c)" : "rgba(255,255,255,0.1)",
-                  border: buildHasSelection ? "2px solid rgba(255,235,210,0.85)" : "1px solid rgba(200,220,240,0.35)",
-                  boxShadow: buildHasSelection ? "0 0 20px rgba(255,170,40,0.6)" : "none",
-                  color: buildHasSelection ? "#2e1c06" : "rgba(220,230,240,0.5)",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.03em",
-                  fontSize: "clamp(10px, 1.6vw, 12px)",
-                  cursor: buildHasSelection ? "pointer" : "default",
-                  opacity: settings.buttonOpacity,
-                }}
-              >
-                {buildPlaceKind === "wall" ? "WALL" : buildPlaceKind === "obstacle" ? "OBSTACLE" : "DRUM"}
-              </button>
+                  <button
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      handleBuildPlaceItem();
+                    }}
+                    disabled={!buildHasSelection}
+                    aria-label="Place item"
+                    style={{
+                      position: "absolute",
+                      right: "7%",
+                      bottom: "9%",
+                      width: "clamp(72px, 13vw, 100px)",
+                      height: "clamp(72px, 13vw, 100px)",
+                      borderRadius: "50%",
+                      background: buildHasSelection ? "radial-gradient(circle, #ffe2a6, #d88a2c)" : "rgba(255,255,255,0.1)",
+                      border: buildHasSelection ? "2px solid rgba(255,235,210,0.85)" : "1px solid rgba(200,220,240,0.35)",
+                      boxShadow: buildHasSelection ? "0 0 20px rgba(255,170,40,0.6)" : "none",
+                      color: buildHasSelection ? "#2e1c06" : "rgba(220,230,240,0.5)",
+                      fontFamily: "'Rajdhani', sans-serif",
+                      fontWeight: 700,
+                      letterSpacing: "0.03em",
+                      fontSize: "clamp(10px, 1.6vw, 12px)",
+                      cursor: buildHasSelection ? "pointer" : "default",
+                      opacity: settings.buttonOpacity,
+                    }}
+                  >
+                    {buildPlaceKind === "wall" ? "WALL" : buildPlaceKind === "obstacle" ? "OBSTACLE" : "DRUM"}
+                  </button>
+                </>
+              )}
+
+              {/* AIM's nudge D-pad takes over the SELECT/PLACE corner while
+                  a piece is picked up — those two don't mean anything mid-
+                  edit (you're repositioning an existing piece, not staging
+                  a new one), so swapping them out avoids a cluttered corner
+                  with buttons that don't apply. FWD/BACK and LEFT/RIGHT are
+                  relative to wherever the player's currently facing, same
+                  as handleBuildNudge itself. */}
+              {buildEditIndex !== null && (
+                <div
+                  style={{
+                    position: "absolute",
+                    right: "7%",
+                    bottom: "7%",
+                    width: "clamp(150px, 28vw, 210px)",
+                    height: "clamp(150px, 28vw, 210px)",
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr 1fr",
+                    gridTemplateRows: "1fr 1fr 1fr",
+                    gap: 6,
+                    opacity: settings.buttonOpacity,
+                  }}
+                >
+                  {(
+                    [
+                      [null, "forward", null],
+                      ["left", null, "right"],
+                      [null, "back", null],
+                    ] as const
+                  ).map((row, rowIdx) =>
+                    row.map((dir, colIdx) =>
+                      dir ? (
+                        <button
+                          key={dir}
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            handleBuildNudge(dir);
+                          }}
+                          aria-label={`Nudge ${dir}`}
+                          style={{
+                            gridColumn: colIdx + 1,
+                            gridRow: rowIdx + 1,
+                            borderRadius: 8,
+                            background: "rgba(107,216,255,0.3)",
+                            border: "1px solid rgba(190,235,255,0.8)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 20,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
+                        </button>
+                      ) : (
+                        <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
+                      ),
+                    ),
+                  )}
+                </div>
+              )}
 
               {/* SAVE/REMOVE sit below the WALL/OBSTACLE/DRUM tabs (and the
                   HP bar, which now shows in Map 4 too since its 20 bots
@@ -6377,7 +6546,7 @@ function CombatArena({
                   e.preventDefault();
                   handleBuildRemoveItem();
                 }}
-                disabled={buildItemCount === 0}
+                disabled={buildItemCount === 0 || buildEditIndex !== null}
                 aria-label="Remove last item"
                 style={{
                   position: "absolute",
@@ -6385,17 +6554,49 @@ function CombatArena({
                   left: 96,
                   padding: "8px 18px",
                   borderRadius: 6,
-                  background: buildItemCount === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
-                  border: buildItemCount === 0 ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
-                  color: buildItemCount === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
+                  background: buildItemCount === 0 || buildEditIndex !== null ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
+                  border: buildItemCount === 0 || buildEditIndex !== null ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
+                  color: buildItemCount === 0 || buildEditIndex !== null ? "rgba(220,230,240,0.4)" : "#ffb3ac",
                   fontFamily: "'Rajdhani', sans-serif",
                   fontWeight: 700,
                   letterSpacing: "0.06em",
                   fontSize: 13,
-                  cursor: buildItemCount === 0 ? "default" : "pointer",
+                  cursor: buildItemCount === 0 || buildEditIndex !== null ? "default" : "pointer",
                 }}
               >
                 REMOVE
+              </button>
+
+              {/* AIM: pick up whichever placed piece the player's most
+                  directly facing and nudge its position afterward, instead
+                  of only ever being able to REMOVE and redo it from
+                  scratch (see handleBuildAimToggle/handleBuildNudge). Sits
+                  in its own row below BACKUP/RESTORE — the other utility
+                  buttons are all 2-per-row already. */}
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildAimToggle();
+                }}
+                disabled={buildEditIndex === null && buildItemCount === 0}
+                aria-label="Aim edit"
+                style={{
+                  position: "absolute",
+                  top: 220,
+                  left: 16,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: buildEditIndex !== null ? "rgba(107,216,255,0.35)" : "rgba(255,255,255,0.1)",
+                  border: buildEditIndex !== null ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.4)",
+                  color: buildEditIndex === null && buildItemCount === 0 ? "rgba(220,230,240,0.4)" : "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: buildEditIndex === null && buildItemCount === 0 ? "default" : "pointer",
+                }}
+              >
+                {buildEditIndex !== null ? "DONE" : "AIM"}
               </button>
 
               {/* BACKUP/RESTORE: a short cloud code (needs internet) plus a
