@@ -1128,12 +1128,19 @@ const MAP4_STAIRS_EDGE_MARGIN = 1;
 // swatches when the stairs tab is active.
 const MAP4_STAIRS_COUNT_MIN = 1;
 const MAP4_STAIRS_COUNT_MAX = 20;
+// y on every kind below (not just floor tile/railing/stairs) — see
+// handleBuildNudge's up/down direction: AIM's D-pad can lift or drop
+// ANY picked-up piece, not just the three that already had an elevation
+// concept baked into their own placement (facing.y). Optional and
+// falsy-defaults to 0 (ground) so every piece saved before this existed
+// still loads and renders exactly where it always did.
 interface Map4Wall {
   kind: "wall";
   x: number;
   z: number;
   axis: "x" | "z"; // the wall's long axis — "x" blocks north/south movement, "z" blocks east/west
   length: number;
+  y?: number;
   // Falsy (0 or absent, i.e. every wall saved before this existed) = the
   // classic plain gray textured wall; one of BUILD_COLORS = a glowing
   // Cypher Phunk accent wall instead.
@@ -1145,12 +1152,14 @@ interface Map4Crate {
   z: number;
   size: number; // full cube width/depth (2 * half-extent)
   rotY: number;
+  y?: number;
 }
 interface Map4Drum {
   kind: "drum";
   x: number;
   z: number;
   rotY: number;
+  y?: number;
 }
 // Flat glowing floor patch — walkable, no horizontal collision, but (unlike
 // every other decorative kind) it DOES support the player's Y: it's placed
@@ -1172,6 +1181,7 @@ interface Map4Pillar {
   kind: "pillar";
   x: number;
   z: number;
+  y?: number;
   color: number;
 }
 // A low barrier segment — collidable, like a short thin wall. Same
@@ -1197,6 +1207,7 @@ interface Map4Door {
   x: number;
   z: number;
   axis: "x" | "z";
+  y?: number;
   color: number;
 }
 // A small glowing floor-mounted light strip — decorative, no collision.
@@ -1204,6 +1215,7 @@ interface Map4Light {
   kind: "light";
   x: number;
   z: number;
+  y?: number;
   color: number;
 }
 // A single stair step — the one placeable piece that's actually functional
@@ -1301,15 +1313,13 @@ function isValidMap4Item(it: unknown): it is Map4Item {
     !!i &&
     typeof i.x === "number" &&
     typeof i.z === "number" &&
+    (i.y === undefined || typeof i.y === "number") &&
     ((i.kind === "wall" && (i.axis === "x" || i.axis === "z") && typeof i.length === "number") ||
       (i.kind === "obstacle" && typeof i.size === "number") ||
       i.kind === "drum" ||
-      (i.kind === "floorTile" && typeof i.color === "number" && (i.y === undefined || typeof i.y === "number")) ||
+      (i.kind === "floorTile" && typeof i.color === "number") ||
       (i.kind === "pillar" && typeof i.color === "number") ||
-      (i.kind === "railing" &&
-        (i.axis === "x" || i.axis === "z") &&
-        typeof i.color === "number" &&
-        (i.y === undefined || typeof i.y === "number")) ||
+      (i.kind === "railing" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
       (i.kind === "door" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
       (i.kind === "light" && typeof i.color === "number") ||
       (i.kind === "stairs" &&
@@ -1375,20 +1385,20 @@ function map4ItemBlocksMovement(it: Map4Item): boolean {
 function map4ItemRect(it: Map4Item): Obstacle {
   if (it.kind === "wall") {
     return it.axis === "x"
-      ? { x: it.x, z: it.z, halfX: it.length / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD }
-      : { x: it.x, z: it.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: it.length / 2, pad: ROOM_PAD };
+      ? { x: it.x, z: it.z, halfX: it.length / 2, halfZ: ROOM_WALL_THICKNESS / 2, pad: ROOM_PAD, y: it.y ?? 0, yHeight: ROOM_WALL_HEIGHT }
+      : { x: it.x, z: it.z, halfX: ROOM_WALL_THICKNESS / 2, halfZ: it.length / 2, pad: ROOM_PAD, y: it.y ?? 0, yHeight: ROOM_WALL_HEIGHT };
   }
   if (it.kind === "drum") {
     // Collision is still an axis-aligned rect (like every other Obstacle
     // in the game) — a square bounding box around the round footprint,
     // same approximation the crates already use for their own cubes.
-    return { x: it.x, z: it.z, halfX: MAP4_DRUM_RADIUS, halfZ: MAP4_DRUM_RADIUS, pad: ROOM_PAD };
+    return { x: it.x, z: it.z, halfX: MAP4_DRUM_RADIUS, halfZ: MAP4_DRUM_RADIUS, pad: ROOM_PAD, y: it.y ?? 0, yHeight: MAP4_DRUM_HEIGHT };
   }
   if (it.kind === "obstacle") {
-    return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD };
+    return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD, y: it.y ?? 0, yHeight: it.size };
   }
   if (it.kind === "pillar") {
-    return { x: it.x, z: it.z, halfX: MAP4_PILLAR_RADIUS, halfZ: MAP4_PILLAR_RADIUS, pad: ROOM_PAD };
+    return { x: it.x, z: it.z, halfX: MAP4_PILLAR_RADIUS, halfZ: MAP4_PILLAR_RADIUS, pad: ROOM_PAD, y: it.y ?? 0, yHeight: ROOM_WALL_HEIGHT };
   }
   if (it.kind === "railing") {
     return it.axis === "x"
@@ -3978,14 +3988,15 @@ function CombatArena({
         const postA = new THREE.Mesh(postGeo, mat);
         const postB = new THREE.Mesh(postGeo, mat);
         const lintel = new THREE.Mesh(lintelGeo, mat);
+        const baseY = item.y ?? 0;
         if (item.axis === "x") {
-          postA.position.set(item.x - MAP4_DOOR_WIDTH / 2, postH / 2, item.z);
-          postB.position.set(item.x + MAP4_DOOR_WIDTH / 2, postH / 2, item.z);
+          postA.position.set(item.x - MAP4_DOOR_WIDTH / 2, baseY + postH / 2, item.z);
+          postB.position.set(item.x + MAP4_DOOR_WIDTH / 2, baseY + postH / 2, item.z);
         } else {
-          postA.position.set(item.x, postH / 2, item.z - MAP4_DOOR_WIDTH / 2);
-          postB.position.set(item.x, postH / 2, item.z + MAP4_DOOR_WIDTH / 2);
+          postA.position.set(item.x, baseY + postH / 2, item.z - MAP4_DOOR_WIDTH / 2);
+          postB.position.set(item.x, baseY + postH / 2, item.z + MAP4_DOOR_WIDTH / 2);
         }
-        lintel.position.set(item.x, postH, item.z);
+        lintel.position.set(item.x, baseY + postH, item.z);
         group.add(postA, postB, lintel);
         scene.add(group);
         return group;
@@ -4037,13 +4048,13 @@ function CombatArena({
           });
         const addBuildItemMesh = (item: Map4Item): THREE.Object3D => {
           if (item.kind === "wall") {
-            if (!item.color) return addWallMesh(map4ItemRect(item), ROOM_WALL_HEIGHT, ROOM_WALL_HEIGHT / 2, 0);
+            if (!item.color) return addWallMesh(map4ItemRect(item), ROOM_WALL_HEIGHT, (item.y ?? 0) + ROOM_WALL_HEIGHT / 2, 0);
             const ob = map4ItemRect(item);
             const mesh = new THREE.Mesh(
               new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2),
               texturedAccentMat(item.color, Math.max(ob.halfX, ob.halfZ) * 2, ROOM_WALL_HEIGHT),
             );
-            mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+            mesh.position.set(item.x, (item.y ?? 0) + ROOM_WALL_HEIGHT / 2, item.z);
             mesh.receiveShadow = true;
             scene.add(mesh);
             return mesh;
@@ -4052,7 +4063,7 @@ function CombatArena({
             const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
             const mesh = new THREE.Mesh(geo, [drumMaterial, drumCapMat, drumCapMat]);
             mesh.rotation.y = item.rotY;
-            mesh.position.set(item.x, MAP4_DRUM_HEIGHT / 2, item.z);
+            mesh.position.set(item.x, (item.y ?? 0) + MAP4_DRUM_HEIGHT / 2, item.z);
             mesh.receiveShadow = true;
             scene.add(mesh);
             return mesh;
@@ -4060,7 +4071,7 @@ function CombatArena({
           if (item.kind === "obstacle") {
             const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), crateMaterial);
             mesh.rotation.y = item.rotY;
-            mesh.position.set(item.x, item.size / 2, item.z);
+            mesh.position.set(item.x, (item.y ?? 0) + item.size / 2, item.z);
             mesh.receiveShadow = true;
             scene.add(mesh);
             return mesh;
@@ -4088,7 +4099,7 @@ function CombatArena({
               new THREE.BoxGeometry(MAP4_PILLAR_RADIUS * 2, ROOM_WALL_HEIGHT, MAP4_PILLAR_RADIUS * 2),
               texturedAccentMat(item.color, MAP4_PILLAR_RADIUS * 2, ROOM_WALL_HEIGHT),
             );
-            mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+            mesh.position.set(item.x, (item.y ?? 0) + ROOM_WALL_HEIGHT / 2, item.z);
             mesh.receiveShadow = true;
             scene.add(mesh);
             return mesh;
@@ -4106,7 +4117,7 @@ function CombatArena({
           if (item.kind === "door") return addDoorFrame(item, texturedAccentMat(item.color, MAP4_DOOR_WIDTH, ROOM_WALL_HEIGHT));
           if (item.kind === "light") {
             const mesh = new THREE.Mesh(new THREE.BoxGeometry(MAP4_LIGHT_LENGTH, 0.1, 0.25), texturedAccentMat(item.color, MAP4_LIGHT_LENGTH, 0.25));
-            mesh.position.set(item.x, 0.06, item.z);
+            mesh.position.set(item.x, (item.y ?? 0) + 0.06, item.z);
             scene.add(mesh);
             return mesh;
           }
@@ -4207,7 +4218,7 @@ function CombatArena({
             if (item.kind === "wall") {
               const ob = map4ItemRect(item);
               const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), buildPreviewMat);
-              mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+              mesh.position.set(item.x, (item.y ?? 0) + ROOM_WALL_HEIGHT / 2, item.z);
               scene.add(mesh);
               return mesh;
             }
@@ -4215,14 +4226,14 @@ function CombatArena({
               const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
               const mesh = new THREE.Mesh(geo, buildPreviewMat);
               mesh.rotation.y = item.rotY;
-              mesh.position.set(item.x, MAP4_DRUM_HEIGHT / 2, item.z);
+              mesh.position.set(item.x, (item.y ?? 0) + MAP4_DRUM_HEIGHT / 2, item.z);
               scene.add(mesh);
               return mesh;
             }
             if (item.kind === "obstacle") {
               const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), buildPreviewMat);
               mesh.rotation.y = item.rotY;
-              mesh.position.set(item.x, item.size / 2, item.z);
+              mesh.position.set(item.x, (item.y ?? 0) + item.size / 2, item.z);
               scene.add(mesh);
               return mesh;
             }
@@ -4235,7 +4246,7 @@ function CombatArena({
             }
             if (item.kind === "pillar") {
               const mesh = new THREE.Mesh(new THREE.BoxGeometry(MAP4_PILLAR_RADIUS * 2, ROOM_WALL_HEIGHT, MAP4_PILLAR_RADIUS * 2), buildPreviewMat);
-              mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+              mesh.position.set(item.x, (item.y ?? 0) + ROOM_WALL_HEIGHT / 2, item.z);
               scene.add(mesh);
               return mesh;
             }
@@ -4250,13 +4261,13 @@ function CombatArena({
               const width = item.axis === "x" ? MAP4_DOOR_WIDTH + MAP4_DOOR_POST_THICKNESS : MAP4_DOOR_POST_THICKNESS;
               const depth = item.axis === "x" ? MAP4_DOOR_POST_THICKNESS : MAP4_DOOR_WIDTH + MAP4_DOOR_POST_THICKNESS;
               const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, ROOM_WALL_HEIGHT, depth), buildPreviewMat);
-              mesh.position.set(item.x, ROOM_WALL_HEIGHT / 2, item.z);
+              mesh.position.set(item.x, (item.y ?? 0) + ROOM_WALL_HEIGHT / 2, item.z);
               scene.add(mesh);
               return mesh;
             }
             if (item.kind === "light") {
               const mesh = new THREE.Mesh(new THREE.BoxGeometry(MAP4_LIGHT_LENGTH, 0.1, 0.25), buildPreviewMat);
-              mesh.position.set(item.x, 0.06, item.z);
+              mesh.position.set(item.x, (item.y ?? 0) + 0.06, item.z);
               scene.add(mesh);
               return mesh;
             }
@@ -5456,21 +5467,21 @@ function CombatArena({
     const stairsDir = rotateCardinalDir(facing.dirX, facing.dirZ, buildStairsRotateSteps);
     const buildOneItem = (x: number, z: number): Map4Item =>
       buildPlaceKind === "wall"
-        ? { kind: "wall", x, z, axis: facing.axis, length: buildWallLength, color: buildColor }
+        ? { kind: "wall", x, z, axis: facing.axis, length: buildWallLength, y: facing.y, color: buildColor }
         : buildPlaceKind === "drum"
-          ? { kind: "drum", x, z, rotY: facing.rotY }
+          ? { kind: "drum", x, z, rotY: facing.rotY, y: facing.y }
           : buildPlaceKind === "obstacle"
-            ? { kind: "obstacle", x, z, size: buildObstacleSize, rotY: facing.rotY }
+            ? { kind: "obstacle", x, z, size: buildObstacleSize, rotY: facing.rotY, y: facing.y }
             : buildPlaceKind === "floorTile"
               ? { kind: "floorTile", x, z, y: facing.y, color: buildColor }
               : buildPlaceKind === "pillar"
-                ? { kind: "pillar", x, z, color: buildColor }
+                ? { kind: "pillar", x, z, y: facing.y, color: buildColor }
                 : buildPlaceKind === "railing"
                   ? { kind: "railing", x, z, y: facing.y, axis: facing.axis, color: buildColor }
                   : buildPlaceKind === "door"
-                    ? { kind: "door", x, z, axis: facing.axis, color: buildColor }
+                    ? { kind: "door", x, z, axis: facing.axis, y: facing.y, color: buildColor }
                     : buildPlaceKind === "light"
-                      ? { kind: "light", x, z, color: buildColor }
+                      ? { kind: "light", x, z, y: facing.y, color: buildColor }
                       : { kind: "stairs", x, z, dirX: stairsDir.dirX, dirZ: stairsDir.dirZ, baseY: facing.y, color: buildColor };
     const count = buildPlaceKind === "stairs" ? buildStairsCount : 1;
     for (let i = 0; i < count; i++) {
@@ -5534,25 +5545,37 @@ function CombatArena({
   };
   // Slides the picked-up piece one MAP4_EDIT_NUDGE_STEP in the given
   // direction, relative to wherever the player's currently facing (see
-  // nudgeDirs). Reuses commitItem/removeCollisionRect wholesale rather
+  // nudgeDirs) for forward/back/left/right — or straight up/down, which
+  // instead adjusts the piece's own height (y for everything except
+  // stairs, whose baseY plays the same role — see Map4Stairs.baseY).
+  // Clamped at 0 going down: nothing in Build Mode has ground below y=0
+  // to sink into. Reuses commitItem/removeCollisionRect wholesale rather
   // than hand-rolling a "just move this mesh" path — that's what already
   // rebuilds the right mesh geometry (a stairs step's own rank-dependent
   // height, a railing's own placed-height, etc.) and re-pushes the right
-  // collision rect(s) (including stairs' two side rails) at the new spot,
-  // so a nudged piece behaves identically to one placed there fresh.
-  const handleBuildNudge = (dir: "forward" | "back" | "left" | "right") => {
+  // collision rect(s) (including stairs' two side rails, and now every
+  // other kind's own y-gated one — see map4ItemRect) at the new spot, so
+  // a nudged piece behaves identically to one placed there fresh.
+  const handleBuildNudge = (dir: "forward" | "back" | "left" | "right" | "up" | "down") => {
     const api = buildModeRef.current;
     if (!api || buildEditIndex === null) return;
-    const dirs = api.nudgeDirs();
-    if (!dirs) return;
     const item = customItemsRef.current[buildEditIndex];
     const mesh = customItemMeshesRef.current[buildEditIndex];
     if (!item || !mesh) return;
-    const sign = dir === "forward" || dir === "right" ? 1 : -1;
-    const useRight = dir === "left" || dir === "right";
-    const moveX = (useRight ? dirs.rightX : dirs.fwdX) * sign * MAP4_EDIT_NUDGE_STEP;
-    const moveZ = (useRight ? dirs.rightZ : dirs.fwdZ) * sign * MAP4_EDIT_NUDGE_STEP;
-    const movedItem: Map4Item = { ...item, x: item.x + moveX, z: item.z + moveZ };
+    let movedItem: Map4Item;
+    if (dir === "up" || dir === "down") {
+      const deltaY = (dir === "up" ? 1 : -1) * MAP4_EDIT_NUDGE_STEP;
+      movedItem =
+        item.kind === "stairs" ? { ...item, baseY: Math.max(0, (item.baseY ?? 0) + deltaY) } : { ...item, y: Math.max(0, (item.y ?? 0) + deltaY) };
+    } else {
+      const dirs = api.nudgeDirs();
+      if (!dirs) return;
+      const sign = dir === "forward" || dir === "right" ? 1 : -1;
+      const useRight = dir === "left" || dir === "right";
+      const moveX = (useRight ? dirs.rightX : dirs.fwdX) * sign * MAP4_EDIT_NUDGE_STEP;
+      const moveZ = (useRight ? dirs.rightZ : dirs.fwdZ) * sign * MAP4_EDIT_NUDGE_STEP;
+      movedItem = { ...item, x: item.x + moveX, z: item.z + moveZ };
+    }
     api.removeMesh(mesh);
     api.removeCollisionRect(item);
     const newMesh = api.commitItem(movedItem);
@@ -6583,64 +6606,111 @@ function CombatArena({
                 </>
               )}
 
-              {/* AIM's nudge D-pad takes over the SELECT/PLACE corner while
-                  a piece is picked up — those two don't mean anything mid-
-                  edit (you're repositioning an existing piece, not staging
-                  a new one), so swapping them out avoids a cluttered corner
-                  with buttons that don't apply. FWD/BACK and LEFT/RIGHT are
-                  relative to wherever the player's currently facing, same
-                  as handleBuildNudge itself. */}
+              {/* AIM's nudge controls take over the SELECT/PLACE corner
+                  while a piece is picked up — those two don't mean
+                  anything mid-edit (you're repositioning an existing
+                  piece, not staging a new one), so swapping them out
+                  avoids a cluttered corner with buttons that don't apply.
+                  FWD/BACK and LEFT/RIGHT are relative to wherever the
+                  player's currently facing, same as handleBuildNudge
+                  itself; UP/DOWN sit in their own column, separate from
+                  the plus-shaped pad, since they move the piece along a
+                  completely different axis (height, not position) and
+                  reusing the same ↑/↓ glyphs there would read as more
+                  forward/back rather than the vertical move it actually is. */}
               {buildEditIndex !== null && (
                 <div
                   style={{
                     position: "absolute",
                     right: "7%",
                     bottom: "7%",
-                    width: "clamp(150px, 28vw, 210px)",
-                    height: "clamp(150px, 28vw, 210px)",
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr 1fr",
-                    gridTemplateRows: "1fr 1fr 1fr",
-                    gap: 6,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
                     opacity: settings.buttonOpacity,
                   }}
                 >
-                  {(
-                    [
-                      [null, "forward", null],
-                      ["left", null, "right"],
-                      [null, "back", null],
-                    ] as const
-                  ).map((row, rowIdx) =>
-                    row.map((dir, colIdx) =>
-                      dir ? (
-                        <button
-                          key={dir}
-                          onPointerDown={(e) => {
-                            e.preventDefault();
-                            handleBuildNudge(dir);
-                          }}
-                          aria-label={`Nudge ${dir}`}
-                          style={{
-                            gridColumn: colIdx + 1,
-                            gridRow: rowIdx + 1,
-                            borderRadius: 8,
-                            background: "rgba(107,216,255,0.3)",
-                            border: "1px solid rgba(190,235,255,0.8)",
-                            color: "#dce8f5",
-                            fontFamily: "'Rajdhani', sans-serif",
-                            fontWeight: 700,
-                            fontSize: 20,
-                            cursor: "pointer",
-                          }}
-                        >
-                          {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
-                        </button>
-                      ) : (
-                        <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                      width: "clamp(46px, 9vw, 60px)",
+                      height: "clamp(150px, 28vw, 210px)",
+                    }}
+                  >
+                    {(["up", "down"] as const).map((dir) => (
+                      <button
+                        key={dir}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          handleBuildNudge(dir);
+                        }}
+                        aria-label={`Nudge ${dir}`}
+                        style={{
+                          flex: 1,
+                          borderRadius: 8,
+                          background: "rgba(255,190,90,0.3)",
+                          border: "1px solid rgba(255,215,150,0.8)",
+                          color: "#dce8f5",
+                          fontFamily: "'Rajdhani', sans-serif",
+                          fontWeight: 700,
+                          fontSize: 13,
+                          letterSpacing: "0.05em",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {dir === "up" ? "▲ UP" : "▼ DOWN"}
+                      </button>
+                    ))}
+                  </div>
+                  <div
+                    style={{
+                      width: "clamp(150px, 28vw, 210px)",
+                      height: "clamp(150px, 28vw, 210px)",
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr 1fr",
+                      gridTemplateRows: "1fr 1fr 1fr",
+                      gap: 6,
+                    }}
+                  >
+                    {(
+                      [
+                        [null, "forward", null],
+                        ["left", null, "right"],
+                        [null, "back", null],
+                      ] as const
+                    ).map((row, rowIdx) =>
+                      row.map((dir, colIdx) =>
+                        dir ? (
+                          <button
+                            key={dir}
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              handleBuildNudge(dir);
+                            }}
+                            aria-label={`Nudge ${dir}`}
+                            style={{
+                              gridColumn: colIdx + 1,
+                              gridRow: rowIdx + 1,
+                              borderRadius: 8,
+                              background: "rgba(107,216,255,0.3)",
+                              border: "1px solid rgba(190,235,255,0.8)",
+                              color: "#dce8f5",
+                              fontFamily: "'Rajdhani', sans-serif",
+                              fontWeight: 700,
+                              fontSize: 20,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
+                          </button>
+                        ) : (
+                          <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
+                        ),
                       ),
-                    ),
-                  )}
+                    )}
+                  </div>
                 </div>
               )}
 
