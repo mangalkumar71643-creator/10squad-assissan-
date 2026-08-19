@@ -1071,10 +1071,14 @@ const MAP4_PLACE_DISTANCE_STEP = 1;
 // AIM (see handleBuildAimToggle/handleBuildNudge): re-picking an already
 // placed piece to nudge its position afterward, instead of only being able
 // to REMOVE and redo it from scratch. Aiming picks whichever placed piece
-// is most directly in front of the player, within this cone (perpendicular
-// offset from the aim line) and this max range.
+// is most directly in front of the player, within this max range and a
+// genuine angular cone (MAP4_EDIT_PICK_CONE_TAN, a half-angle's tangent —
+// tan(16°) here — so the perpendicular tolerance scales with distance
+// instead of being one flat width; a flat width was wide enough up close
+// that a nearby-but-off-to-the-side piece could keep out-ranking the one
+// actually in the crosshair just for having a hair smaller along-distance).
 const MAP4_EDIT_PICK_MAX_DIST = 20;
-const MAP4_EDIT_PICK_PERP_MAX = 3;
+const MAP4_EDIT_PICK_CONE_TAN = 0.29;
 const MAP4_EDIT_NUDGE_STEP = 0.5;
 // How close the player's own Y already needs to be to a stairs step's or
 // floor tile's own height before either will hold them there (see the
@@ -4091,26 +4095,29 @@ function CombatArena({
           // AIM: which already-placed item (if any) is the player currently
           // looking at, so it can be picked up for nudging (see
           // handleBuildAimToggle/handleBuildNudge) instead of only ever
-          // being removable outright. Same cardinal-snapped forward
-          // direction as getPlayerFacing, projected along/perp against
-          // every candidate the same way computeStairRank already does —
-          // the closest one within the forward cone wins.
+          // being removable outright. Deliberately the RAW (unsnapped)
+          // camera forward direction, not the cardinal-snapped one
+          // getPlayerFacing uses for placing new pieces — placement needs
+          // an axis-aligned direction to place something along, but aiming
+          // at an existing piece needs to track wherever the player's
+          // actually looking, which can be up to ~45° away from the
+          // nearest cardinal axis. A cone (see MAP4_EDIT_PICK_CONE_TAN),
+          // not a flat perpendicular width, so the tolerance narrows the
+          // closer things are, the way an actual aim reticle would.
           pickAimedItem: (items) => {
             if (!player) return null;
             const playerPos = player.root.position;
             const forwardX = Math.sin(cameraYaw.current);
             const forwardZ = Math.cos(cameraYaw.current);
-            const dirX = Math.abs(forwardX) > Math.abs(forwardZ) ? Math.sign(forwardX) : 0;
-            const dirZ = Math.abs(forwardX) > Math.abs(forwardZ) ? 0 : Math.sign(forwardZ);
             let bestIdx: number | null = null;
             let bestAlong = Infinity;
             items.forEach((item, idx) => {
               const dx = item.x - playerPos.x;
               const dz = item.z - playerPos.z;
-              const along = dx * dirX + dz * dirZ;
-              if (along <= 0 || along > MAP4_EDIT_PICK_MAX_DIST) return;
-              const perp = dz * dirX - dx * dirZ;
-              if (Math.abs(perp) > MAP4_EDIT_PICK_PERP_MAX) return;
+              const along = dx * forwardX + dz * forwardZ;
+              if (along <= 0.3 || along > MAP4_EDIT_PICK_MAX_DIST) return;
+              const perp = dz * forwardX - dx * forwardZ;
+              if (Math.abs(perp) > along * MAP4_EDIT_PICK_CONE_TAN) return;
               if (along < bestAlong) {
                 bestAlong = along;
                 bestIdx = idx;
