@@ -1420,6 +1420,21 @@ function stairSideRects(item: Map4Stairs): [Obstacle, Obstacle] {
         };
   return [mk(1), mk(-1)];
 }
+// Turns a cardinal unit vector 90° clockwise (seen from above) `steps`
+// times, wrapping every 4 — used to let a staged stairs chain's own
+// climb direction (see buildStairsRotateSteps) be turned away from
+// whatever the player's currently facing, instead of always matching it.
+function rotateCardinalDir(dirX: number, dirZ: number, steps: number): { dirX: number; dirZ: number } {
+  let x = dirX;
+  let z = dirZ;
+  for (let i = 0; i < ((steps % 4) + 4) % 4; i++) {
+    const nextX = -z;
+    const nextZ = x;
+    x = nextX;
+    z = nextZ;
+  }
+  return { dirX: x, dirZ: z };
+}
 // How many steps deep into its own chain a given stairs item is — 0 for the
 // first step off the ground, 1 for the one placed behind that, and so on.
 // Computed fresh from the current item list every time (never stored on the
@@ -3141,6 +3156,16 @@ function CombatArena({
   // current aim (see handleBuildSelect) instead of placing them one at a
   // time by hand.
   const [buildStairsCount, setBuildStairsCount] = useState(MAP4_STAIRS_COUNT_MIN);
+  // Which way a staged stairs chain climbs — 0 means "whatever direction
+  // the player's currently facing" (the old, only, behavior), and each
+  // ◄/► tap adds one 90° turn on top of that (wraps 0-3). Applies to both
+  // the stored dirX/dirZ (which way is "up") and the chain's own layout
+  // offset in handleBuildSelect — they're the same vector, since a run of
+  // stairs climbs in the direction it's laid out in. Lets a staircase be
+  // aimed to run left/right/behind the player, not just straight ahead —
+  // "aage se chadne wala ya piche jake chadne wala" — instead of only ever
+  // matching wherever the player happened to be looking when they placed it.
+  const [buildStairsRotateSteps, setBuildStairsRotateSteps] = useState(0);
   // How far ahead of the player SELECT stages the next piece — tap +/- to
   // change it (see MAP4_PLACE_DISTANCE_MIN/MAX). getPlayerFacing lives
   // inside the Three.js scene-building effect (only re-created when the
@@ -5383,6 +5408,7 @@ function CombatArena({
     if (!facing) return;
     for (const prev of buildSelectionRef.current) api.removeMesh(prev.mesh);
     buildSelectionRef.current = [];
+    const stairsDir = rotateCardinalDir(facing.dirX, facing.dirZ, buildStairsRotateSteps);
     const buildOneItem = (x: number, z: number): Map4Item =>
       buildPlaceKind === "wall"
         ? { kind: "wall", x, z, axis: facing.axis, length: buildWallLength, color: buildColor }
@@ -5400,10 +5426,10 @@ function CombatArena({
                     ? { kind: "door", x, z, axis: facing.axis, color: buildColor }
                     : buildPlaceKind === "light"
                       ? { kind: "light", x, z, color: buildColor }
-                      : { kind: "stairs", x, z, dirX: facing.dirX, dirZ: facing.dirZ, color: buildColor };
+                      : { kind: "stairs", x, z, dirX: stairsDir.dirX, dirZ: stairsDir.dirZ, color: buildColor };
     const count = buildPlaceKind === "stairs" ? buildStairsCount : 1;
     for (let i = 0; i < count; i++) {
-      const item = buildOneItem(facing.x + facing.dirX * MAP4_STAIRS_DEPTH * i, facing.z + facing.dirZ * MAP4_STAIRS_DEPTH * i);
+      const item = buildOneItem(facing.x + stairsDir.dirX * MAP4_STAIRS_DEPTH * i, facing.z + stairsDir.dirZ * MAP4_STAIRS_DEPTH * i);
       const mesh = api.addPreviewMesh(item);
       buildSelectionRef.current = [...buildSelectionRef.current, { item, mesh }];
     }
@@ -6365,6 +6391,59 @@ function CombatArena({
                           }}
                         >
                           +
+                        </button>
+                        <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
+                        {/* Which way the staged chain climbs — 0 (no
+                            rotation) matches wherever the player's
+                            currently facing, same as it always did; each
+                            tap turns it another 90°, so a run can be aimed
+                            to climb going left/right/back instead of only
+                            ever straight ahead of the aim. */}
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildStairsRotateSteps((s) => (s + 3) % 4);
+                          }}
+                          aria-label="Rotate stairs left"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 15,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          ◄
+                        </button>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildStairsRotateSteps((s) => (s + 1) % 4);
+                          }}
+                          aria-label="Rotate stairs right"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 15,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          ►
                         </button>
                       </>
                     )}
