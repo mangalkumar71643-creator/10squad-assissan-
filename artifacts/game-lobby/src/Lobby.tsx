@@ -464,11 +464,14 @@ interface Obstacle {
   pad: number;
   // Undefined (every ground-level obstacle) means "always collides,
   // regardless of height" — the game has no vertical collision anywhere
-  // else, so this stays opt-in and only an elevated Map4/5 railing (see
-  // Map4Railing.y) ever sets it. When set, resolveObstacleCollisions only
-  // pushes the player out while their own y is within reach of this
-  // obstacle's actual vertical span (its base y up to y + its height).
+  // else, so this stays opt-in and only an elevated Map4/5 railing or
+  // stairs side-rail (see Map4Railing.y/Map4Stairs.baseY) ever sets it.
+  // When set, resolveObstacleCollisions only pushes the player out while
+  // their own y is within reach of this obstacle's actual vertical span
+  // — from y up to y + yHeight (yHeight defaults to 0, a thin band right
+  // at y, if left unset).
   y?: number;
+  yHeight?: number;
 }
 
 // Two wall segments per side (north/south run along x, east/west run along
@@ -1091,12 +1094,14 @@ const MAP4_PILLAR_RADIUS = 0.5;
 const MAP4_RAILING_LENGTH = 4;
 const MAP4_RAILING_THICKNESS = 0.4;
 const MAP4_RAILING_HEIGHT = 1.1;
-// Vertical margin either side of a railing's own [y, y + MAP4_RAILING_HEIGHT]
-// span before its collision stops applying — generous enough to still block
-// someone approaching at foot level right at its base or its top landing,
-// but not so wide that a rail placed on an elevated floor tile reaches all
-// the way back down and blocks the ground underneath it too.
-const MAP4_RAILING_COLLISION_MARGIN = 0.5;
+// Vertical margin either side of any height-gated Obstacle's own
+// [y, y + yHeight] span (a railing's own height, or one stairs step's own
+// rise — see Obstacle.y/yHeight) before its collision stops applying —
+// generous enough to still block someone approaching at foot level right
+// at its base or its top landing, but not so wide that a piece placed on
+// an elevated floor tile reaches all the way back down and blocks the
+// ground underneath it too.
+const MAP4_ELEVATION_COLLISION_MARGIN = 0.5;
 const MAP4_DOOR_WIDTH = 4;
 const MAP4_DOOR_POST_THICKNESS = 0.3;
 const MAP4_LIGHT_LENGTH = 2;
@@ -1207,12 +1212,23 @@ interface Map4Light {
 // several in a row, each one step further and the chain climbs — nothing
 // about being "step N in a staircase" is stored here; it's derived fresh
 // from the full item list every time (see computeStairRank).
+// baseY — same player's-current-height idea as Map4FloorTile/Map4Railing's
+// own y: the height this step's OWN chain starts climbing from, so a run
+// begun while standing on an elevated floor tile or platform actually
+// starts there instead of always climbing up from y=0 regardless of where
+// the player was standing. Optional and falsy-defaults to 0 (ground) so
+// stairs saved before this field existed still load and climb exactly
+// where they always did. computeStairRank/isTopOfStairChain only ever
+// group a step with OTHER steps sharing the same baseY (see there) — two
+// unrelated runs that happen to share a lane at different heights stay
+// fully independent instead of getting merged into one rank sequence.
 interface Map4Stairs {
   kind: "stairs";
   x: number;
   z: number;
   dirX: number; // cardinal unit vector (one of dirX/dirZ is ±1, the other 0)
   dirZ: number;
+  baseY?: number;
   color: number;
 }
 type Map4Item = Map4Wall | Map4Crate | Map4Drum | Map4FloorTile | Map4Pillar | Map4Railing | Map4Door | Map4Light | Map4Stairs;
@@ -1278,6 +1294,7 @@ function isValidMap4Item(it: unknown): it is Map4Item {
         color?: unknown;
         dirX?: unknown;
         dirZ?: unknown;
+        baseY?: unknown;
       }
     | null;
   return (
@@ -1295,7 +1312,11 @@ function isValidMap4Item(it: unknown): it is Map4Item {
         (i.y === undefined || typeof i.y === "number")) ||
       (i.kind === "door" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
       (i.kind === "light" && typeof i.color === "number") ||
-      (i.kind === "stairs" && typeof i.dirX === "number" && typeof i.dirZ === "number" && typeof i.color === "number"))
+      (i.kind === "stairs" &&
+        typeof i.dirX === "number" &&
+        typeof i.dirZ === "number" &&
+        typeof i.color === "number" &&
+        (i.baseY === undefined || typeof i.baseY === "number")))
   );
 }
 // key/legacyKey/defaultItems are passed in rather than hardcoded so this one
@@ -1371,8 +1392,8 @@ function map4ItemRect(it: Map4Item): Obstacle {
   }
   if (it.kind === "railing") {
     return it.axis === "x"
-      ? { x: it.x, z: it.z, halfX: MAP4_RAILING_LENGTH / 2, halfZ: MAP4_RAILING_THICKNESS / 2, pad: ROOM_PAD, y: it.y ?? 0 }
-      : { x: it.x, z: it.z, halfX: MAP4_RAILING_THICKNESS / 2, halfZ: MAP4_RAILING_LENGTH / 2, pad: ROOM_PAD, y: it.y ?? 0 };
+      ? { x: it.x, z: it.z, halfX: MAP4_RAILING_LENGTH / 2, halfZ: MAP4_RAILING_THICKNESS / 2, pad: ROOM_PAD, y: it.y ?? 0, yHeight: MAP4_RAILING_HEIGHT }
+      : { x: it.x, z: it.z, halfX: MAP4_RAILING_THICKNESS / 2, halfZ: MAP4_RAILING_LENGTH / 2, pad: ROOM_PAD, y: it.y ?? 0, yHeight: MAP4_RAILING_HEIGHT };
   }
   // floorTile / door / light / stairs never reach here — map4ItemBlocksMovement
   // guards every ACTIVE_OBSTACLES.push call site — but the function needs an
@@ -1392,7 +1413,17 @@ function map4ItemRect(it: Map4Item): Obstacle {
 // a solid block. A real staircase has solid sides you can't walk through
 // laterally; only the tread itself is open, which is exactly what these
 // two rails (plus the untouched along/perp climbing band) reproduce.
-function stairSideRects(item: Map4Stairs): [Obstacle, Obstacle] {
+// Height-gated (see Obstacle.y/yHeight) to match addStairsMesh's own solid
+// box exactly — from this chain's baseY up through this step's own rank
+// (not just its one rise-slice): the mesh itself is solid all the way from
+// the chain's base up to that height (see addStairsMesh), so a tall,
+// high-rank step's side is solid over that entire span too, the same as
+// it always visually looked. Gating to baseY (rather than leaving it
+// unset, always-collide) is what's actually new here, and only matters
+// once baseY can be elevated (see Map4Stairs.baseY): without it, an
+// elevated chain's side-rails would still reach all the way down to
+// actual ground and block it, the same bug already fixed for railings.
+function stairSideRects(item: Map4Stairs, allItems: Map4Item[]): [Obstacle, Obstacle] {
   const alongX = item.dirX !== 0;
   const cx = item.x + item.dirX * (MAP4_STAIRS_DEPTH / 2);
   const cz = item.z + item.dirZ * (MAP4_STAIRS_DEPTH / 2);
@@ -1402,6 +1433,9 @@ function stairSideRects(item: Map4Stairs): [Obstacle, Obstacle] {
   // offsets.
   const perpX = -item.dirZ;
   const perpZ = item.dirX;
+  const rank = computeStairRank(item, allItems);
+  const y = item.baseY ?? 0;
+  const yHeight = (rank + 1) * MAP4_STAIRS_RISE;
   const mk = (sign: 1 | -1): Obstacle =>
     alongX
       ? {
@@ -1410,6 +1444,8 @@ function stairSideRects(item: Map4Stairs): [Obstacle, Obstacle] {
           halfX: MAP4_STAIRS_DEPTH / 2,
           halfZ: ROOM_WALL_THICKNESS / 2,
           pad: ROOM_PAD,
+          y,
+          yHeight,
         }
       : {
           x: cx + sign * halfWidth * perpX,
@@ -1417,6 +1453,8 @@ function stairSideRects(item: Map4Stairs): [Obstacle, Obstacle] {
           halfX: ROOM_WALL_THICKNESS / 2,
           halfZ: MAP4_STAIRS_DEPTH / 2,
           pad: ROOM_PAD,
+          y,
+          yHeight,
         };
   return [mk(1), mk(-1)];
 }
@@ -1451,6 +1489,7 @@ function computeStairRank(item: Map4Stairs, allItems: Map4Item[]): number {
   for (const other of allItems) {
     if (other === item || other.kind !== "stairs") continue;
     if (other.dirX !== item.dirX || other.dirZ !== item.dirZ) continue;
+    if ((other.baseY ?? 0) !== (item.baseY ?? 0)) continue;
     const otherAlong = other.x * item.dirX + other.z * item.dirZ;
     if (otherAlong >= along) continue;
     // Lateral tolerance — only steps roughly in the same lane count, so an
@@ -1476,6 +1515,7 @@ function isTopOfStairChain(item: Map4Stairs, allItems: Map4Item[]): boolean {
   for (const other of allItems) {
     if (other === item || other.kind !== "stairs") continue;
     if (other.dirX !== item.dirX || other.dirZ !== item.dirZ) continue;
+    if ((other.baseY ?? 0) !== (item.baseY ?? 0)) continue;
     const otherAlong = other.x * item.dirX + other.z * item.dirZ;
     if (otherAlong <= along) continue;
     const perp = (other.z - item.z) * item.dirX - (other.x - item.x) * item.dirZ;
@@ -1604,7 +1644,7 @@ function resolveObstacleCollisions(pos: { x: number; z: number }, currentY = 0) 
   for (const ob of ACTIVE_OBSTACLES) {
     if (
       ob.y !== undefined &&
-      (currentY < ob.y - MAP4_RAILING_COLLISION_MARGIN || currentY > ob.y + MAP4_RAILING_HEIGHT + MAP4_RAILING_COLLISION_MARGIN)
+      (currentY < ob.y - MAP4_ELEVATION_COLLISION_MARGIN || currentY > ob.y + (ob.yHeight ?? 0) + MAP4_ELEVATION_COLLISION_MARGIN)
     ) {
       continue;
     }
@@ -3960,13 +4000,14 @@ function CombatArena({
       // in the mapId===4||5 stairs block in the tick loop below.
       const addStairsMesh = (item: Map4Stairs, mat: THREE.Material): THREE.Object3D => {
         const rank = computeStairRank(item, customItemsRef.current);
-        const topY = (rank + 1) * MAP4_STAIRS_RISE;
+        const baseY = item.baseY ?? 0;
+        const stepHeight = (rank + 1) * MAP4_STAIRS_RISE;
         const alongX = item.dirX !== 0;
         const geo = alongX
-          ? new THREE.BoxGeometry(MAP4_STAIRS_DEPTH, topY, MAP4_STAIRS_WIDTH)
-          : new THREE.BoxGeometry(MAP4_STAIRS_WIDTH, topY, MAP4_STAIRS_DEPTH);
+          ? new THREE.BoxGeometry(MAP4_STAIRS_DEPTH, stepHeight, MAP4_STAIRS_WIDTH)
+          : new THREE.BoxGeometry(MAP4_STAIRS_WIDTH, stepHeight, MAP4_STAIRS_DEPTH);
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(item.x + item.dirX * (MAP4_STAIRS_DEPTH / 2), topY / 2, item.z + item.dirZ * (MAP4_STAIRS_DEPTH / 2));
+        mesh.position.set(item.x + item.dirX * (MAP4_STAIRS_DEPTH / 2), baseY + stepHeight / 2, item.z + item.dirZ * (MAP4_STAIRS_DEPTH / 2));
         mesh.receiveShadow = true;
         scene.add(mesh);
         return mesh;
@@ -4074,7 +4115,7 @@ function CombatArena({
         };
         customItemMeshesRef.current = customItemsRef.current.map((item) => {
           if (map4ItemBlocksMovement(item)) ACTIVE_OBSTACLES.push(map4ItemRect(item));
-          if (item.kind === "stairs") ACTIVE_OBSTACLES.push(...stairSideRects(item));
+          if (item.kind === "stairs") ACTIVE_OBSTACLES.push(...stairSideRects(item, customItemsRef.current));
           return addBuildItemMesh(item);
         });
         setBuildItemCount(customItemsRef.current.length);
@@ -4228,13 +4269,14 @@ function CombatArena({
             // though none of them are committed to customItemsRef yet.
             {
               const rank = computeStairRank(item, [...customItemsRef.current, ...buildSelectionRef.current.map((s) => s.item)]);
-              const topY = (rank + 1) * MAP4_STAIRS_RISE;
+              const baseY = item.baseY ?? 0;
+              const stepHeight = (rank + 1) * MAP4_STAIRS_RISE;
               const alongX = item.dirX !== 0;
               const dims: [number, number, number] = alongX
-                ? [MAP4_STAIRS_DEPTH, topY, MAP4_STAIRS_WIDTH]
-                : [MAP4_STAIRS_WIDTH, topY, MAP4_STAIRS_DEPTH];
+                ? [MAP4_STAIRS_DEPTH, stepHeight, MAP4_STAIRS_WIDTH]
+                : [MAP4_STAIRS_WIDTH, stepHeight, MAP4_STAIRS_DEPTH];
               const mesh = new THREE.Mesh(new THREE.BoxGeometry(...dims), buildPreviewMat);
-              mesh.position.set(item.x + item.dirX * (MAP4_STAIRS_DEPTH / 2), topY / 2, item.z + item.dirZ * (MAP4_STAIRS_DEPTH / 2));
+              mesh.position.set(item.x + item.dirX * (MAP4_STAIRS_DEPTH / 2), baseY + stepHeight / 2, item.z + item.dirZ * (MAP4_STAIRS_DEPTH / 2));
               scene.add(mesh);
               return mesh;
             }
@@ -4242,7 +4284,7 @@ function CombatArena({
           removeMesh: (obj) => scene.remove(obj),
           commitItem: (item) => {
             if (map4ItemBlocksMovement(item)) ACTIVE_OBSTACLES.push(map4ItemRect(item));
-            if (item.kind === "stairs") ACTIVE_OBSTACLES.push(...stairSideRects(item));
+            if (item.kind === "stairs") ACTIVE_OBSTACLES.push(...stairSideRects(item, customItemsRef.current));
             return addBuildItemMesh(item);
           },
           // Collision rects aren't individually tagged, so find-by-value
@@ -4260,8 +4302,10 @@ function CombatArena({
               if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
             }
             if (item.kind === "stairs") {
-              for (const rail of stairSideRects(item)) {
-                const idx = ACTIVE_OBSTACLES.findIndex((o) => o.x === rail.x && o.z === rail.z && o.halfX === rail.halfX && o.halfZ === rail.halfZ);
+              for (const rail of stairSideRects(item, customItemsRef.current)) {
+                const idx = ACTIVE_OBSTACLES.findIndex(
+                  (o) => o.x === rail.x && o.z === rail.z && o.halfX === rail.halfX && o.halfZ === rail.halfZ && o.y === rail.y,
+                );
                 if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
               }
             }
@@ -4930,9 +4974,10 @@ function CombatArena({
             const margin = isTopOfStairChain(item, customItemsRef.current) ? MAP4_STAIRS_EDGE_MARGIN : 0;
             if (along < -0.3 || along > MAP4_STAIRS_DEPTH + margin) continue;
             const rank = computeStairRank(item, customItemsRef.current);
-            if (Math.abs(player.root.position.y - rank * MAP4_STAIRS_RISE) >= MAP4_ELEVATION_SNAP_TOLERANCE) continue;
+            const baseY = item.baseY ?? 0;
+            if (Math.abs(player.root.position.y - (baseY + rank * MAP4_STAIRS_RISE)) >= MAP4_ELEVATION_SNAP_TOLERANCE) continue;
             const progress = clamp(along / MAP4_STAIRS_DEPTH, 0, 1);
-            player.root.position.y = THREE.MathUtils.lerp(rank * MAP4_STAIRS_RISE, (rank + 1) * MAP4_STAIRS_RISE, progress);
+            player.root.position.y = THREE.MathUtils.lerp(baseY + rank * MAP4_STAIRS_RISE, baseY + (rank + 1) * MAP4_STAIRS_RISE, progress);
             grounded = true;
             break;
           }
@@ -5426,7 +5471,7 @@ function CombatArena({
                     ? { kind: "door", x, z, axis: facing.axis, color: buildColor }
                     : buildPlaceKind === "light"
                       ? { kind: "light", x, z, color: buildColor }
-                      : { kind: "stairs", x, z, dirX: stairsDir.dirX, dirZ: stairsDir.dirZ, color: buildColor };
+                      : { kind: "stairs", x, z, dirX: stairsDir.dirX, dirZ: stairsDir.dirZ, baseY: facing.y, color: buildColor };
     const count = buildPlaceKind === "stairs" ? buildStairsCount : 1;
     for (let i = 0; i < count; i++) {
       const item = buildOneItem(facing.x + stairsDir.dirX * MAP4_STAIRS_DEPTH * i, facing.z + stairsDir.dirZ * MAP4_STAIRS_DEPTH * i);
