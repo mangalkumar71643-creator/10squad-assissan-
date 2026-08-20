@@ -1082,7 +1082,7 @@ const MAP4_PLACE_DISTANCE_STEP = 1;
 // actually in the crosshair just for having a hair smaller along-distance).
 const MAP4_EDIT_PICK_MAX_DIST = 20;
 const MAP4_EDIT_PICK_CONE_TAN = 0.29;
-const MAP4_EDIT_NUDGE_STEP = 0.1;
+const MAP4_EDIT_NUDGE_STEP = 0.05;
 // How close the player's own Y already needs to be to a stairs step's or
 // floor tile's own height before either will hold them there (see the
 // mapId===4||5 stairs/floor block in the tick loop) — arriving off the
@@ -5547,15 +5547,17 @@ function CombatArena({
   // direction, relative to wherever the player's currently facing (see
   // nudgeDirs) for forward/back/left/right — or straight up/down, which
   // instead adjusts the piece's own height (y for everything except
-  // stairs, whose baseY plays the same role — see Map4Stairs.baseY).
-  // Clamped at 0 going down: nothing in Build Mode has ground below y=0
-  // to sink into. Reuses commitItem/removeCollisionRect wholesale rather
-  // than hand-rolling a "just move this mesh" path — that's what already
-  // rebuilds the right mesh geometry (a stairs step's own rank-dependent
-  // height, a railing's own placed-height, etc.) and re-pushes the right
-  // collision rect(s) (including stairs' two side rails, and now every
-  // other kind's own y-gated one — see map4ItemRect) at the new spot, so
-  // a nudged piece behaves identically to one placed there fresh.
+  // stairs, whose baseY plays the same role — see Map4Stairs.baseY). Not
+  // clamped at 0 going down — y=0 is just Build Mode's default ground
+  // plane, not a floor the piece can't pass through, so a pillar (or
+  // anything else) can be pushed below it same as any other direction.
+  // Reuses commitItem/removeCollisionRect wholesale rather than hand-
+  // rolling a "just move this mesh" path — that's what already rebuilds
+  // the right mesh geometry (a stairs step's own rank-dependent height, a
+  // railing's own placed-height, etc.) and re-pushes the right collision
+  // rect(s) (including stairs' two side rails, and now every other kind's
+  // own y-gated one — see map4ItemRect) at the new spot, so a nudged
+  // piece behaves identically to one placed there fresh.
   const handleBuildNudge = (dir: "forward" | "back" | "left" | "right" | "up" | "down") => {
     const api = buildModeRef.current;
     if (!api || buildEditIndex === null) return;
@@ -5565,8 +5567,7 @@ function CombatArena({
     let movedItem: Map4Item;
     if (dir === "up" || dir === "down") {
       const deltaY = (dir === "up" ? 1 : -1) * MAP4_EDIT_NUDGE_STEP;
-      movedItem =
-        item.kind === "stairs" ? { ...item, baseY: Math.max(0, (item.baseY ?? 0) + deltaY) } : { ...item, y: Math.max(0, (item.y ?? 0) + deltaY) };
+      movedItem = item.kind === "stairs" ? { ...item, baseY: (item.baseY ?? 0) + deltaY } : { ...item, y: (item.y ?? 0) + deltaY };
     } else {
       const dirs = api.nudgeDirs();
       if (!dirs) return;
