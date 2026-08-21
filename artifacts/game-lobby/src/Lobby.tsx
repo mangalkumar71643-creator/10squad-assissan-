@@ -1559,6 +1559,47 @@ function relatedItemIndices(pickedIdx: number, allItems: Map4Item[]): number[] {
   return indices;
 }
 
+// Two items placed at (very nearly) the same spot render as perfectly
+// coplanar/overlapping surfaces -- the GPU can't consistently pick which
+// one wins from frame to frame, which is the "zig zag zig zag" flicker a
+// doubled placement (e.g. two floor tiles dropped on the same square)
+// causes. Nudging each later duplicate up by a hair separates them enough
+// to stop the depth-fight while staying invisible at normal play distance.
+// Stairs are excluded -- their own rank system already gives every step
+// in a chain a distinct height, and two independent chains sharing a lane
+// is the normal, intentional way to build one.
+const MAP4_ZFIGHT_Y_OFFSET = 0.01;
+const MAP4_ZFIGHT_XZ_EPSILON = 0.05;
+const MAP4_ZFIGHT_Y_EPSILON = 0.005;
+function dedupeItemY(item: Map4Item, existing: Map4Item[]): Map4Item {
+  if (item.kind === "stairs") return item;
+  let y = item.y ?? 0;
+  let bumped = false;
+  let collided = true;
+  while (collided) {
+    collided = false;
+    for (const other of existing) {
+      if (other.kind === "stairs") continue;
+      if (other.kind !== item.kind) continue;
+      if (Math.abs(other.x - item.x) > MAP4_ZFIGHT_XZ_EPSILON || Math.abs(other.z - item.z) > MAP4_ZFIGHT_XZ_EPSILON) continue;
+      if (Math.abs((other.y ?? 0) - y) < MAP4_ZFIGHT_Y_EPSILON) {
+        y += MAP4_ZFIGHT_Y_OFFSET;
+        bumped = true;
+        collided = true;
+      }
+    }
+  }
+  return bumped ? { ...item, y } : item;
+}
+// Runs dedupeItemY across a whole list in placement order, so a chain of
+// three-plus duplicates at the same spot each land on their own distinct
+// height, not just the first pair.
+function dedupeStackedItems(items: Map4Item[]): Map4Item[] {
+  const resolved: Map4Item[] = [];
+  for (const item of items) resolved.push(dedupeItemY(item, resolved));
+  return resolved;
+}
+
 // An underground tunnel actually running beneath the real path between
 // houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
 // unrelated empty arena. Since the collision system only checks X/Z (see
@@ -4148,6 +4189,10 @@ function CombatArena({
           const stairRank = computeStairRank(item, customItemsRef.current);
           return addStairsMesh(item, texturedAccentMat(item.color, MAP4_STAIRS_WIDTH, (stairRank + 1) * MAP4_STAIRS_RISE));
         };
+        // Separates any duplicates saved from before this fix existed (or
+        // from repeatedly placing the same piece at the same spot in an
+        // older build) so they don't z-fight the moment this map loads.
+        customItemsRef.current = dedupeStackedItems(customItemsRef.current);
         customItemMeshesRef.current = customItemsRef.current.map((item) => {
           if (map4ItemBlocksMovement(item)) ACTIVE_OBSTACLES.push(map4ItemRect(item));
           if (item.kind === "stairs") ACTIVE_OBSTACLES.push(...stairSideRects(item, customItemsRef.current));
@@ -5524,8 +5569,12 @@ function CombatArena({
     // computeStairRank) already sees every step committed just before it —
     // otherwise the whole batch would render at the same height instead of
     // climbing.
-    for (const { item, mesh } of selection) {
+    for (const { item: rawItem, mesh } of selection) {
       api.removeMesh(mesh);
+      // Placing a piece on the exact same spot as one already there (e.g. a
+      // second floor tile dropped on top of the first) would otherwise
+      // render as flickering coplanar surfaces -- separate it a hair first.
+      const item = dedupeItemY(rawItem, customItemsRef.current);
       const committedMesh = api.commitItem(item);
       customItemsRef.current = [...customItemsRef.current, item];
       customItemMeshesRef.current = [...customItemMeshesRef.current, committedMesh];
