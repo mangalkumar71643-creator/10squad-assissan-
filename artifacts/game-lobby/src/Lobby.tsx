@@ -1036,7 +1036,7 @@ const MAP4_WALL_LENGTH_DEFAULT = 6; // legacy fallback for pre-length-selector s
 const MAP4_WALL_LENGTH_MIN = 1;
 const MAP4_WALL_LENGTH_MAX = 5;
 // Preset angles the floor tile's rotation picker offers, degrees.
-const MAP4_FLOOR_ANGLE_OPTIONS = [0, 30, 60, 90, 120];
+const MAP4_FLOOR_ANGLE_OPTIONS = [0, 30, 45, 60, 90, 120];
 // The same two crate sizes already used elsewhere in the game — the small
 // EXTRA_CRATES ones (halfExtent 0.5) and the standard per-room crates
 // (CRATE_HALF_EXTENT, 0.9) — not new sizes invented for Build Mode.
