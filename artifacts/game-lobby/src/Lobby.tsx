@@ -1568,7 +1568,12 @@ function relatedItemIndices(pickedIdx: number, allItems: Map4Item[]): number[] {
 // Stairs are excluded -- their own rank system already gives every step
 // in a chain a distinct height, and two independent chains sharing a lane
 // is the normal, intentional way to build one.
-const MAP4_ZFIGHT_Y_OFFSET = 0.01;
+// 0.05 (not the same tiny 0.01 first tried here) because this scene's
+// depth buffer is non-logarithmic with a near/far of 0.1/~1450 -- at
+// normal play distance, world-space gaps much smaller than this are
+// already inside the buffer's precision error margin and would still
+// flicker despite being "separated" on paper.
+const MAP4_ZFIGHT_Y_OFFSET = 0.05;
 const MAP4_ZFIGHT_XZ_EPSILON = 0.05;
 const MAP4_ZFIGHT_Y_EPSILON = 0.005;
 function dedupeItemY(item: Map4Item, existing: Map4Item[]): Map4Item {
@@ -4110,6 +4115,20 @@ function CombatArena({
             // showing empty air through it. Harmless on every other
             // (solid-volume) shape this material is also used for.
             side: THREE.DoubleSide,
+            // The arena's own base ground plane (`ground` above) sits at
+            // y=0, and a floor tile placed at ground level is only nudged
+            // 0.02 world units above it -- nowhere near enough separation
+            // for this scene's depth buffer (near=0.1, far in the
+            // thousands, non-logarithmic) to reliably tell the two apart
+            // past a few meters, which is exactly what reads as the
+            // "zig zag" flicker. polygonOffset biases this material's
+            // depth at the GPU rasterizer level instead of in world space,
+            // so the tile wins against the coincident ground consistently
+            // regardless of view distance. Harmless on every other
+            // (non-coincident) shape this material is also used for.
+            polygonOffset: true,
+            polygonOffsetFactor: -4,
+            polygonOffsetUnits: -4,
           });
         const addBuildItemMesh = (item: Map4Item): THREE.Object3D => {
           if (item.kind === "wall") {
