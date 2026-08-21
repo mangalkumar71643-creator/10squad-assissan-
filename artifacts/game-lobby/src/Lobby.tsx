@@ -1035,6 +1035,8 @@ const MAP4_PLAY_HALF = 175;
 const MAP4_WALL_LENGTH_DEFAULT = 6; // legacy fallback for pre-length-selector saves
 const MAP4_WALL_LENGTH_MIN = 1;
 const MAP4_WALL_LENGTH_MAX = 5;
+// Preset angles the floor tile's rotation picker offers, degrees.
+const MAP4_FLOOR_ANGLE_OPTIONS = [0, 30, 60, 90, 120];
 // The same two crate sizes already used elsewhere in the game — the small
 // EXTRA_CRATES ones (halfExtent 0.5) and the standard per-room crates
 // (CRATE_HALF_EXTENT, 0.9) — not new sizes invented for Build Mode.
@@ -1175,6 +1177,11 @@ interface Map4FloorTile {
   z: number;
   y?: number;
   color: number;
+  // In-plane rotation around the vertical axis, radians — purely cosmetic
+  // (the walkable footprint stays the same axis-aligned MAP4_FLOOR_TILE_SIZE
+  // square regardless of angle). Optional and falsy-defaults to 0 so tiles
+  // saved before this field existed keep rendering axis-aligned.
+  rotY?: number;
 }
 // Round glowing column — collidable, like a crate but cylindrical.
 interface Map4Pillar {
@@ -1307,6 +1314,7 @@ function isValidMap4Item(it: unknown): it is Map4Item {
         dirX?: unknown;
         dirZ?: unknown;
         baseY?: unknown;
+        rotY?: unknown;
       }
     | null;
   return (
@@ -1317,7 +1325,7 @@ function isValidMap4Item(it: unknown): it is Map4Item {
     ((i.kind === "wall" && (i.axis === "x" || i.axis === "z") && typeof i.length === "number") ||
       (i.kind === "obstacle" && typeof i.size === "number") ||
       i.kind === "drum" ||
-      (i.kind === "floorTile" && typeof i.color === "number") ||
+      (i.kind === "floorTile" && typeof i.color === "number" && (i.rotY === undefined || typeof i.rotY === "number")) ||
       (i.kind === "pillar" && typeof i.color === "number") ||
       (i.kind === "railing" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
       (i.kind === "door" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
@@ -3265,6 +3273,11 @@ function CombatArena({
   );
   const [buildWallLength, setBuildWallLength] = useState(3);
   const [buildObstacleSize, setBuildObstacleSize] = useState(MAP4_OBSTACLE_SMALL);
+  // Floor tile only — in-plane rotation angle in degrees, picked from a
+  // fixed preset row (0/30/60/90/120) rather than a free dial, matching how
+  // every other placement choice here (wall length, stairs count) is a
+  // small discrete set of buttons instead of a slider.
+  const [buildFloorAngleDeg, setBuildFloorAngleDeg] = useState(0);
   // Which Cypher Phunk palette color the next colorable piece (wall,
   // floor tile, pillar, railing, door, light, stairs) uses — irrelevant for
   // obstacle/drum, which aren't colorable. Starts at BUILD_DEFAULT_WALL_COLOR
@@ -4165,7 +4178,12 @@ function CombatArena({
               new THREE.PlaneGeometry(MAP4_FLOOR_TILE_SIZE, MAP4_FLOOR_TILE_SIZE),
               texturedAccentMat(item.color, MAP4_FLOOR_TILE_SIZE, MAP4_FLOOR_TILE_SIZE),
             );
-            mesh.rotation.x = -Math.PI / 2;
+            // Rotation order 'XYZ' (three.js default) applies Z first, in
+            // the plane's own local frame before the X tilt below flattens
+            // it -- so a Z angle here becomes an in-place spin around the
+            // now-vertical (world Y) axis once flattened, i.e. exactly the
+            // "turn this tile 30/60/90/120 degrees" the angle picker offers.
+            mesh.rotation.set(-Math.PI / 2, 0, item.rotY ?? 0);
             // (item.y ?? 0) is wherever the player was standing when this
             // was placed — ground level (0) only for tiles saved before
             // that was tracked. Never snapped back down to 0 otherwise, so
@@ -4327,7 +4345,7 @@ function CombatArena({
             }
             if (item.kind === "floorTile") {
               const mesh = new THREE.Mesh(new THREE.PlaneGeometry(MAP4_FLOOR_TILE_SIZE, MAP4_FLOOR_TILE_SIZE), buildPreviewMat);
-              mesh.rotation.x = -Math.PI / 2;
+              mesh.rotation.set(-Math.PI / 2, 0, item.rotY ?? 0);
               mesh.position.set(item.x, (item.y ?? 0) + 0.02, item.z);
               scene.add(mesh);
               return mesh;
@@ -5561,7 +5579,7 @@ function CombatArena({
           : buildPlaceKind === "obstacle"
             ? { kind: "obstacle", x, z, size: buildObstacleSize, rotY: facing.rotY, y: facing.y }
             : buildPlaceKind === "floorTile"
-              ? { kind: "floorTile", x, z, y: facing.y, color: buildColor }
+              ? { kind: "floorTile", x, z, y: facing.y, color: buildColor, rotY: (buildFloorAngleDeg * Math.PI) / 180 }
               : buildPlaceKind === "pillar"
                 ? { kind: "pillar", x, z, y: facing.y, color: buildColor }
                 : buildPlaceKind === "railing"
@@ -6505,6 +6523,32 @@ function CombatArena({
                           {n}
                         </button>
                       ))}
+                    {buildPlaceKind === "floorTile" &&
+                      MAP4_FLOOR_ANGLE_OPTIONS.map((deg) => (
+                        <button
+                          key={deg}
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildFloorAngleDeg(deg);
+                          }}
+                          aria-label={`Floor angle ${deg} degrees`}
+                          style={{
+                            flex: "none",
+                            width: 34,
+                            height: 28,
+                            borderRadius: 6,
+                            background: buildFloorAngleDeg === deg ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                            border: buildFloorAngleDeg === deg ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 12,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {deg}°
+                        </button>
+                      ))}
                     {buildPlaceKind === "stairs" && (
                       <>
                         <button
@@ -6621,7 +6665,7 @@ function CombatArena({
                         </button>
                       </>
                     )}
-                    {(buildPlaceKind === "wall" || buildPlaceKind === "stairs") && (
+                    {(buildPlaceKind === "wall" || buildPlaceKind === "stairs" || buildPlaceKind === "floorTile") && (
                       <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
                     )}
                     {(buildPlaceKind === "wall" ? [{ color: BUILD_DEFAULT_WALL_COLOR, label: "DEFAULT" }, ...BUILD_COLORS] : BUILD_COLORS).map(
