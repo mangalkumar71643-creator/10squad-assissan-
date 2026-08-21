@@ -1099,11 +1099,12 @@ const MAP4_RAILING_HEIGHT = 1.1;
 // Vertical margin either side of any height-gated Obstacle's own
 // [y, y + yHeight] span (a railing's own height, or one stairs step's own
 // rise — see Obstacle.y/yHeight) before its collision stops applying —
-// generous enough to still block someone approaching at foot level right
-// at its base or its top landing, but not so wide that a piece placed on
-// an elevated floor tile reaches all the way back down and blocks the
-// ground underneath it too.
-const MAP4_ELEVATION_COLLISION_MARGIN = 0.5;
+// just enough to absorb floating-point noise at the exact edge, not a
+// generous buffer. A wider margin here used to mean nudging a piece down
+// far enough to visually sink out of sight still left an invisible wall
+// standing at its old spot for a while longer, since the collision band
+// reached noticeably above the piece's own (now underground) top edge.
+const MAP4_ELEVATION_COLLISION_MARGIN = 0.05;
 const MAP4_DOOR_WIDTH = 4;
 const MAP4_DOOR_POST_THICKNESS = 0.3;
 const MAP4_LIGHT_LENGTH = 2;
