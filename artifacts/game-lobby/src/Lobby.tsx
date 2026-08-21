@@ -1534,6 +1534,30 @@ function isTopOfStairChain(item: Map4Stairs, allItems: Map4Item[]): boolean {
   }
   return true;
 }
+// Which item indices AIM should move together when nudging the one at
+// pickedIdx — every other kind is just itself (nudging one wall doesn't
+// need to drag any other wall along), but a stairs step is one piece of
+// a whole run: nudging just the picked step left it visually detached
+// from the rest of the chain (e.g. sinking one step underground while
+// the others stayed put), since every step is its own separate item.
+// Same lane-matching test computeStairRank/isTopOfStairChain already use
+// (same dirX/dirZ, same baseY, within MAP4_STAIRS_WIDTH of the lane), but
+// without the along-direction restriction — this wants every step in the
+// run, both ahead of and behind the picked one, not just one side.
+function relatedItemIndices(pickedIdx: number, allItems: Map4Item[]): number[] {
+  const item = allItems[pickedIdx];
+  if (!item || item.kind !== "stairs") return [pickedIdx];
+  const indices: number[] = [];
+  allItems.forEach((other, idx) => {
+    if (other.kind !== "stairs") return;
+    if (other.dirX !== item.dirX || other.dirZ !== item.dirZ) return;
+    if ((other.baseY ?? 0) !== (item.baseY ?? 0)) return;
+    const perp = (other.z - item.z) * item.dirX - (other.x - item.x) * item.dirZ;
+    if (Math.abs(perp) > MAP4_STAIRS_WIDTH) return;
+    indices.push(idx);
+  });
+  return indices;
+}
 
 // An underground tunnel actually running beneath the real path between
 // houses, at a lower Y (TUNNEL_Y) — not some separate tunnel off in
@@ -5543,31 +5567,39 @@ function CombatArena({
     const idx = api.pickAimedItem(customItemsRef.current);
     if (idx !== null) setBuildEditIndex(idx);
   };
-  // Slides the picked-up piece one MAP4_EDIT_NUDGE_STEP in the given
-  // direction, relative to wherever the player's currently facing (see
-  // nudgeDirs) for forward/back/left/right — or straight up/down, which
-  // instead adjusts the piece's own height (y for everything except
-  // stairs, whose baseY plays the same role — see Map4Stairs.baseY). Not
-  // clamped at 0 going down — y=0 is just Build Mode's default ground
-  // plane, not a floor the piece can't pass through, so a pillar (or
-  // anything else) can be pushed below it same as any other direction.
-  // Reuses commitItem/removeCollisionRect wholesale rather than hand-
-  // rolling a "just move this mesh" path — that's what already rebuilds
-  // the right mesh geometry (a stairs step's own rank-dependent height, a
-  // railing's own placed-height, etc.) and re-pushes the right collision
-  // rect(s) (including stairs' two side rails, and now every other kind's
-  // own y-gated one — see map4ItemRect) at the new spot, so a nudged
-  // piece behaves identically to one placed there fresh.
+  // Slides the picked-up piece (and, if it's a stairs step, every other
+  // step in the same run — see relatedItemIndices, since a nudged step
+  // used to visually detach from the rest of the chain otherwise, e.g.
+  // sinking underground while the rest of the staircase stayed put) one
+  // MAP4_EDIT_NUDGE_STEP in the given direction, relative to wherever the
+  // player's currently facing (see nudgeDirs) for forward/back/left/
+  // right — or straight up/down, which instead adjusts the piece's own
+  // height (y for everything except stairs, whose baseY plays the same
+  // role — see Map4Stairs.baseY). Not clamped at 0 going down — y=0 is
+  // just Build Mode's default ground plane, not a floor the piece can't
+  // pass through, so a pillar (or anything else) can be pushed below it
+  // same as any other direction.
+  //
+  // Every affected item's OLD mesh/collision is removed first, using the
+  // still-unmoved item list — a stairs step's own rank depends on the
+  // other steps around it, so removeCollisionRect needs to see the exact
+  // same list commitItem originally saw. Only once every old one is torn
+  // down does customItemsRef.current get updated to the new, moved
+  // positions all at once, then every affected item is re-committed
+  // (rebuilding its mesh geometry and collision rect(s) fresh) against
+  // that fully-updated list — since the whole run shifted together, each
+  // step's rank relative to the others is unchanged, so a nudged chain
+  // still climbs exactly the way it did before, just relocated.
   const handleBuildNudge = (dir: "forward" | "back" | "left" | "right" | "up" | "down") => {
     const api = buildModeRef.current;
     if (!api || buildEditIndex === null) return;
-    const item = customItemsRef.current[buildEditIndex];
-    const mesh = customItemMeshesRef.current[buildEditIndex];
-    if (!item || !mesh) return;
-    let movedItem: Map4Item;
+    const indices = relatedItemIndices(buildEditIndex, customItemsRef.current);
+    if (indices.length === 0) return;
+    let computeMoved: (item: Map4Item) => Map4Item;
     if (dir === "up" || dir === "down") {
       const deltaY = (dir === "up" ? 1 : -1) * MAP4_EDIT_NUDGE_STEP;
-      movedItem = item.kind === "stairs" ? { ...item, baseY: (item.baseY ?? 0) + deltaY } : { ...item, y: (item.y ?? 0) + deltaY };
+      computeMoved = (item) =>
+        item.kind === "stairs" ? { ...item, baseY: (item.baseY ?? 0) + deltaY } : { ...item, y: (item.y ?? 0) + deltaY };
     } else {
       const dirs = api.nudgeDirs();
       if (!dirs) return;
@@ -5575,13 +5607,18 @@ function CombatArena({
       const useRight = dir === "left" || dir === "right";
       const moveX = (useRight ? dirs.rightX : dirs.fwdX) * sign * MAP4_EDIT_NUDGE_STEP;
       const moveZ = (useRight ? dirs.rightZ : dirs.fwdZ) * sign * MAP4_EDIT_NUDGE_STEP;
-      movedItem = { ...item, x: item.x + moveX, z: item.z + moveZ };
+      computeMoved = (item) => ({ ...item, x: item.x + moveX, z: item.z + moveZ });
     }
-    api.removeMesh(mesh);
-    api.removeCollisionRect(item);
-    const newMesh = api.commitItem(movedItem);
-    customItemsRef.current = customItemsRef.current.map((it, i) => (i === buildEditIndex ? movedItem : it));
-    customItemMeshesRef.current = customItemMeshesRef.current.map((m, i) => (i === buildEditIndex ? newMesh : m));
+    for (const idx of indices) {
+      const mesh = customItemMeshesRef.current[idx];
+      const item = customItemsRef.current[idx];
+      if (mesh) api.removeMesh(mesh);
+      if (item) api.removeCollisionRect(item);
+    }
+    customItemsRef.current = customItemsRef.current.map((it, i) => (indices.includes(i) ? computeMoved(it) : it));
+    customItemMeshesRef.current = customItemMeshesRef.current.map((m, i) =>
+      indices.includes(i) ? api.commitItem(customItemsRef.current[i]) : m,
+    );
   };
   const handleBuildSave = () => {
     saveMap4Items(activeBuildItemsKey, customItemsRef.current);
