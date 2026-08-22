@@ -1093,6 +1093,9 @@ const MAP4_EDIT_NUDGE_STEP = 0.05;
 // that no longer teleports the player up onto it.
 const MAP4_ELEVATION_SNAP_TOLERANCE = 0.5;
 const MAP4_PILLAR_RADIUS = 0.5;
+// The pillar's own +/- size stepper — width/depth in meters, 1m at a time.
+const MAP4_PILLAR_SIZE_MIN = 1;
+const MAP4_PILLAR_SIZE_MAX = 20;
 const MAP4_RAILING_LENGTH = 4;
 const MAP4_RAILING_THICKNESS = 0.4;
 const MAP4_RAILING_HEIGHT = 1.1;
@@ -1191,6 +1194,10 @@ interface Map4Pillar {
   z: number;
   y?: number;
   color: number;
+  // Width/depth in meters, picked from the +/- stepper at placement time.
+  // Optional and falsy-defaults to MAP4_PILLAR_RADIUS * 2 (1m) so pillars
+  // saved before this field existed keep their original size.
+  size?: number;
 }
 // A low barrier segment — collidable, like a short thin wall. Same
 // player's-current-height placement as a floor tile (see Map4FloorTile):
@@ -1327,7 +1334,7 @@ function isValidMap4Item(it: unknown): it is Map4Item {
       (i.kind === "obstacle" && typeof i.size === "number") ||
       i.kind === "drum" ||
       (i.kind === "floorTile" && typeof i.color === "number" && (i.rotY === undefined || typeof i.rotY === "number")) ||
-      (i.kind === "pillar" && typeof i.color === "number") ||
+      (i.kind === "pillar" && typeof i.color === "number" && (i.size === undefined || typeof i.size === "number")) ||
       (i.kind === "railing" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
       (i.kind === "door" && (i.axis === "x" || i.axis === "z") && typeof i.color === "number") ||
       (i.kind === "light" && typeof i.color === "number") ||
@@ -1407,7 +1414,8 @@ function map4ItemRect(it: Map4Item): Obstacle {
     return { x: it.x, z: it.z, halfX: it.size / 2, halfZ: it.size / 2, pad: ROOM_PAD, y: it.y ?? 0, yHeight: it.size };
   }
   if (it.kind === "pillar") {
-    return { x: it.x, z: it.z, halfX: MAP4_PILLAR_RADIUS, halfZ: MAP4_PILLAR_RADIUS, pad: ROOM_PAD, y: it.y ?? 0, yHeight: ROOM_WALL_HEIGHT };
+    const half = (it.size ?? MAP4_PILLAR_RADIUS * 2) / 2;
+    return { x: it.x, z: it.z, halfX: half, halfZ: half, pad: ROOM_PAD, y: it.y ?? 0, yHeight: ROOM_WALL_HEIGHT };
   }
   if (it.kind === "railing") {
     return it.axis === "x"
@@ -3274,6 +3282,9 @@ function CombatArena({
   );
   const [buildWallLength, setBuildWallLength] = useState(3);
   const [buildObstacleSize, setBuildObstacleSize] = useState(MAP4_OBSTACLE_SMALL);
+  // Pillar only — width/depth in meters, +/- stepper like buildStairsCount
+  // rather than a fixed size, since one fixed 1m pillar wasn't enough.
+  const [buildPillarSize, setBuildPillarSize] = useState(MAP4_PILLAR_SIZE_MIN);
   // Floor tile only — in-plane rotation angle in degrees, picked from a
   // fixed preset row (0/30/60/90/120) rather than a free dial, matching how
   // every other placement choice here (wall length, stairs count) is a
@@ -4198,9 +4209,10 @@ function CombatArena({
             // A square column, not a cylinder — the wall texture's UVs are
             // built for flat panels, so a box reads correctly where a
             // cylinder would smear/distort it around the curve.
+            const pillarSize = item.size ?? MAP4_PILLAR_RADIUS * 2;
             const mesh = new THREE.Mesh(
-              new THREE.BoxGeometry(MAP4_PILLAR_RADIUS * 2, ROOM_WALL_HEIGHT, MAP4_PILLAR_RADIUS * 2),
-              texturedAccentMat(item.color, MAP4_PILLAR_RADIUS * 2, ROOM_WALL_HEIGHT),
+              new THREE.BoxGeometry(pillarSize, ROOM_WALL_HEIGHT, pillarSize),
+              texturedAccentMat(item.color, pillarSize, ROOM_WALL_HEIGHT),
             );
             mesh.position.set(item.x, (item.y ?? 0) + ROOM_WALL_HEIGHT / 2, item.z);
             mesh.receiveShadow = true;
@@ -4352,7 +4364,8 @@ function CombatArena({
               return mesh;
             }
             if (item.kind === "pillar") {
-              const mesh = new THREE.Mesh(new THREE.BoxGeometry(MAP4_PILLAR_RADIUS * 2, ROOM_WALL_HEIGHT, MAP4_PILLAR_RADIUS * 2), buildPreviewMat);
+              const pillarSize = item.size ?? MAP4_PILLAR_RADIUS * 2;
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(pillarSize, ROOM_WALL_HEIGHT, pillarSize), buildPreviewMat);
               mesh.position.set(item.x, (item.y ?? 0) + ROOM_WALL_HEIGHT / 2, item.z);
               scene.add(mesh);
               return mesh;
@@ -5582,7 +5595,7 @@ function CombatArena({
             : buildPlaceKind === "floorTile"
               ? { kind: "floorTile", x, z, y: facing.y, color: buildColor, rotY: (buildFloorAngleDeg * Math.PI) / 180 }
               : buildPlaceKind === "pillar"
-                ? { kind: "pillar", x, z, y: facing.y, color: buildColor }
+                ? { kind: "pillar", x, z, y: facing.y, color: buildColor, size: buildPillarSize }
                 : buildPlaceKind === "railing"
                   ? { kind: "railing", x, z, y: facing.y, axis: facing.axis, color: buildColor }
                   : buildPlaceKind === "door"
@@ -5621,23 +5634,24 @@ function CombatArena({
     setBuildHasSelection(false);
     setBuildItemCount(customItemsRef.current.length);
   };
-  // Undoes the most recently committed piece — wall or obstacle,
-  // whichever was placed last (last in, first out) — simpler and more
-  // predictable than targeting/raycasting a specific one. Blocked while
-  // AIM has a piece picked up (see buildEditIndex): REMOVE is LIFO by
-  // array position, and the picked piece isn't necessarily the last one,
-  // so letting the two interleave could delete the wrong piece or leave
-  // buildEditIndex pointing at whatever shifted into its old slot.
+  // Undoes a placed piece. With nothing picked up in AIM, that's the most
+  // recently committed one (last in, first out) — simpler and more
+  // predictable than targeting/raycasting a specific one. But with AIM
+  // already holding a piece (buildEditIndex), REMOVE instead deletes
+  // exactly that one directly — no need to back out of AIM, re-find it by
+  // LIFO order, and hope nothing got placed after it in the meantime.
   const handleBuildRemoveItem = () => {
     const api = buildModeRef.current;
-    if (!api || customItemsRef.current.length === 0 || buildEditIndex !== null) return;
-    const lastItem = customItemsRef.current[customItemsRef.current.length - 1];
-    const lastMesh = customItemMeshesRef.current[customItemMeshesRef.current.length - 1];
-    api.removeMesh(lastMesh);
-    api.removeCollisionRect(lastItem);
-    customItemsRef.current = customItemsRef.current.slice(0, -1);
-    customItemMeshesRef.current = customItemMeshesRef.current.slice(0, -1);
+    if (!api || customItemsRef.current.length === 0) return;
+    const idx = buildEditIndex ?? customItemsRef.current.length - 1;
+    const item = customItemsRef.current[idx];
+    const mesh = customItemMeshesRef.current[idx];
+    api.removeMesh(mesh);
+    api.removeCollisionRect(item);
+    customItemsRef.current = customItemsRef.current.filter((_, i) => i !== idx);
+    customItemMeshesRef.current = customItemMeshesRef.current.filter((_, i) => i !== idx);
     setBuildItemCount(customItemsRef.current.length);
+    if (buildEditIndex !== null) setBuildEditIndex(null);
   };
   // AIM: pressed once with nothing picked up, it finds whichever placed
   // piece the player's most directly facing (see pickAimedItem) and picks
@@ -6550,6 +6564,69 @@ function CombatArena({
                           {deg}°
                         </button>
                       ))}
+                    {buildPlaceKind === "pillar" && (
+                      <>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildPillarSize((n) => Math.max(MAP4_PILLAR_SIZE_MIN, n - 1));
+                          }}
+                          aria-label="Smaller pillar"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          −
+                        </button>
+                        <div
+                          style={{
+                            flex: "none",
+                            minWidth: 34,
+                            textAlign: "center",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 14,
+                          }}
+                        >
+                          {buildPillarSize}m
+                        </div>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildPillarSize((n) => Math.min(MAP4_PILLAR_SIZE_MAX, n + 1));
+                          }}
+                          aria-label="Bigger pillar"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          +
+                        </button>
+                      </>
+                    )}
                     {buildPlaceKind === "stairs" && (
                       <>
                         <button
@@ -6666,7 +6743,7 @@ function CombatArena({
                         </button>
                       </>
                     )}
-                    {(buildPlaceKind === "wall" || buildPlaceKind === "stairs" || buildPlaceKind === "floorTile") && (
+                    {(buildPlaceKind === "wall" || buildPlaceKind === "stairs" || buildPlaceKind === "floorTile" || buildPlaceKind === "pillar") && (
                       <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
                     )}
                     {(buildPlaceKind === "wall" ? [{ color: BUILD_DEFAULT_WALL_COLOR, label: "DEFAULT" }, ...BUILD_COLORS] : BUILD_COLORS).map(
@@ -6898,22 +6975,22 @@ function CombatArena({
                   e.preventDefault();
                   handleBuildRemoveItem();
                 }}
-                disabled={buildItemCount === 0 || buildEditIndex !== null}
-                aria-label="Remove last item"
+                disabled={buildItemCount === 0}
+                aria-label={buildEditIndex !== null ? "Remove aimed item" : "Remove last item"}
                 style={{
                   position: "absolute",
                   top: 140,
                   left: 96,
                   padding: "8px 18px",
                   borderRadius: 6,
-                  background: buildItemCount === 0 || buildEditIndex !== null ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
-                  border: buildItemCount === 0 || buildEditIndex !== null ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
-                  color: buildItemCount === 0 || buildEditIndex !== null ? "rgba(220,230,240,0.4)" : "#ffb3ac",
+                  background: buildItemCount === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
+                  border: buildItemCount === 0 ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
+                  color: buildItemCount === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
                   fontFamily: "'Rajdhani', sans-serif",
                   fontWeight: 700,
                   letterSpacing: "0.06em",
                   fontSize: 13,
-                  cursor: buildItemCount === 0 || buildEditIndex !== null ? "default" : "pointer",
+                  cursor: buildItemCount === 0 ? "default" : "pointer",
                 }}
               >
                 REMOVE
