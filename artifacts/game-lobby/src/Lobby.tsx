@@ -1092,6 +1092,15 @@ const MAP4_EDIT_NUDGE_STEP = 0.05;
 // and just bumping into the side/underside of an elevated one is not, so
 // that no longer teleports the player up onto it.
 const MAP4_ELEVATION_SNAP_TOLERANCE = 0.5;
+// Two floor tiles placed one after another to build a bridge/walkway
+// aren't always exactly MAP4_FLOOR_TILE_SIZE apart center-to-center (the
+// player aims each one by hand) — even a couple centimeters of gap
+// between their strict footprints meant a fast-running player could land
+// in that hairline sliver for one frame, matching neither tile's
+// footprint, which read as suddenly falling through the bridge. Widens
+// each tile's footprint check by this much so adjacent tiles overlap a
+// little instead of just barely touching (or missing).
+const MAP4_FLOOR_TILE_EDGE_MARGIN = 0.5;
 const MAP4_PILLAR_RADIUS = 0.5;
 // The pillar's own +/- size stepper — width/depth in meters, 1m at a time.
 const MAP4_PILLAR_SIZE_MIN = 1;
@@ -5117,8 +5126,8 @@ function CombatArena({
               if (item.kind !== "floorTile") continue;
               const tileY = item.y ?? 0;
               if (
-                Math.abs(player.root.position.x - item.x) < MAP4_FLOOR_TILE_SIZE / 2 &&
-                Math.abs(player.root.position.z - item.z) < MAP4_FLOOR_TILE_SIZE / 2 &&
+                Math.abs(player.root.position.x - item.x) < MAP4_FLOOR_TILE_SIZE / 2 + MAP4_FLOOR_TILE_EDGE_MARGIN &&
+                Math.abs(player.root.position.z - item.z) < MAP4_FLOOR_TILE_SIZE / 2 + MAP4_FLOOR_TILE_EDGE_MARGIN &&
                 Math.abs(player.root.position.y - tileY) < MAP4_ELEVATION_SNAP_TOLERANCE
               ) {
                 player.root.position.y = tileY;
