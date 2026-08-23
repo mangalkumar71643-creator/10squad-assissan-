@@ -1035,8 +1035,16 @@ const MAP4_PLAY_HALF = 175;
 const MAP4_WALL_LENGTH_DEFAULT = 6; // legacy fallback for pre-length-selector saves
 const MAP4_WALL_LENGTH_MIN = 1;
 const MAP4_WALL_LENGTH_MAX = 5;
-// Preset angles the floor tile's rotation picker offers, degrees.
-const MAP4_FLOOR_ANGLE_OPTIONS = [0, 30, 45, 60, 90, 120];
+// Preset angles the floor tile's and blue line's rotation pickers offer,
+// degrees.
+const MAP4_ANGLE_OPTIONS = [0, 30, 45, 60, 90, 120];
+// The blue reference line — a straight, fixed-color marker (see Map4Line)
+// for eyeballing whether a run of floor tiles or other pieces actually
+// stayed straight, not a real buildable piece.
+const MAP4_LINE_LENGTH_MIN = 1;
+const MAP4_LINE_LENGTH_MAX = 20;
+const MAP4_LINE_THICKNESS = 0.15;
+const MAP4_LINE_COLOR = 0x2f6bff;
 // The same two crate sizes already used elsewhere in the game — the small
 // EXTRA_CRATES ones (halfExtent 0.5) and the standard per-room crates
 // (CRATE_HALF_EXTENT, 0.9) — not new sizes invented for Build Mode.
@@ -1267,7 +1275,19 @@ interface Map4Stairs {
   baseY?: number;
   color: number;
 }
-type Map4Item = Map4Wall | Map4Crate | Map4Drum | Map4FloorTile | Map4Pillar | Map4Railing | Map4Door | Map4Light | Map4Stairs;
+// A thin blue reference line — purely a measuring/alignment aid (e.g.
+// laying it over a run of floor tiles to see at a glance whether they
+// drifted off a straight line), not a real piece: no color choice (always
+// blue) and, like a floor tile or light, no collision.
+interface Map4Line {
+  kind: "line";
+  x: number;
+  z: number;
+  y?: number;
+  length: number;
+  rotY: number;
+}
+type Map4Item = Map4Wall | Map4Crate | Map4Drum | Map4FloorTile | Map4Pillar | Map4Railing | Map4Door | Map4Light | Map4Stairs | Map4Line;
 // Absolute, not relative — the Android build's WebView doesn't share an
 // origin with this deployment, so a relative "/api/house" would resolve
 // against the app's own local origin instead of actually reaching it.
@@ -1351,7 +1371,8 @@ function isValidMap4Item(it: unknown): it is Map4Item {
         typeof i.dirX === "number" &&
         typeof i.dirZ === "number" &&
         typeof i.color === "number" &&
-        (i.baseY === undefined || typeof i.baseY === "number")))
+        (i.baseY === undefined || typeof i.baseY === "number")) ||
+      (i.kind === "line" && typeof i.length === "number" && typeof i.rotY === "number"))
   );
 }
 // key/legacyKey/defaultItems are passed in rather than hardcoded so this one
@@ -1405,7 +1426,7 @@ function saveMap4Items(key: string, items: Map4Item[]) {
 // kinds — the non-blocking ones there just return a degenerate rect to
 // keep the function total).
 function map4ItemBlocksMovement(it: Map4Item): boolean {
-  return it.kind !== "floorTile" && it.kind !== "door" && it.kind !== "light" && it.kind !== "stairs";
+  return it.kind !== "floorTile" && it.kind !== "door" && it.kind !== "light" && it.kind !== "stairs" && it.kind !== "line";
 }
 function map4ItemRect(it: Map4Item): Obstacle {
   if (it.kind === "wall") {
@@ -1431,7 +1452,7 @@ function map4ItemRect(it: Map4Item): Obstacle {
       ? { x: it.x, z: it.z, halfX: MAP4_RAILING_LENGTH / 2, halfZ: MAP4_RAILING_THICKNESS / 2, pad: ROOM_PAD, y: it.y ?? 0, yHeight: MAP4_RAILING_HEIGHT }
       : { x: it.x, z: it.z, halfX: MAP4_RAILING_THICKNESS / 2, halfZ: MAP4_RAILING_LENGTH / 2, pad: ROOM_PAD, y: it.y ?? 0, yHeight: MAP4_RAILING_HEIGHT };
   }
-  // floorTile / door / light / stairs never reach here — map4ItemBlocksMovement
+  // floorTile / door / light / stairs / line never reach here — map4ItemBlocksMovement
   // guards every ACTIVE_OBSTACLES.push call site — but the function needs an
   // exhaustive return, so give them a harmless zero-size rect. Stairs get
   // their own two-rect collision (see stairSideRects below) instead of
@@ -3286,9 +3307,9 @@ function CombatArena({
   // state re-renders — the ref itself is intentionally not React state.
   const [buildItemCount, setBuildItemCount] = useState(0);
   // Which kind SELECT stages next, and the size/length chosen for it.
-  const [buildPlaceKind, setBuildPlaceKind] = useState<"wall" | "obstacle" | "drum" | "floorTile" | "pillar" | "railing" | "door" | "light" | "stairs">(
-    "wall",
-  );
+  const [buildPlaceKind, setBuildPlaceKind] = useState<
+    "wall" | "obstacle" | "drum" | "floorTile" | "pillar" | "railing" | "door" | "light" | "stairs" | "line"
+  >("wall");
   const [buildWallLength, setBuildWallLength] = useState(3);
   const [buildObstacleSize, setBuildObstacleSize] = useState(MAP4_OBSTACLE_SMALL);
   // Pillar only — width/depth in meters, +/- stepper like buildStairsCount
@@ -3299,6 +3320,12 @@ function CombatArena({
   // every other placement choice here (wall length, stairs count) is a
   // small discrete set of buttons instead of a slider.
   const [buildFloorAngleDeg, setBuildFloorAngleDeg] = useState(0);
+  // Blue line only — length (+/- stepper, same idea as buildPillarSize)
+  // and rotation angle (same preset row as buildFloorAngleDeg) — kept as
+  // its own separate state so switching tabs doesn't disturb whatever
+  // angle the floor tile tab was left on.
+  const [buildLineLength, setBuildLineLength] = useState(5);
+  const [buildLineAngleDeg, setBuildLineAngleDeg] = useState(0);
   // Which Cypher Phunk palette color the next colorable piece (wall,
   // floor tile, pillar, railing, door, light, stairs) uses — irrelevant for
   // obstacle/drum, which aren't colorable. Starts at BUILD_DEFAULT_WALL_COLOR
@@ -4245,6 +4272,22 @@ function CombatArena({
             scene.add(mesh);
             return mesh;
           }
+          if (item.kind === "line") {
+            // MeshBasicMaterial (unlit) so it reads as a consistent, pure
+            // blue reference mark regardless of the scene's own lighting —
+            // this is a measuring aid, not a real lit piece. polygonOffset
+            // for the same reason floor tiles need it: laid flat over an
+            // existing floor tile to check its alignment, it would
+            // otherwise z-fight the tile right underneath it.
+            const mesh = new THREE.Mesh(
+              new THREE.BoxGeometry(item.length, 0.06, MAP4_LINE_THICKNESS),
+              new THREE.MeshBasicMaterial({ color: MAP4_LINE_COLOR, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
+            );
+            mesh.rotation.y = item.rotY;
+            mesh.position.set(item.x, (item.y ?? 0) + 0.03, item.z);
+            scene.add(mesh);
+            return mesh;
+          }
           const stairRank = computeStairRank(item, customItemsRef.current);
           return addStairsMesh(item, texturedAccentMat(item.color, MAP4_STAIRS_WIDTH, (stairRank + 1) * MAP4_STAIRS_RISE));
         };
@@ -4397,6 +4440,13 @@ function CombatArena({
             if (item.kind === "light") {
               const mesh = new THREE.Mesh(new THREE.BoxGeometry(MAP4_LIGHT_LENGTH, 0.1, 0.25), buildPreviewMat);
               mesh.position.set(item.x, (item.y ?? 0) + 0.06, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "line") {
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.length, 0.06, MAP4_LINE_THICKNESS), buildPreviewMat);
+              mesh.rotation.y = item.rotY;
+              mesh.position.set(item.x, (item.y ?? 0) + 0.03, item.z);
               scene.add(mesh);
               return mesh;
             }
@@ -5611,7 +5661,9 @@ function CombatArena({
                     ? { kind: "door", x, z, axis: facing.axis, y: facing.y, color: buildColor }
                     : buildPlaceKind === "light"
                       ? { kind: "light", x, z, y: facing.y, color: buildColor }
-                      : { kind: "stairs", x, z, dirX: stairsDir.dirX, dirZ: stairsDir.dirZ, baseY: facing.y, color: buildColor };
+                      : buildPlaceKind === "line"
+                        ? { kind: "line", x, z, y: facing.y, length: buildLineLength, rotY: (buildLineAngleDeg * Math.PI) / 180 }
+                        : { kind: "stairs", x, z, dirX: stairsDir.dirX, dirZ: stairsDir.dirZ, baseY: facing.y, color: buildColor };
     const count = buildPlaceKind === "stairs" ? buildStairsCount : 1;
     for (let i = 0; i < count; i++) {
       const item = buildOneItem(facing.x + stairsDir.dirX * MAP4_STAIRS_DEPTH * i, facing.z + stairsDir.dirZ * MAP4_STAIRS_DEPTH * i);
@@ -6389,6 +6441,7 @@ function CombatArena({
                       { kind: "door", label: "DOOR" },
                       { kind: "light", label: "LIGHT" },
                       { kind: "stairs", label: "STAIRS" },
+                      { kind: "line", label: "LINE" },
                     ] as const
                   ).map(({ kind, label }) => (
                     <button
@@ -6548,7 +6601,7 @@ function CombatArena({
                         </button>
                       ))}
                     {buildPlaceKind === "floorTile" &&
-                      MAP4_FLOOR_ANGLE_OPTIONS.map((deg) => (
+                      MAP4_ANGLE_OPTIONS.map((deg) => (
                         <button
                           key={deg}
                           onPointerDown={(e) => {
@@ -6634,6 +6687,95 @@ function CombatArena({
                         >
                           +
                         </button>
+                      </>
+                    )}
+                    {buildPlaceKind === "line" && (
+                      <>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildLineLength((n) => Math.max(MAP4_LINE_LENGTH_MIN, n - 1));
+                          }}
+                          aria-label="Shorter line"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          −
+                        </button>
+                        <div
+                          style={{
+                            flex: "none",
+                            minWidth: 34,
+                            textAlign: "center",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 14,
+                          }}
+                        >
+                          {buildLineLength}m
+                        </div>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildLineLength((n) => Math.min(MAP4_LINE_LENGTH_MAX, n + 1));
+                          }}
+                          aria-label="Longer line"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          +
+                        </button>
+                        <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
+                        {MAP4_ANGLE_OPTIONS.map((deg) => (
+                          <button
+                            key={deg}
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              setBuildLineAngleDeg(deg);
+                            }}
+                            aria-label={`Line angle ${deg} degrees`}
+                            style={{
+                              flex: "none",
+                              width: 34,
+                              height: 28,
+                              borderRadius: 6,
+                              background: buildLineAngleDeg === deg ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                              border: buildLineAngleDeg === deg ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                              color: "#dce8f5",
+                              fontFamily: "'Rajdhani', sans-serif",
+                              fontWeight: 700,
+                              fontSize: 12,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {deg}°
+                          </button>
+                        ))}
                       </>
                     )}
                     {buildPlaceKind === "stairs" && (
@@ -6752,7 +6894,11 @@ function CombatArena({
                         </button>
                       </>
                     )}
-                    {(buildPlaceKind === "wall" || buildPlaceKind === "stairs" || buildPlaceKind === "floorTile" || buildPlaceKind === "pillar") && (
+                    {(buildPlaceKind === "wall" ||
+                      buildPlaceKind === "stairs" ||
+                      buildPlaceKind === "floorTile" ||
+                      buildPlaceKind === "pillar" ||
+                      buildPlaceKind === "line") && (
                       <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
                     )}
                     {(buildPlaceKind === "wall" ? [{ color: BUILD_DEFAULT_WALL_COLOR, label: "DEFAULT" }, ...BUILD_COLORS] : BUILD_COLORS).map(
