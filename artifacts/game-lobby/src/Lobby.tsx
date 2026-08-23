@@ -1043,7 +1043,9 @@ const MAP4_ANGLE_OPTIONS = [0, 30, 45, 60, 90, 120];
 // stayed straight, not a real buildable piece.
 const MAP4_LINE_LENGTH_MIN = 1;
 const MAP4_LINE_LENGTH_MAX = 20;
-const MAP4_LINE_THICKNESS = 0.15;
+// Thin on purpose — it's a straightness gauge, not a real barrier piece,
+// so a hairline reads better than a wide painted stripe would.
+const MAP4_LINE_THICKNESS = 0.05;
 const MAP4_LINE_COLOR = 0x2f6bff;
 // The same two crate sizes already used elsewhere in the game — the small
 // EXTRA_CRATES ones (halfExtent 0.5) and the standard per-room crates
