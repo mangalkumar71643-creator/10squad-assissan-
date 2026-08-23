@@ -2184,9 +2184,10 @@ const gunGripRotation = loadGunGripRotation();
 function saveGunGripRotation() {
   localStorage.setItem(GUN_GRIP_ROTATION_STORAGE_KEY, JSON.stringify({ x: gunGripRotation.x, y: gunGripRotation.y, z: gunGripRotation.z }));
 }
-// One PLAYER-tab rotation-nudge tap, radians (~4°) — tuned by eye, fine
-// enough for real calibration without needing dozens of taps.
-const GUN_GRIP_ROTATION_STEP = (4 * Math.PI) / 180;
+// The PLAYER tab's PITCH/YAW/ROLL sliders — a full turn either way, so
+// no orientation is ever out of reach.
+const GUN_GRIP_ROTATION_MIN = -Math.PI;
+const GUN_GRIP_ROTATION_MAX = Math.PI;
 
 // Extra finger-curl on top of curlGunGripFingers' own fixed table — one
 // independent scale per finger (Thumb/Index/Middle/Ring/Pinky) per hand,
@@ -2226,7 +2227,11 @@ const fingerCurlExtras = loadFingerCurlExtras();
 function saveFingerCurlExtras() {
   localStorage.setItem(GUN_FINGER_CURL_STORAGE_KEY, JSON.stringify(fingerCurlExtras));
 }
-const GUN_FINGER_CURL_STEP = 0.15;
+// The PLAYER tab's per-finger curl sliders — -1 (fully uncurled/loose)
+// to +1 (an extra full base-curl's worth on top of the already-curled
+// starting grip) either side of the base table's own fixed curl.
+const GUN_FINGER_CURL_MIN = -1;
+const GUN_FINGER_CURL_MAX = 1;
 
 // The gun model is a static (unskinned) mesh, so one glTF load is shared
 // and cloned for whichever fighter needs it.
@@ -3416,8 +3421,8 @@ function CombatArena({
     pickAimedItem: (items: Map4Item[]) => number | null;
     nudgeDirs: () => { fwdX: number; fwdZ: number; rightX: number; rightZ: number } | null;
     nudgeGunGrip: (dx: number, dy: number, dz: number) => void;
-    nudgeGunGripRotation: (axis: "pitch" | "yaw" | "roll", delta: number) => void;
-    nudgeFingerCurl: (side: "left" | "right", finger: FingerName, delta: number) => void;
+    setGunGripRotation: (axis: "pitch" | "yaw" | "roll", value: number) => void;
+    setFingerCurl: (side: "left" | "right", finger: FingerName, value: number) => void;
     resetGunGrip: () => void;
     toggleGunDetach: () => void;
   } | null>(null);
@@ -3452,6 +3457,14 @@ function CombatArena({
   // button's own label re-renders — same non-reactive-state pattern as
   // buildItemCount mirroring customItemsRef.
   const [gunDetachedUI, setGunDetachedUI] = useState(false);
+  // Mirrors gunGripRotation/fingerCurlExtras (module-level, loaded from
+  // localStorage once at import time) purely so the PLAYER tab's sliders
+  // have a controlled `value` to show — same pattern as gunDetachedUI.
+  // Read once at mount; every drag updates both the real (imperative)
+  // state via setGunGripRotation/setFingerCurl AND this mirror together
+  // (see handleGunRotationSlider/handleGunCurlSlider).
+  const [gunRotationUI, setGunRotationUI] = useState(() => ({ pitch: gunGripRotation.x, yaw: gunGripRotation.y, roll: gunGripRotation.z }));
+  const [gunCurlUI, setGunCurlUI] = useState(() => ({ right: { ...fingerCurlExtras.right }, left: { ...fingerCurlExtras.left } }));
   const [buildHasSelection, setBuildHasSelection] = useState(false);
   // Mirrors customItemsRef.current.length purely so REMOVE's disabled
   // state re-renders — the ref itself is intentionally not React state.
@@ -4671,35 +4684,34 @@ function CombatArena({
             saveGunGripOffset();
             if (player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
           },
-          // Same idea as nudgeGunGrip, for the pitch/yaw/roll correction
-          // (see gunGripRotation) — pitch tips the muzzle up/down, roll
-          // spins the gun around its own barrel (which is what moves the
-          // trigger/fire-button side up or down), yaw swings the muzzle
-          // left/right.
-          nudgeGunGripRotation: (axis, delta) => {
-            if (gunDetached) {
-              if (!player?.gun) return;
-              const axisVec = axis === "pitch" ? new THREE.Vector3(1, 0, 0) : axis === "yaw" ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
-              player.gun.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axisVec, delta));
-              return;
-            }
-            if (axis === "pitch") gunGripRotation.x += delta;
-            else if (axis === "yaw") gunGripRotation.y += delta;
-            else gunGripRotation.z += delta;
+          // A slider's onChange always hands over the new ABSOLUTE value,
+          // not a delta — sets gunGripRotation's axis directly (pitch tips
+          // the muzzle up/down, roll spins the gun around its own barrel,
+          // which is what moves the trigger/fire-button side up or down,
+          // yaw swings the muzzle left/right) and re-derives the player's
+          // own already-equipped gun from scratch, same as nudgeGunGrip.
+          // Only touches the live gun while attached — detached, the
+          // slider still updates (and persists) the calibration, it just
+          // has nothing on the hand to visibly apply to right now.
+          setGunGripRotation: (axis, value) => {
+            if (axis === "pitch") gunGripRotation.x = value;
+            else if (axis === "yaw") gunGripRotation.y = value;
+            else gunGripRotation.z = value;
             saveGunGripRotation();
-            if (player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
+            if (!gunDetached && player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
           },
-          // See curlGunGripFingers's `scale` param — works the same
-          // whether the gun is attached or detached, since the fingers
-          // curl around wherever the hand already is either way. `side`
-          // picks which hand's copy of fingerCurlExtras to move — the
-          // two are independent (a left pinky nudge never touches the
-          // right hand's fingers, and vice versa).
-          nudgeFingerCurl: (side, finger, delta) => {
+          // Same idea for one finger's curl (see curlGunGripFingers'
+          // `scale` param) — `side` picks which hand's copy of
+          // fingerCurlExtras to set, independent of the other hand.
+          // curlGunGripFingers itself is still delta-based (bone
+          // quaternions accumulate by multiplication), so this applies
+          // just the difference from the finger's previous value.
+          setFingerCurl: (side, finger, value) => {
             const extras = side === "right" ? fingerCurlExtras.right : fingerCurlExtras.left;
-            extras[finger] += delta;
+            const delta = value - extras[finger];
+            extras[finger] = value;
             saveFingerCurlExtras();
-            if (player) {
+            if (player && delta !== 0) {
               const fingers = side === "right" ? player.rightFingers : player.leftFingers;
               const mirror = side === "right" ? 1 : -1;
               curlGunGripFingers(fingers, mirror, { ...zeroFingerCurlExtra(), [finger]: delta });
@@ -6070,11 +6082,13 @@ function CombatArena({
     else if (dir === "right") api.nudgeGunGrip(s, 0, 0);
     else api.nudgeGunGrip(-s, 0, 0);
   };
-  const handleGunRotationNudge = (axis: "pitch" | "yaw" | "roll", sign: 1 | -1) => {
-    buildModeRef.current?.nudgeGunGripRotation(axis, sign * GUN_GRIP_ROTATION_STEP);
+  const handleGunRotationSlider = (axis: "pitch" | "yaw" | "roll", value: number) => {
+    buildModeRef.current?.setGunGripRotation(axis, value);
+    setGunRotationUI((prev) => ({ ...prev, [axis]: value }));
   };
-  const handleGunCurlNudge = (side: "left" | "right", finger: FingerName, sign: 1 | -1) => {
-    buildModeRef.current?.nudgeFingerCurl(side, finger, sign * GUN_FINGER_CURL_STEP);
+  const handleGunCurlSlider = (side: "left" | "right", finger: FingerName, value: number) => {
+    buildModeRef.current?.setFingerCurl(side, finger, value);
+    setGunCurlUI((prev) => ({ ...prev, [side]: { ...prev[side], [finger]: value } }));
   };
   const handleBuildSave = () => {
     saveMap4Items(activeBuildItemsKey, customItemsRef.current);
@@ -7644,6 +7658,8 @@ function CombatArena({
               onPointerDown={(e) => {
                 e.preventDefault();
                 buildModeRef.current?.resetGunGrip();
+                setGunRotationUI({ pitch: 0, yaw: 0, roll: 0 });
+                setGunCurlUI({ right: zeroFingerCurlExtra(), left: zeroFingerCurlExtra() });
               }}
               aria-label="Reset gun grip"
               style={{
@@ -7661,19 +7677,21 @@ function CombatArena({
             >
               RESET
             </button>
-            {/* PITCH/YAW/ROLL (see gunGripRotation) plus one -/+ row per
+            {/* PITCH/YAW/ROLL (see gunGripRotation) plus one slider per
                 finger per hand (see fingerCurlExtras) — 13 rows total, so
                 this list scrolls within its own capped height instead of
-                pushing the D-pad off screen. Same compact -/+ row shape
-                the pillar-size and floor-angle steppers already use
-                elsewhere in Build Mode. */}
+                pushing the D-pad off screen. Same native <input
+                type="range"> + label-row shape as the LOOK SENSITIVITY
+                slider in the settings panel, dragged straight to a value
+                instead of tapped -/+ many times over. */}
             <div
               style={{
                 display: "flex",
                 flexDirection: "column",
-                gap: 6,
+                gap: 8,
                 maxHeight: "46vh",
                 overflowY: "auto",
+                touchAction: "pan-y",
               }}
             >
               {(
@@ -7684,83 +7702,54 @@ function CombatArena({
                   ...FINGER_NAMES.map((finger) => ({ label: `L-${finger.toUpperCase()}`, kind: "curl" as const, side: "left" as const, finger })),
                   ...FINGER_NAMES.map((finger) => ({ label: `R-${finger.toUpperCase()}`, kind: "curl" as const, side: "right" as const, finger })),
                 ] as const
-              ).map((row) => (
-                <div
-                  key={row.label}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    flex: "none",
-                    background: "rgba(8,14,24,0.7)",
-                    border: "1px solid rgba(200,220,240,0.3)",
-                    borderRadius: 8,
-                    padding: 5,
-                  }}
-                >
+              ).map((row) => {
+                const value = row.kind === "rotation" ? gunRotationUI[row.axis] : gunCurlUI[row.side][row.finger];
+                const min = row.kind === "rotation" ? GUN_GRIP_ROTATION_MIN : GUN_FINGER_CURL_MIN;
+                const max = row.kind === "rotation" ? GUN_GRIP_ROTATION_MAX : GUN_FINGER_CURL_MAX;
+                const displayValue = row.kind === "rotation" ? `${Math.round((value * 180) / Math.PI)}°` : value.toFixed(2);
+                return (
                   <div
+                    key={row.label}
                     style={{
-                      flex: 1,
-                      color: "#dce8f5",
-                      fontFamily: "'Rajdhani', sans-serif",
-                      fontWeight: 700,
-                      fontSize: 12,
-                      letterSpacing: "0.04em",
-                      paddingLeft: 4,
+                      flex: "none",
+                      background: "rgba(8,14,24,0.7)",
+                      border: "1px solid rgba(200,220,240,0.3)",
+                      borderRadius: 8,
+                      padding: "6px 10px",
                     }}
                   >
-                    {row.label}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        color: "#dce8f5",
+                        fontFamily: "'Rajdhani', sans-serif",
+                        fontWeight: 700,
+                        fontSize: 12,
+                        letterSpacing: "0.04em",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <span>{row.label}</span>
+                      <span>{displayValue}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={min}
+                      max={max}
+                      step={row.kind === "rotation" ? 0.01 : 0.02}
+                      value={value}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        if (row.kind === "rotation") handleGunRotationSlider(row.axis, v);
+                        else handleGunCurlSlider(row.side, row.finger, v);
+                      }}
+                      aria-label={row.label}
+                      style={{ width: "100%" }}
+                    />
                   </div>
-                  <button
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      if (row.kind === "rotation") handleGunRotationNudge(row.axis, -1);
-                      else handleGunCurlNudge(row.side, row.finger, -1);
-                    }}
-                    aria-label={`${row.label} decrease`}
-                    style={{
-                      flex: "none",
-                      width: 28,
-                      height: 28,
-                      borderRadius: 6,
-                      background: "rgba(255,255,255,0.08)",
-                      border: "1px solid rgba(200,220,240,0.3)",
-                      color: "#dce8f5",
-                      fontFamily: "'Rajdhani', sans-serif",
-                      fontWeight: 700,
-                      fontSize: 16,
-                      lineHeight: 1,
-                      cursor: "pointer",
-                    }}
-                  >
-                    −
-                  </button>
-                  <button
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      if (row.kind === "rotation") handleGunRotationNudge(row.axis, 1);
-                      else handleGunCurlNudge(row.side, row.finger, 1);
-                    }}
-                    aria-label={`${row.label} increase`}
-                    style={{
-                      flex: "none",
-                      width: 28,
-                      height: 28,
-                      borderRadius: 6,
-                      background: "rgba(255,255,255,0.08)",
-                      border: "1px solid rgba(200,220,240,0.3)",
-                      color: "#dce8f5",
-                      fontFamily: "'Rajdhani', sans-serif",
-                      fontWeight: 700,
-                      fontSize: 16,
-                      lineHeight: 1,
-                      cursor: "pointer",
-                    }}
-                  >
-                    +
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
           <div
