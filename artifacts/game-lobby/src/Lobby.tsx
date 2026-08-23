@@ -2154,6 +2154,60 @@ function saveGunGripOffset() {
 // rig, not derived from a real-world unit.
 const GUN_GRIP_NUDGE_STEP = 0.5;
 
+// Extra rotation on top of the base grip orientation (see
+// GUN_MUZZLE_TARGET_LOCAL), in the gun's OWN local frame at the moment
+// it's applied — pitch (x) tips the muzzle up/down, yaw (y) swings it
+// left/right, roll (z) spins the gun around its own barrel (which is
+// what moves the trigger/fire-button side up or down). Applied via
+// quaternion multiply AFTER gun.position is computed from the base
+// (non-extra-rotated) quaternion, so the grip point stays anchored in
+// the hand and the gun visibly pivots around it, the way tilting a
+// held gun pivots around the hand holding it rather than around the
+// muzzle or some arbitrary point.
+const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation";
+function loadGunGripRotation(): THREE.Euler {
+  try {
+    const raw = localStorage.getItem(GUN_GRIP_ROTATION_STORAGE_KEY);
+    if (!raw) return new THREE.Euler();
+    const parsed = JSON.parse(raw);
+    return new THREE.Euler(
+      typeof parsed.x === "number" ? parsed.x : 0,
+      typeof parsed.y === "number" ? parsed.y : 0,
+      typeof parsed.z === "number" ? parsed.z : 0,
+      "XYZ",
+    );
+  } catch {
+    return new THREE.Euler();
+  }
+}
+const gunGripRotation = loadGunGripRotation();
+function saveGunGripRotation() {
+  localStorage.setItem(GUN_GRIP_ROTATION_STORAGE_KEY, JSON.stringify({ x: gunGripRotation.x, y: gunGripRotation.y, z: gunGripRotation.z }));
+}
+// One PLAYER-tab rotation-nudge tap, radians (~4°) — tuned by eye, fine
+// enough for real calibration without needing dozens of taps.
+const GUN_GRIP_ROTATION_STEP = (4 * Math.PI) / 180;
+
+// Extra finger-curl on top of curlGunGripFingers' own fixed table —
+// tracked as a single scale factor rather than per-joint, applied via
+// the exact same per-joint table (see curlGunGripFingers' scale param)
+// so the whole hand curls or loosens together proportionally instead of
+// needing 15 separate joint controls. Rotations around a fixed axis
+// compose by simple angle addition regardless of order, so accumulating
+// this scale across many nudge taps and applying it in one shot (equip
+// time) or incrementally (live nudge) always lands on the exact same
+// final pose either way.
+const GUN_FINGER_CURL_STORAGE_KEY = "10sa-gun-finger-curl";
+function loadFingerCurlExtra(): number {
+  const saved = Number(localStorage.getItem(GUN_FINGER_CURL_STORAGE_KEY));
+  return Number.isFinite(saved) ? saved : 0;
+}
+let fingerCurlExtra = loadFingerCurlExtra();
+function saveFingerCurlExtra() {
+  localStorage.setItem(GUN_FINGER_CURL_STORAGE_KEY, String(fingerCurlExtra));
+}
+const GUN_FINGER_CURL_STEP = 0.15;
+
 // The gun model is a static (unskinned) mesh, so one glTF load is shared
 // and cloned for whichever fighter needs it.
 let gunPrototypePromise: Promise<THREE.Object3D> | null = null;
@@ -2315,22 +2369,34 @@ function getDrumCapMaterial(): THREE.MeshStandardMaterial {
 // look like it was floating outside the hand instead of held in it; a
 // solidly-gripped gun that isn't perfectly foregrip-touching reads better
 // than a foregrip-perfect gun that visibly isn't in the hand at all.
-function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): THREE.Object3D {
-  // hand.matrixWorld isn't guaranteed current here — this runs as soon as
-  // the shared gun prototype resolves, which can be before the scene has
+// Computes and applies the fully-calibrated local transform (position,
+// rotation, scale) for `gun` as a child of `hand`, from GUN_GRIP_LOCAL/
+// GUN_MUZZLE_TARGET_LOCAL plus whatever's currently in gunGripOffset/
+// gunGripRotation — the one place this math lives, shared by the
+// initial attach (createGunAttachment) and by re-attaching after the
+// PLAYER tab's DETACH (see buildModeRef.current.toggleGunDetach) and by
+// every live position/rotation nudge, so there's no way for a live
+// preview to drift from what a fresh reload recomputes.
+function applyCalibratedGunTransform(gun: THREE.Object3D, hand: THREE.Object3D) {
+  // hand.matrixWorld isn't guaranteed current here — this can run as
+  // soon as the shared gun prototype resolves, before the scene has
   // ever been rendered (matrixWorld only recomputes on render or an
   // explicit update), so a stale identity-scale matrix would silently
   // undo this rig's ~0.0094 model scale and shrink the gun to a speck.
   hand.updateWorldMatrix(true, false);
   const worldScale = new THREE.Vector3();
   hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
-  const gun = prototype.clone(true);
   const rawLength = 79.03;
   const scale = (GUN_TARGET_LENGTH / rawLength) / (worldScale.x || 1);
   gun.scale.setScalar(scale);
   gun.quaternion.setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
   gun.position.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gun.quaternion).multiplyScalar(-1);
   gun.position.add(gunGripOffset);
+  gun.quaternion.multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
+}
+function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): THREE.Object3D {
+  const gun = prototype.clone(true);
+  applyCalibratedGunTransform(gun, hand);
   hand.add(gun);
   return gun;
 }
@@ -2453,7 +2519,13 @@ function updateOffHandReach(rig: FighterRig) {
 // nothing to fight frame to frame, and re-applying it every tick would
 // just keep curling the fingers further closed. `mirror` flips the
 // rotation sign for the off-hand, whose finger bones are mirrored across
-// the skeleton's centerline.
+// the skeleton's centerline. `scale` (default 1, the original fixed
+// curl) lets the PLAYER tab's GRIP nudge add or remove curl on top of
+// this base table proportionally across every joint at once — since
+// every joint rotates about the SAME fixed axis, calling this multiple
+// times with small scales and calling it once with their sum produces
+// the identical final pose (rotations about one axis just add), so
+// live incremental nudges and the persisted total never drift apart.
 const FINGER_CURL_AXIS = new THREE.Vector3(0, 0, 1);
 const FINGER_CURL_ANGLES: Record<string, number> = {
   Index1: 0.55, Index2: 0.7, Index3: 0.6,
@@ -2463,11 +2535,11 @@ const FINGER_CURL_ANGLES: Record<string, number> = {
   Thumb1: 0.2, Thumb2: 0.4, Thumb3: 0.35,
 };
 const fingerCurlQuat = new THREE.Quaternion();
-function curlGunGripFingers(fingers: Record<string, THREE.Object3D>, mirror: 1 | -1) {
+function curlGunGripFingers(fingers: Record<string, THREE.Object3D>, mirror: 1 | -1, scale = 1) {
   for (const [joint, angle] of Object.entries(FINGER_CURL_ANGLES)) {
     const bone = fingers[joint];
     if (!bone) continue;
-    fingerCurlQuat.setFromAxisAngle(FINGER_CURL_AXIS, angle * mirror);
+    fingerCurlQuat.setFromAxisAngle(FINGER_CURL_AXIS, angle * mirror * scale);
     bone.quaternion.multiply(fingerCurlQuat);
   }
 }
@@ -3319,7 +3391,10 @@ function CombatArena({
     pickAimedItem: (items: Map4Item[]) => number | null;
     nudgeDirs: () => { fwdX: number; fwdZ: number; rightX: number; rightZ: number } | null;
     nudgeGunGrip: (dx: number, dy: number, dz: number) => void;
+    nudgeGunGripRotation: (axis: "pitch" | "yaw" | "roll", delta: number) => void;
+    nudgeFingerCurl: (delta: number) => void;
     resetGunGrip: () => void;
+    toggleGunDetach: () => void;
   } | null>(null);
   // The piece(s) currently staged by SELECT (world position + orientation)
   // and their translucent preview meshes, cleared once PLACE commits them
@@ -3347,6 +3422,11 @@ function CombatArena({
   // hand-tune the underlying GUN_GRIP_LOCAL constant blind. Only one
   // tab's own controls render at a time.
   const [buildTopTab, setBuildTopTab] = useState<"map" | "player">("map");
+  // Mirrors the imperative gunDetached flag inside the scene effect
+  // (buildModeRef.current.toggleGunDetach) purely so the DETACH/ATTACH
+  // button's own label re-renders — same non-reactive-state pattern as
+  // buildItemCount mirroring customItemsRef.
+  const [gunDetachedUI, setGunDetachedUI] = useState(false);
   const [buildHasSelection, setBuildHasSelection] = useState(false);
   // Mirrors customItemsRef.current.length purely so REMOVE's disabled
   // state re-renders — the ref itself is intentionally not React state.
@@ -4545,23 +4625,98 @@ function CombatArena({
               }
             }
           },
-          // Moves the persisted grip offset (see gunGripOffset/
-          // createGunAttachment) AND, for live feedback, the already-
-          // attached gun on the player rig currently standing here — every
-          // other fighter (bots, or the player next time they equip a gun)
-          // only picks the new offset up the next time createGunAttachment
-          // actually runs.
+          // While attached: moves the persisted grip offset (see
+          // gunGripOffset/applyCalibratedGunTransform) and re-derives the
+          // player's own already-equipped gun from scratch (not an
+          // incremental move) so it's always pixel-identical to what a
+          // fresh reload would compute — every OTHER fighter (bots, or
+          // the player next time they equip a gun) picks the new offset
+          // up the next time they attach. While detached: just shoves the
+          // free-floating gun itself, with nothing persisted, since it's
+          // not sitting in a hand-relative frame right now to persist a
+          // hand-relative number for.
           nudgeGunGrip: (dx, dy, dz) => {
+            if (gunDetached) {
+              player?.gun?.position.add(new THREE.Vector3(dx, dy, dz));
+              return;
+            }
             gunGripOffset.x += dx;
             gunGripOffset.y += dy;
             gunGripOffset.z += dz;
             saveGunGripOffset();
-            if (player?.gun) player.gun.position.set(player.gun.position.x + dx, player.gun.position.y + dy, player.gun.position.z + dz);
+            if (player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
+          },
+          // Same idea as nudgeGunGrip, for the pitch/yaw/roll correction
+          // (see gunGripRotation) — pitch tips the muzzle up/down, roll
+          // spins the gun around its own barrel (which is what moves the
+          // trigger/fire-button side up or down), yaw swings the muzzle
+          // left/right.
+          nudgeGunGripRotation: (axis, delta) => {
+            if (gunDetached) {
+              if (!player?.gun) return;
+              const axisVec = axis === "pitch" ? new THREE.Vector3(1, 0, 0) : axis === "yaw" ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+              player.gun.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axisVec, delta));
+              return;
+            }
+            if (axis === "pitch") gunGripRotation.x += delta;
+            else if (axis === "yaw") gunGripRotation.y += delta;
+            else gunGripRotation.z += delta;
+            saveGunGripRotation();
+            if (player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
+          },
+          // See curlGunGripFingers's `scale` param — works the same
+          // whether the gun is attached or detached, since the fingers
+          // curl around wherever the hand already is either way.
+          nudgeFingerCurl: (delta) => {
+            fingerCurlExtra += delta;
+            saveFingerCurlExtra();
+            if (player) {
+              curlGunGripFingers(player.rightFingers, 1, delta);
+              curlGunGripFingers(player.leftFingers, -1, delta);
+            }
           },
           resetGunGrip: () => {
-            if (player?.gun) player.gun.position.sub(gunGripOffset);
             gunGripOffset.set(0, 0, 0);
             saveGunGripOffset();
+            gunGripRotation.set(0, 0, 0);
+            saveGunGripRotation();
+            if (fingerCurlExtra !== 0 && player) {
+              curlGunGripFingers(player.rightFingers, 1, -fingerCurlExtra);
+              curlGunGripFingers(player.leftFingers, -1, -fingerCurlExtra);
+            }
+            fingerCurlExtra = 0;
+            saveFingerCurlExtra();
+            if (!gunDetached && player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
+          },
+          // Pulls the gun off the hand entirely (reparented to the scene
+          // root at its current world transform, so it doesn't visibly
+          // jump) so it can be freely repositioned/rotated independent of
+          // the hand — see nudgeGunGrip/nudgeGunGripRotation's detached
+          // branch. Toggling back re-attaches to the hand and snaps back
+          // to the calibrated pose fresh (see applyCalibratedGunTransform),
+          // discarding whatever free pose it had while detached — the
+          // persisted calibration itself is never touched by this.
+          toggleGunDetach: () => {
+            if (!player?.gun) return;
+            const gun = player.gun;
+            if (!gunDetached) {
+              gun.updateWorldMatrix(true, false);
+              const worldPos = new THREE.Vector3();
+              const worldQuat = new THREE.Quaternion();
+              const worldScale = new THREE.Vector3();
+              gun.matrixWorld.decompose(worldPos, worldQuat, worldScale);
+              scene.add(gun);
+              gun.position.copy(worldPos);
+              gun.quaternion.copy(worldQuat);
+              gun.scale.copy(worldScale);
+              gunDetached = true;
+            } else {
+              if (player.rightHand) {
+                player.rightHand.add(gun);
+                applyCalibratedGunTransform(gun, player.rightHand);
+              }
+              gunDetached = false;
+            }
           },
         };
       });
@@ -4857,6 +5012,11 @@ function CombatArena({
     addWallDecal("/textures/wall-hero-panel-2.jpg", ROOM_WALL_HEIGHT * (1536 / 1024), ROOM_WALL_HEIGHT / 2, 55.9, SOUTH_WALL_Z, Math.PI, 1024 / 1536);
 
     let player: FighterRig | null = null;
+    // Whether the PLAYER tab has pulled the gun off the hand for free
+    // positioning (see buildModeRef.current.toggleGunDetach) — purely a
+    // this-session UI state, never persisted, since a detached gun is
+    // only ever meant as a temporary "step back and look at it" view.
+    let gunDetached = false;
 
     // Preloaded here so it's very likely already resolved by the time each
     // fighter's rig finishes loading — every fighter is armed on spawn now,
@@ -4869,6 +5029,10 @@ function CombatArena({
         rig.gun = createGunAttachment(rig.rightHand as THREE.Object3D, proto);
         curlGunGripFingers(rig.rightFingers, 1);
         curlGunGripFingers(rig.leftFingers, -1);
+        if (fingerCurlExtra !== 0) {
+          curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtra);
+          curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtra);
+        }
       });
     };
 
@@ -5859,6 +6023,12 @@ function CombatArena({
     else if (dir === "back") api.nudgeGunGrip(0, 0, -s);
     else if (dir === "right") api.nudgeGunGrip(s, 0, 0);
     else api.nudgeGunGrip(-s, 0, 0);
+  };
+  const handleGunRotationNudge = (axis: "pitch" | "yaw" | "roll", sign: 1 | -1) => {
+    buildModeRef.current?.nudgeGunGripRotation(axis, sign * GUN_GRIP_ROTATION_STEP);
+  };
+  const handleGunCurlNudge = (sign: 1 | -1) => {
+    buildModeRef.current?.nudgeFingerCurl(sign * GUN_FINGER_CURL_STEP);
   };
   const handleBuildSave = () => {
     saveMap4Items(activeBuildItemsKey, customItemsRef.current);
@@ -7419,6 +7589,115 @@ function CombatArena({
             >
               RESET
             </button>
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                buildModeRef.current?.toggleGunDetach();
+                setGunDetachedUI((d) => !d);
+              }}
+              aria-label="Toggle gun detach"
+              style={{
+                padding: "8px 18px",
+                borderRadius: 6,
+                background: gunDetachedUI ? "rgba(107,216,255,0.35)" : "rgba(255,255,255,0.1)",
+                border: gunDetachedUI ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.4)",
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              {gunDetachedUI ? "ATTACH" : "DETACH"}
+            </button>
+            {/* PITCH/YAW/ROLL (see gunGripRotation) and GRIP (finger curl,
+                see fingerCurlExtra) — one -/+ pair per row, same compact
+                shape the pillar-size and floor-angle steppers already use
+                elsewhere in Build Mode. */}
+            {(
+              [
+                { label: "PITCH", kind: "rotation" as const, axis: "pitch" as const },
+                { label: "YAW", kind: "rotation" as const, axis: "yaw" as const },
+                { label: "ROLL", kind: "rotation" as const, axis: "roll" as const },
+                { label: "GRIP", kind: "curl" as const, axis: null },
+              ] as const
+            ).map(({ label, kind, axis }) => (
+              <div
+                key={label}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "rgba(8,14,24,0.7)",
+                  border: "1px solid rgba(200,220,240,0.3)",
+                  borderRadius: 8,
+                  padding: 5,
+                }}
+              >
+                <div
+                  style={{
+                    flex: 1,
+                    color: "#dce8f5",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    letterSpacing: "0.04em",
+                    paddingLeft: 4,
+                  }}
+                >
+                  {label}
+                </div>
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    if (kind === "rotation") handleGunRotationNudge(axis, -1);
+                    else handleGunCurlNudge(-1);
+                  }}
+                  aria-label={`${label} decrease`}
+                  style={{
+                    flex: "none",
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(200,220,240,0.3)",
+                    color: "#dce8f5",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 16,
+                    lineHeight: 1,
+                    cursor: "pointer",
+                  }}
+                >
+                  −
+                </button>
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    if (kind === "rotation") handleGunRotationNudge(axis, 1);
+                    else handleGunCurlNudge(1);
+                  }}
+                  aria-label={`${label} increase`}
+                  style={{
+                    flex: "none",
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(200,220,240,0.3)",
+                    color: "#dce8f5",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 16,
+                    lineHeight: 1,
+                    cursor: "pointer",
+                  }}
+                >
+                  +
+                </button>
+              </div>
+            ))}
           </div>
           <div
             style={{
