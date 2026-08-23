@@ -2189,6 +2189,67 @@ function saveGunGripRotation() {
 const GUN_GRIP_ROTATION_MIN = -Math.PI;
 const GUN_GRIP_ROTATION_MAX = Math.PI;
 
+// Right-arm pose correction — shoulder (raises/lowers the whole arm),
+// elbow (bends the forearm), wrist (twists the hand), each a 3-axis
+// Euler on top of whatever the current idle/run/fire mocap clip is
+// already driving that joint to. Unlike the gun's own grip offset
+// (a one-time snap at attach, since it's a static prop nobody else
+// touches afterward), the arm's OWN bones get re-driven by the mixer
+// every single tick — see applyArmPoseCorrection, which has to
+// re-multiply this in every tick too or the very next frame's
+// animation update would silently erase it.
+type ArmAxisExtra = { x: number; y: number; z: number };
+type ArmJoint = "shoulder" | "elbow" | "wrist";
+interface ArmPoseExtra {
+  shoulder: ArmAxisExtra;
+  elbow: ArmAxisExtra;
+  wrist: ArmAxisExtra;
+}
+function zeroArmAxisExtra(): ArmAxisExtra {
+  return { x: 0, y: 0, z: 0 };
+}
+const ARM_POSE_STORAGE_KEY = "10sa-arm-pose";
+function loadArmPoseExtra(): ArmPoseExtra {
+  const fallback: ArmPoseExtra = { shoulder: zeroArmAxisExtra(), elbow: zeroArmAxisExtra(), wrist: zeroArmAxisExtra() };
+  try {
+    const raw = localStorage.getItem(ARM_POSE_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    for (const joint of ["shoulder", "elbow", "wrist"] as const) {
+      for (const axis of ["x", "y", "z"] as const) {
+        const v = parsed?.[joint]?.[axis];
+        if (typeof v === "number") fallback[joint][axis] = v;
+      }
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+const armPoseExtra = loadArmPoseExtra();
+function saveArmPoseExtra() {
+  localStorage.setItem(ARM_POSE_STORAGE_KEY, JSON.stringify(armPoseExtra));
+}
+const armPoseQuat = new THREE.Quaternion();
+const armPoseEuler = new THREE.Euler();
+// Called every tick, right after updateOffHandReach (same "the mixer
+// keeps re-driving these bones, a one-time snap won't stick" reasoning)
+// — multiplies each joint's own extra rotation on top of whatever this
+// frame's baked animation pose already put there.
+function applyArmPoseCorrection(rig: FighterRig) {
+  const bones: [THREE.Object3D | null, ArmAxisExtra][] = [
+    [rig.rightArm, armPoseExtra.shoulder],
+    [rig.rightForeArm, armPoseExtra.elbow],
+    [rig.rightHand, armPoseExtra.wrist],
+  ];
+  for (const [bone, extra] of bones) {
+    if (!bone || (extra.x === 0 && extra.y === 0 && extra.z === 0)) continue;
+    armPoseEuler.set(extra.x, extra.y, extra.z, "XYZ");
+    armPoseQuat.setFromEuler(armPoseEuler);
+    bone.quaternion.multiply(armPoseQuat);
+  }
+}
+
 // Extra finger-curl on top of curlGunGripFingers' own fixed table — one
 // independent scale per finger (Thumb/Index/Middle/Ring/Pinky) per hand,
 // applied via the exact same per-joint table (see curlGunGripFingers'
@@ -3423,6 +3484,7 @@ function CombatArena({
     nudgeGunGrip: (dx: number, dy: number, dz: number) => void;
     setGunGripRotation: (axis: "pitch" | "yaw" | "roll", value: number) => void;
     setFingerCurl: (side: "left" | "right", finger: FingerName, value: number) => void;
+    setArmPose: (joint: ArmJoint, axis: "pitch" | "yaw" | "roll", value: number) => void;
     resetGunGrip: () => void;
     toggleGunDetach: () => void;
   } | null>(null);
@@ -3465,6 +3527,12 @@ function CombatArena({
   // (see handleGunRotationSlider/handleGunCurlSlider).
   const [gunRotationUI, setGunRotationUI] = useState(() => ({ pitch: gunGripRotation.x, yaw: gunGripRotation.y, roll: gunGripRotation.z }));
   const [gunCurlUI, setGunCurlUI] = useState(() => ({ right: { ...fingerCurlExtras.right }, left: { ...fingerCurlExtras.left } }));
+  // Same mirroring idea, for armPoseExtra's shoulder/elbow/wrist sliders.
+  const [armPoseUI, setArmPoseUI] = useState(() => ({
+    shoulder: { ...armPoseExtra.shoulder },
+    elbow: { ...armPoseExtra.elbow },
+    wrist: { ...armPoseExtra.wrist },
+  }));
   const [buildHasSelection, setBuildHasSelection] = useState(false);
   // Mirrors customItemsRef.current.length purely so REMOVE's disabled
   // state re-renders — the ref itself is intentionally not React state.
@@ -4717,6 +4785,15 @@ function CombatArena({
               curlGunGripFingers(fingers, mirror, { ...zeroFingerCurlExtra(), [finger]: delta });
             }
           },
+          // Shoulder/elbow/wrist correction (see armPoseExtra) — unlike
+          // the gun's own quaternions, these bones get their rotation
+          // fully re-derived from the animation clip every tick anyway
+          // (see applyArmPoseCorrection), so simply zeroing the extra
+          // here is enough; there's nothing to actively undo.
+          setArmPose: (joint, axis, value) => {
+            armPoseExtra[joint][axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z"] = value;
+            saveArmPoseExtra();
+          },
           resetGunGrip: () => {
             gunGripOffset.set(0, 0, 0);
             saveGunGripOffset();
@@ -4732,6 +4809,10 @@ function CombatArena({
             fingerCurlExtras.right = zeroFingerCurlExtra();
             fingerCurlExtras.left = zeroFingerCurlExtra();
             saveFingerCurlExtras();
+            armPoseExtra.shoulder = zeroArmAxisExtra();
+            armPoseExtra.elbow = zeroArmAxisExtra();
+            armPoseExtra.wrist = zeroArmAxisExtra();
+            saveArmPoseExtra();
             if (!gunDetached && player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
           },
           // Pulls the gun off the hand entirely and pops it to a fixed,
@@ -5263,6 +5344,14 @@ function CombatArena({
       for (let i = 0; i < bots.length; i++) {
         const rig = bots[i];
         if (rig && botStates[i].deathT < 0) updateOffHandReach(rig);
+      }
+      // PLAYER tab's shoulder/elbow/wrist correction (see armPoseExtra) —
+      // same every-tick reasoning as updateOffHandReach just above, and
+      // the same "skip once dead" guard.
+      if (player && playerDeathT < 0) applyArmPoseCorrection(player);
+      for (let i = 0; i < bots.length; i++) {
+        const rig = bots[i];
+        if (rig && botStates[i].deathT < 0) applyArmPoseCorrection(rig);
       }
       updateTracers(tracers, dt);
 
@@ -6089,6 +6178,11 @@ function CombatArena({
   const handleGunCurlSlider = (side: "left" | "right", finger: FingerName, value: number) => {
     buildModeRef.current?.setFingerCurl(side, finger, value);
     setGunCurlUI((prev) => ({ ...prev, [side]: { ...prev[side], [finger]: value } }));
+  };
+  const handleArmPoseSlider = (joint: ArmJoint, axis: "pitch" | "yaw" | "roll", value: number) => {
+    buildModeRef.current?.setArmPose(joint, axis, value);
+    const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
+    setArmPoseUI((prev) => ({ ...prev, [joint]: { ...prev[joint], [key]: value } }));
   };
   const handleBuildSave = () => {
     saveMap4Items(activeBuildItemsKey, customItemsRef.current);
@@ -7660,6 +7754,7 @@ function CombatArena({
                 buildModeRef.current?.resetGunGrip();
                 setGunRotationUI({ pitch: 0, yaw: 0, roll: 0 });
                 setGunCurlUI({ right: zeroFingerCurlExtra(), left: zeroFingerCurlExtra() });
+                setArmPoseUI({ shoulder: zeroArmAxisExtra(), elbow: zeroArmAxisExtra(), wrist: zeroArmAxisExtra() });
               }}
               aria-label="Reset gun grip"
               style={{
@@ -7696,17 +7791,31 @@ function CombatArena({
             >
               {(
                 [
-                  { label: "PITCH", kind: "rotation" as const, axis: "pitch" as const },
-                  { label: "YAW", kind: "rotation" as const, axis: "yaw" as const },
-                  { label: "ROLL", kind: "rotation" as const, axis: "roll" as const },
+                  { label: "GUN PITCH", kind: "rotation" as const, axis: "pitch" as const },
+                  { label: "GUN YAW", kind: "rotation" as const, axis: "yaw" as const },
+                  { label: "GUN ROLL", kind: "rotation" as const, axis: "roll" as const },
+                  ...(["shoulder", "elbow", "wrist"] as const).flatMap((joint) =>
+                    (["pitch", "yaw", "roll"] as const).map((axis) => ({
+                      label: `${joint.toUpperCase()} ${axis.toUpperCase()}`,
+                      kind: "arm" as const,
+                      joint,
+                      axis,
+                    })),
+                  ),
                   ...FINGER_NAMES.map((finger) => ({ label: `L-${finger.toUpperCase()}`, kind: "curl" as const, side: "left" as const, finger })),
                   ...FINGER_NAMES.map((finger) => ({ label: `R-${finger.toUpperCase()}`, kind: "curl" as const, side: "right" as const, finger })),
                 ] as const
               ).map((row) => {
-                const value = row.kind === "rotation" ? gunRotationUI[row.axis] : gunCurlUI[row.side][row.finger];
-                const min = row.kind === "rotation" ? GUN_GRIP_ROTATION_MIN : GUN_FINGER_CURL_MIN;
-                const max = row.kind === "rotation" ? GUN_GRIP_ROTATION_MAX : GUN_FINGER_CURL_MAX;
-                const displayValue = row.kind === "rotation" ? `${Math.round((value * 180) / Math.PI)}°` : value.toFixed(2);
+                const armAxisKey = row.kind === "arm" ? (row.axis === "pitch" ? "x" : row.axis === "yaw" ? "y" : "z") : null;
+                const value =
+                  row.kind === "rotation"
+                    ? gunRotationUI[row.axis]
+                    : row.kind === "arm"
+                      ? armPoseUI[row.joint][armAxisKey as "x" | "y" | "z"]
+                      : gunCurlUI[row.side][row.finger];
+                const min = row.kind === "curl" ? GUN_FINGER_CURL_MIN : GUN_GRIP_ROTATION_MIN;
+                const max = row.kind === "curl" ? GUN_FINGER_CURL_MAX : GUN_GRIP_ROTATION_MAX;
+                const displayValue = row.kind === "curl" ? value.toFixed(2) : `${Math.round((value * 180) / Math.PI)}°`;
                 return (
                   <div
                     key={row.label}
@@ -7737,11 +7846,12 @@ function CombatArena({
                       type="range"
                       min={min}
                       max={max}
-                      step={row.kind === "rotation" ? 0.01 : 0.02}
+                      step={row.kind === "curl" ? 0.02 : 0.01}
                       value={value}
                       onChange={(e) => {
                         const v = Number(e.target.value);
                         if (row.kind === "rotation") handleGunRotationSlider(row.axis, v);
+                        else if (row.kind === "arm") handleArmPoseSlider(row.joint, row.axis, v);
                         else handleGunCurlSlider(row.side, row.finger, v);
                       }}
                       aria-label={row.label}
