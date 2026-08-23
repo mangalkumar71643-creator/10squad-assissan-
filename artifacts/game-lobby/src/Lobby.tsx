@@ -1033,18 +1033,68 @@ const MAP4_PLAYER_SPAWN = { x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z };
 // exactly as it was regardless of the shared arena's own size.
 const MAP4_PLAY_HALF = 175;
 const MAP4_WALL_LENGTH_DEFAULT = 6; // legacy fallback for pre-length-selector saves
+const MAP4_WALL_LENGTH_MIN = 1;
+const MAP4_WALL_LENGTH_MAX = 5;
+// Preset angles the floor tile's and blue line's rotation pickers offer,
+// degrees.
+const MAP4_ANGLE_OPTIONS = [0, 30, 45, 60, 90, 120];
 // The blue reference line — a straight, fixed-color marker (see Map4Line)
 // for eyeballing whether a run of floor tiles or other pieces actually
 // stayed straight, not a real buildable piece.
+const MAP4_LINE_LENGTH_MIN = 1;
+const MAP4_LINE_LENGTH_MAX = 500;
 // Thin on purpose — it's a straightness gauge, not a real barrier piece,
 // so a hairline reads better than a wide painted stripe would.
 const MAP4_LINE_THICKNESS = 0.01;
 const MAP4_LINE_COLOR = 0x2f6bff;
+// The same two crate sizes already used elsewhere in the game — the small
+// EXTRA_CRATES ones (halfExtent 0.5) and the standard per-room crates
+// (CRATE_HALF_EXTENT, 0.9) — not new sizes invented for Build Mode.
+const MAP4_OBSTACLE_SMALL = 1; // 2 * 0.5
+const MAP4_OBSTACLE_BIG = CRATE_HALF_EXTENT * 2;
 // The fuel-drum obstacle — one fixed size, proportioned like a real barrel
 // (taller than it is wide) rather than a small/big pair.
 const MAP4_DRUM_RADIUS = 0.55;
 const MAP4_DRUM_HEIGHT = 1.5;
+// The Cypher Phunk reference palette — every colorable piece below (walls,
+// floor tiles, pillars, railings, doors, lights, stairs) picks one of these
+// six, matching the color-coded asset sheet the user supplied.
+const BUILD_COLORS: { color: number; label: string }[] = [
+  { color: 0xb46cff, label: "PURPLE" },
+  { color: 0x4fe0d4, label: "CYAN" },
+  { color: 0xffa64f, label: "ORANGE" },
+  { color: 0xff4d5e, label: "RED" },
+  { color: 0x4dff8a, label: "GREEN" },
+  { color: 0xe8ecf5, label: "WHITE" },
+];
+// Sentinel for "the classic plain gray textured wall" (Map 4's original
+// look, from before colored walls existed) — 0 is safe to reuse since none
+// of BUILD_COLORS is black, and it doubles as the fallback for every
+// legacy saved wall (no color field at all, so `item.color` reads
+// undefined, which is just as falsy as 0).
+const BUILD_DEFAULT_WALL_COLOR = 0;
 const MAP4_FLOOR_TILE_SIZE = 4;
+// How far ahead of the player SELECT stages the next piece — adjustable
+// (see the DIST +/- stepper next to the color swatches) so a wall/rail/etc.
+// can be dropped right up close (almost at the player's own feet) or way
+// out at range, gloo-wall style, instead of always landing at one fixed
+// spot no matter how the player's holding the aim.
+const MAP4_PLACE_DISTANCE_MIN = 1.5;
+const MAP4_PLACE_DISTANCE_MAX = 15;
+const MAP4_PLACE_DISTANCE_DEFAULT = 4;
+const MAP4_PLACE_DISTANCE_STEP = 1;
+// AIM (see handleBuildAimToggle/handleBuildNudge): re-picking an already
+// placed piece to nudge its position afterward, instead of only being able
+// to REMOVE and redo it from scratch. Aiming picks whichever placed piece
+// is most directly in front of the player, within this max range and a
+// genuine angular cone (MAP4_EDIT_PICK_CONE_TAN, a half-angle's tangent —
+// tan(16°) here — so the perpendicular tolerance scales with distance
+// instead of being one flat width; a flat width was wide enough up close
+// that a nearby-but-off-to-the-side piece could keep out-ranking the one
+// actually in the crosshair just for having a hair smaller along-distance).
+const MAP4_EDIT_PICK_MAX_DIST = 20;
+const MAP4_EDIT_PICK_CONE_TAN = 0.29;
+const MAP4_EDIT_NUDGE_STEP = 0.05;
 // How close the player's own Y already needs to be to a stairs step's or
 // floor tile's own height before either will hold them there (see the
 // mapId===4||5 stairs/floor block in the tick loop) — arriving off the
@@ -1062,6 +1112,9 @@ const MAP4_ELEVATION_SNAP_TOLERANCE = 0.5;
 // little instead of just barely touching (or missing).
 const MAP4_FLOOR_TILE_EDGE_MARGIN = 0.5;
 const MAP4_PILLAR_RADIUS = 0.5;
+// The pillar's own +/- size stepper — width/depth in meters, 1m at a time.
+const MAP4_PILLAR_SIZE_MIN = 1;
+const MAP4_PILLAR_SIZE_MAX = 20;
 const MAP4_RAILING_LENGTH = 4;
 const MAP4_RAILING_THICKNESS = 0.4;
 const MAP4_RAILING_HEIGHT = 1.1;
@@ -1095,6 +1148,11 @@ const MAP4_STAIRS_RISE = 0.35; // how tall one step's riser is
 // front of the topmost step in a chain into open air, since Build Mode's
 // ground has no real floor there to catch them.
 const MAP4_STAIRS_EDGE_MARGIN = 1;
+// How many chained steps a single SELECT can stage at once — see
+// buildStairsCount in CombatArena and the +/- stepper next to the color
+// swatches when the stairs tab is active.
+const MAP4_STAIRS_COUNT_MIN = 1;
+const MAP4_STAIRS_COUNT_MAX = 20;
 // y on every kind below (not just floor tile/railing/stairs) — see
 // handleBuildNudge's up/down direction: AIM's D-pad can lift or drop
 // ANY picked-up piece, not just the three that already had an elevation
@@ -1232,6 +1290,10 @@ interface Map4Line {
   rotY: number;
 }
 type Map4Item = Map4Wall | Map4Crate | Map4Drum | Map4FloorTile | Map4Pillar | Map4Railing | Map4Door | Map4Light | Map4Stairs | Map4Line;
+// Absolute, not relative — the Android build's WebView doesn't share an
+// origin with this deployment, so a relative "/api/house" would resolve
+// against the app's own local origin instead of actually reaching it.
+const MAP4_CLOUD_API = "https://10squad-permanent-test.vercel.app/api/house";
 const MAP4_ITEMS_KEY = "10sa-map4-items";
 // Build Mode's very first version only placed walls, saved under this key —
 // kept only as a one-time recovery source for whatever was already built
@@ -1243,263 +1305,39 @@ const MAP4_LEGACY_WALLS_KEY = "10sa-map4-walls";
 // other. No legacy key of its own — there's nothing to migrate for a map
 // that didn't exist before.
 const MAP5_ITEMS_KEY = "10sa-map5-items";
-// Map 4's one and only layout now — the player's own hand-built house
-// (originally saved under short code VCCWKX via the BACKUP dialog),
-// baked in here permanently instead of living in localStorage/cloud so
-// it survives a fresh install with nothing to restore. This is also now
-// the ONLY map in the whole game (see MAP_LIST/MapSelectPanel removal —
-// Maps 1/2/3/5 are no longer reachable from the lobby), and Build Mode's
-// own editing tools have been removed from the UI, so this array is
-// effectively immutable: there is no in-game path left that reads a
-// saved/restored item list instead of this one, or writes back to it.
+// A small two-room starter house (used only when nothing's been placed or
+// saved yet — see loadMap4Items) so Map 4 isn't a totally empty field the
+// very first time it's opened. Entrance on the south wall, a doorway
+// through the dividing wall near the south side connecting the two rooms,
+// a few crates/drums scattered for cover. Anything the player places (and
+// saves) themselves overrides this entirely.
 const DEFAULT_MAP4_HOUSE: Map4Item[] = [
-  { kind: "wall", x: 17.27200649545262, z: 347.5466402176549, axis: "z", length: 5 },
-  { kind: "wall", x: 10.63586535122423, z: 347.4013511241093, axis: "z", length: 5 },
-  { kind: "wall", x: 17.325263208575123, z: 342.5269511141512, axis: "z", length: 5 },
-  { kind: "wall", x: 10.497738401946718, z: 343.3847394263078, axis: "z", length: 5 },
-  { kind: "wall", x: 10.59136234207027, z: 338.3623984993637, axis: "z", length: 5 },
-  { kind: "wall", x: 17.52832158040112, z: 337.9016215443636, axis: "z", length: 5 },
-  { kind: "wall", x: 10.59802599963222, z: 334.8793368042596, axis: "z", length: 5 },
-  { kind: "wall", x: 17.687695092098824, z: 334.01116439006154, axis: "z", length: 5 },
-  { kind: "wall", x: 8.14397573916599, z: 332.58909900290746, axis: "x", length: 5 },
-  { kind: "wall", x: 3.448946156683582, z: 332.51653314134285, axis: "x", length: 5 },
-  { kind: "wall", x: -1.187240620773043, z: 332.72912952799413, axis: "x", length: 5 },
-  { kind: "wall", x: 19.957532801989064, z: 331.5775953186937, axis: "x", length: 5 },
-  { kind: "wall", x: 23.570091000580412, z: 331.6484264293858, axis: "x", length: 5 },
-  { kind: "wall", x: 28.571667069801673, z: 331.6898239296102, axis: "x", length: 5 },
-  { kind: "wall", x: 31.307925488933467, z: 329.3302238829225, axis: "z", length: 5 },
-  { kind: "wall", x: 31.568723675695804, z: 324.64947389899635, axis: "z", length: 5 },
-  { kind: "wall", x: 31.749351910341034, z: 320.9481651564162, axis: "z", length: 5 },
-  { kind: "wall", x: -4.3891737198739635, z: 332.85512925738504, axis: "x", length: 5 },
-  { kind: "wall", x: -7.290325328665473, z: 330.5608559521269, axis: "z", length: 5 },
-  { kind: "wall", x: -7.000716070305948, z: 325.57155960546487, axis: "z", length: 5 },
-  { kind: "wall", x: -6.888369871598334, z: 320.46577103931696, axis: "z", length: 5 },
-  { kind: "wall", x: 34.229017637593564, z: 318.1639621103179, axis: "x", length: 5 },
-  { kind: "wall", x: 38.76819441222103, z: 318.223753578584, axis: "x", length: 5 },
-  { kind: "wall", x: 43.54995574308276, z: 318.3280470725563, axis: "x", length: 5 },
-  { kind: "wall", x: 47.848441447931684, z: 318.54995964741494, axis: "x", length: 5 },
-  { kind: "wall", x: 50.05481319121186, z: 315.7171603646266, axis: "z", length: 5 },
-  { kind: "wall", x: 49.92775061184718, z: 310.94724205893016, axis: "z", length: 5 },
-  { kind: "wall", x: 50.00538883790876, z: 306.0153444425863, axis: "z", length: 5 },
-  { kind: "wall", x: 52.48215016815953, z: 303.80677157618425, axis: "x", length: 5 },
-  { kind: "wall", x: 57.608319665346976, z: 304.05212528656523, axis: "x", length: 5 },
-  { kind: "wall", x: 0.42815159544728276, z: 327.7545789757991, axis: "z", length: 5 },
-  { kind: "wall", x: 0.4983060740419494, z: 323.8974380734188, axis: "z", length: 5 },
-  { kind: "wall", x: 0.5472713608952673, z: 318.86396381755526, axis: "z", length: 5 },
-  { kind: "wall", x: -2.2309483704895823, z: 316.9612531562, axis: "x", length: 5 },
-  { kind: "wall", x: -9.819218043130768, z: 318.22638983926066, axis: "x", length: 5 },
-  { kind: "wall", x: -12.504724554108494, z: 318.4042782888086, axis: "x", length: 5 },
-  { kind: "wall", x: -17.338704711115696, z: 318.46726758016985, axis: "x", length: 5 },
-  { kind: "wall", x: -22.445995203188634, z: 318.31866823825897, axis: "x", length: 5 },
-  { kind: "wall", x: -25.593377567398754, z: 318.4250484751821, axis: "x", length: 5 },
-  { kind: "obstacle", x: 15.173235010829876, z: 322.5937162825514, size: 1.8, rotY: -6.398586588353433 },
-  { kind: "obstacle", x: 17.085224381881098, z: 322.6876411696928, size: 1.8, rotY: -6.458853409642492 },
-  { kind: "obstacle", x: 18.947172838417195, z: 322.65519246019693, size: 1.8, rotY: -6.632944577855381 },
-  { kind: "obstacle", x: 13.243561141323156, z: 322.07885209022993, size: 1.8, rotY: -6.362049411839755 },
-  { kind: "obstacle", x: 12.206866339862138, z: 320.49873289584576, size: 1.8, rotY: -7.70980078513078 },
-  { kind: "obstacle", x: 12.034827071868373, z: 318.71008708834154, size: 1.8, rotY: -7.699452982396401 },
-  { kind: "obstacle", x: 12.219983413061247, z: 316.7321608542133, size: 1.8, rotY: -8.201916159886634 },
-  { kind: "wall", x: -4.559965113285319, z: 314.36976616369793, axis: "z", length: 5 },
-  { kind: "wall", x: -4.590733793646994, z: 310.5931211483214, axis: "z", length: 5 },
-  { kind: "wall", x: -4.674889503014848, z: 305.9786669459264, axis: "z", length: 5 },
-  { kind: "wall", x: -6.991958645277274, z: 318.1113178425781, axis: "x", length: 1 },
-  { kind: "wall", x: -4.524565749380165, z: 301.7007436309298, axis: "z", length: 5 },
-  { kind: "wall", x: 60.23706162300526, z: 301.6831600879366, axis: "z", length: 5 },
-  { kind: "wall", x: 60.381156434505485, z: 297.9827248050057, axis: "z", length: 5 },
-  { kind: "wall", x: 55.52744156741563, z: 303.5071440088449, axis: "x", length: 1 },
-  { kind: "wall", x: 48.84792864573315, z: 299.6129392543104, axis: "z", length: 5 },
-  { kind: "wall", x: 48.839144822328905, z: 295.67066470665895, axis: "z", length: 5 },
-  { kind: "wall", x: 50.66306348065225, z: 292.98433372567143, axis: "x", length: 5 },
-  { kind: "wall", x: 54.99711435109017, z: 292.8038237630263, axis: "x", length: 5 },
-  { kind: "wall", x: 60.25729522627001, z: 295.02531007539295, axis: "z", length: 1 },
-  { kind: "wall", x: 60.250308198784595, z: 294.19651091260124, axis: "z", length: 1 },
-  { kind: "wall", x: 62.52544368993828, z: 293.8442659379445, axis: "x", length: 5 },
-  { kind: "wall", x: 57.520634029067175, z: 292.53522463193553, axis: "z", length: 1 },
-  { kind: "wall", x: 66.9165628527884, z: 293.8314146754166, axis: "x", length: 5 },
-  { kind: "wall", x: 48.51550520015245, z: 290.87969658689525, axis: "z", length: 5 },
-  { kind: "wall", x: 48.612510259814265, z: 286.5007903143923, axis: "z", length: 5 },
-  { kind: "wall", x: 46.04497238343071, z: 284.1118787957356, axis: "x", length: 5 },
-  { kind: "wall", x: 41.61048342644304, z: 284.078061397494, axis: "x", length: 5 },
-  { kind: "wall", x: 46.180923690702386, z: 301.8066605498722, axis: "x", length: 5 },
-  { kind: "wall", x: 42.64472822035408, z: 301.7097144921213, axis: "x", length: 5 },
-  { kind: "wall", x: 39.88782016947192, z: 301.71890771841134, axis: "x", length: 1 },
-  { kind: "obstacle", x: 38.57145511326618, z: 298.99805460628687, size: 1.8, rotY: 10.84957091286715 },
-  { kind: "obstacle", x: 38.714330166297515, z: 297.23261251687626, size: 1.8, rotY: 11.219087270289029 },
-  { kind: "obstacle", x: 38.17020868353419, z: 295.47652216359626, size: 1.8, rotY: 11.354103090601523 },
-  { kind: "obstacle", x: 38.93416563567867, z: 287.6881710927258, size: 1.8, rotY: 10.96110905983981 },
-  { kind: "obstacle", x: 38.702034023007556, z: 288.99350349530835, size: 1.8, rotY: 10.64596975319918 },
-  { kind: "wall", x: -4.388950681623202, z: 297.15692535179676, axis: "z", length: 5 },
-  { kind: "wall", x: -4.404035733264269, z: 293.01566793533647, axis: "z", length: 5 },
-  { kind: "wall", x: 49.190386283451716, z: 282.1743354434131, axis: "z", length: 5 },
-  { kind: "wall", x: 48.984550143226784, z: 277.3271158328714, axis: "z", length: 5 },
-  { kind: "wall", x: 47.39788388269612, z: 274.59291024448817, axis: "x", length: 5 },
-  { kind: "wall", x: 42.48832100996929, z: 274.5600156130174, axis: "x", length: 5 },
-  { kind: "wall", x: 38.77214004961166, z: 274.46217189810386, axis: "x", length: 5 },
-  { kind: "wall", x: 35.88339616609666, z: 279.6379927836276, axis: "z", length: 5 },
-  { kind: "wall", x: 38.994651176701566, z: 285.30821352680175, axis: "z", length: 2 },
-  { kind: "wall", x: 31.126623363024535, z: 274.2384569405402, axis: "x", length: 5 },
-  { kind: "wall", x: 25.95757513517468, z: 274.3059327785861, axis: "x", length: 5 },
-  { kind: "wall", x: 33.44937530799474, z: 278.79733752412966, axis: "z", length: 5 },
-  { kind: "wall", x: 33.58078568124223, z: 286.29116029005394, axis: "z", length: 5 },
-  { kind: "wall", x: 29.429423249914098, z: 289.455389834477, axis: "x", length: 5 },
-  { kind: "wall", x: 24.965312823908068, z: 289.2571177308398, axis: "x", length: 5 },
-  { kind: "wall", x: 22.319806016548238, z: 286.89514902869536, axis: "z", length: 5 },
-  { kind: "wall", x: 23.21572866663923, z: 274.4438595437246, axis: "x", length: 2 },
-  { kind: "wall", x: 22.238326866095953, z: 276.9725045957062, axis: "z", length: 5 },
-  { kind: "wall", x: 22.140764907466963, z: 280.35057345622624, axis: "z", length: 3 },
-  { kind: "wall", x: 1.3906544731783983, z: 290.25911307146094, axis: "x", length: 5 },
-  { kind: "wall", x: 6.1223819423143055, z: 290.1444375781717, axis: "x", length: 5 },
-  { kind: "wall", x: -1.485580466271708, z: 291.767862333867, axis: "z", length: 5 },
-  { kind: "wall", x: -1.4501422332964928, z: 296.3436688852062, axis: "z", length: 5 },
-  { kind: "wall", x: 2.7394982414449376, z: 298.8570190108278, axis: "x", length: 5 },
-  { kind: "wall", x: 6.484044485163533, z: 298.70963970236045, axis: "x", length: 5 },
-  { kind: "wall", x: 8.36417112840096, z: 292.7014599843579, axis: "z", length: 5 },
-  { kind: "wall", x: -28.062784220565604, z: 315.5804454269881, axis: "z", length: 5 },
-  { kind: "wall", x: -28.165383518645417, z: 312.86677873502555, axis: "z", length: 5 },
-  { kind: "wall", x: -27.985408280651214, z: 309.1979065680721, axis: "z", length: 5 },
-  { kind: "wall", x: -27.931715849932825, z: 304.58415056524916, axis: "z", length: 5 },
-  { kind: "wall", x: -25.41120491773291, z: 301.95008621116364, axis: "x", length: 5 },
-  { kind: "wall", x: -20.28875710633846, z: 302.0066607614056, axis: "x", length: 5 },
-  { kind: "wall", x: -27.89186845577997, z: 299.40344393423914, axis: "z", length: 5 },
-  { kind: "wall", x: -27.66516472703288, z: 292.37540096403745, axis: "z", length: 5 },
-  { kind: "wall", x: -25.486416638389926, z: 289.6324358674328, axis: "x", length: 5 },
-  { kind: "wall", x: -20.857434941041305, z: 289.62613609704306, axis: "x", length: 5 },
-  { kind: "wall", x: -16.53614749000361, z: 289.5804294286516, axis: "x", length: 5 },
-  { kind: "wall", x: -12.383887706138893, z: 289.6073564713304, axis: "x", length: 5 },
-  { kind: "wall", x: -8.7960345559353, z: 289.6286593638314, axis: "x", length: 2 },
-  { kind: "wall", x: 14.547177410420169, z: 290.2029114343652, axis: "x", length: 5 },
-  { kind: "wall", x: 71.88294301449264, z: 294.2528855148312, axis: "x", length: 5 },
-  { kind: "wall", x: 76.70048785285631, z: 294.3168453886548, axis: "x", length: 5 },
-  { kind: "wall", x: 81.6377965885356, z: 294.2632352765283, axis: "x", length: 5 },
-  { kind: "wall", x: 84.51096363114443, z: 291.7917371481894, axis: "z", length: 5 },
-  { kind: "wall", x: 84.68404835660313, z: 287.60215295943385, axis: "z", length: 5 },
-  { kind: "wall", x: 84.7665649790563, z: 283.2385955598935, axis: "z", length: 5 },
-  { kind: "wall", x: 84.84032996437547, z: 279.02941167739317, axis: "z", length: 5 },
-  { kind: "wall", x: 84.9230901598954, z: 273.94635334367183, axis: "z", length: 5 },
-  { kind: "wall", x: 50.444659607232445, z: 274.4517064472809, axis: "x", length: 5 },
-  { kind: "wall", x: 57.95515506632388, z: 274.2379600318669, axis: "x", length: 5 },
-  { kind: "wall", x: 61.895591340321545, z: 274.1092475581582, axis: "x", length: 5 },
-  { kind: "wall", x: 65.88276470084747, z: 274.1048010718358, axis: "x", length: 5 },
-  { kind: "wall", x: 69.93151597858032, z: 274.0761270962408, axis: "x", length: 5 },
-  { kind: "wall", x: 74.8216459058047, z: 274.06150497038703, axis: "x", length: 5 },
-  { kind: "wall", x: 84.7992856907687, z: 276.07302959189093, axis: "z", length: 1 },
-  { kind: "wall", x: 79.23032620250447, z: 274.0161921718336, axis: "x", length: 5 },
-  { kind: "wall", x: 79.25166463084518, z: 280.5563396713324, axis: "x", length: 5 },
-  { kind: "wall", x: 77.31114619676872, z: 282.57279816584486, axis: "z", length: 5 },
-  { kind: "wall", x: 78.01738953091562, z: 291.62060535815925, axis: "z", length: 5 },
-  { kind: "wall", x: 76.7451626105463, z: 286.03644280555034, axis: "z", length: 2 },
-  { kind: "wall", x: 81.57541026565208, z: 271.9148299566182, axis: "z", length: 5 },
-  { kind: "wall", x: 81.8494859353982, z: 262.80706756442135, axis: "z", length: 5 },
-  { kind: "wall", x: 81.98646944249018, z: 258.37078757717194, axis: "z", length: 5 },
-  { kind: "wall", x: 79.41127953886551, z: 255.69928889589775, axis: "x", length: 5 },
-  { kind: "wall", x: 74.51968790554528, z: 255.5848591226391, axis: "x", length: 5 },
-  { kind: "wall", x: 69.44014426355652, z: 255.59164953900572, axis: "x", length: 5 },
-  { kind: "wall", x: 65.65316341739192, z: 255.51620119657792, axis: "x", length: 5 },
-  { kind: "wall", x: 63.005465823347635, z: 257.7292489870848, axis: "z", length: 5 },
-  { kind: "wall", x: 62.98376931299683, z: 260.9658934921131, axis: "z", length: 5 },
-  { kind: "wall", x: 62.83737912004492, z: 265.3479821394711, axis: "z", length: 5 },
-  { kind: "wall", x: 62.77517662969755, z: 268.8856807543993, axis: "z", length: 4 },
-  { kind: "wall", x: 87.30886305341022, z: 271.6948952779112, axis: "x", length: 4 },
-  { kind: "wall", x: 91.54661551700424, z: 271.55079784214246, axis: "x", length: 4 },
-  { kind: "wall", x: 95.68059703039465, z: 271.4387677025374, axis: "x", length: 4 },
-  { kind: "wall", x: 99.5145154603362, z: 271.4704005909761, axis: "x", length: 4 },
-  { kind: "wall", x: 103.21687950623337, z: 271.5938012165721, axis: "x", length: 4 },
-  { kind: "wall", x: 105.47861862984763, z: 268.7815246707956, axis: "z", length: 5 },
-  { kind: "wall", x: 105.55751180399884, z: 263.6892555043426, axis: "z", length: 5 },
-  { kind: "wall", x: 105.54682275683149, z: 258.8558509708274, axis: "z", length: 5 },
-  { kind: "wall", x: 105.69308590891626, z: 253.90652486274647, axis: "z", length: 5 },
-  { kind: "wall", x: 105.75672706846028, z: 249.79045132413444, axis: "z", length: 5 },
-  { kind: "wall", x: 102.96032916509499, z: 246.99914696030888, axis: "x", length: 5 },
-  { kind: "wall", x: 98.45430885826032, z: 247.07948668367305, axis: "x", length: 5 },
-  { kind: "wall", x: 93.50272667290172, z: 247.25034831981972, axis: "x", length: 5 },
-  { kind: "wall", x: 89.19921766221375, z: 272.4804896720894, axis: "x", length: 1 },
-  { kind: "wall", x: 105.13754532941121, z: 266.03041154379173, axis: "z", length: 1 },
-  { kind: "wall", x: 90.94613833549475, z: 250.01700188840593, axis: "z", length: 5 },
-  { kind: "wall", x: 90.90016561775951, z: 253.54787787071524, axis: "z", length: 5 },
-  { kind: "wall", x: 85.1596876447001, z: 266.233489044009, axis: "z", length: 5 },
-  { kind: "wall", x: 85.001925761364, z: 262.26810340517574, axis: "z", length: 5 },
-  { kind: "wall", x: 84.8325998231808, z: 257.43920688581954, axis: "z", length: 5 },
-  { kind: "wall", x: 89.2426873136536, z: 255.47341809126831, axis: "x", length: 3 },
-  { kind: "wall", x: -1.6424341473454107, z: 301.24045800533696, axis: "z", length: 5 },
-  { kind: "wall", x: -1.5484559797969966, z: 306.0421552096475, axis: "z", length: 5 },
-  { kind: "wall", x: -1.6983765729405031, z: 310.2445665364479, axis: "z", length: 5 },
-  { kind: "wall", x: -8.198678733448707, z: 287.4677862211124, axis: "z", length: 5 },
-  { kind: "wall", x: -0.24937426643618377, z: 312.67522768265127, axis: "x", length: 3 },
-  { kind: "wall", x: -8.191870752334928, z: 283.40256562212625, axis: "z", length: 5 },
-  { kind: "wall", x: -8.162127606536721, z: 279.3131720239886, axis: "z", length: 5 },
-  { kind: "wall", x: -10.049674153526855, z: 289.1935372522154, axis: "x", length: 1 },
-  { kind: "wall", x: -10.072985182872058, z: 277.1452590417961, axis: "x", length: 5 },
-  { kind: "wall", x: -15.056043265786135, z: 277.08333347737704, axis: "x", length: 5 },
-  { kind: "wall", x: -28.617838137353523, z: 284.1814336814542, axis: "z", length: 5 },
-  { kind: "wall", x: -20.08671278613354, z: 276.93220942261286, axis: "x", length: 5 },
-  { kind: "wall", x: -23.496644291611783, z: 276.9117284749855, axis: "x", length: 5 },
-  { kind: "wall", x: -28.236176561313474, z: 276.9501143599717, axis: "x", length: 5 },
-  { kind: "wall", x: -32.85399799711813, z: 276.8574856623274, axis: "x", length: 5 },
-  { kind: "wall", x: -31.496140139810073, z: 281.4336304042757, axis: "x", length: 5 },
-  { kind: "wall", x: -30.569062005658274, z: 301.85431052928794, axis: "x", length: 5 },
-  { kind: "wall", x: -34.85845106273652, z: 301.81696741478106, axis: "x", length: 5 },
-  { kind: "wall", x: -37.715667677783344, z: 299.61651817795877, axis: "z", length: 5 },
-  { kind: "wall", x: -37.77712903129204, z: 295.7304430576066, axis: "z", length: 5 },
-  { kind: "wall", x: -37.78894545568913, z: 291.8959187226733, axis: "z", length: 5 },
-  { kind: "wall", x: -37.6844181078487, z: 287.02567414774944, axis: "z", length: 5 },
-  { kind: "wall", x: -35.765597895048145, z: 281.36365250049647, axis: "x", length: 5 },
-  { kind: "wall", x: -40.01132841519494, z: 283.98965498688557, axis: "x", length: 5 },
-  { kind: "wall", x: -34.87065894320993, z: 274.8257382792198, axis: "z", length: 5 },
-  { kind: "wall", x: -38.591385615022276, z: 280.97339146442215, axis: "x", length: 2 },
-  { kind: "wall", x: -39.277244576390444, z: 278.47231294475796, axis: "z", length: 5 },
-  { kind: "wall", x: -42.34961200819831, z: 281.2013772792198, axis: "z", length: 5 },
-  { kind: "wall", x: -42.24085705187203, z: 276.55967290888526, axis: "z", length: 5 },
-  { kind: "wall", x: -42.2063727260812, z: 271.6005392745137, axis: "z", length: 5 },
-  { kind: "wall", x: -42.25146736804579, z: 267.12320992863687, axis: "z", length: 5 },
-  { kind: "wall", x: -42.36193180281883, z: 262.4320318379612, axis: "z", length: 5 },
-  { kind: "wall", x: -42.25340261561161, z: 259.1625916765972, axis: "z", length: 5 },
-  { kind: "wall", x: -42.1882446266413, z: 254.69701009245972, axis: "z", length: 5 },
-  { kind: "wall", x: -42.18128481543739, z: 250.00027262746445, axis: "z", length: 5 },
-  { kind: "wall", x: -42.20906925110577, z: 245.53475911091874, axis: "z", length: 5 },
-  { kind: "wall", x: -42.085017553045894, z: 240.91130229663204, axis: "z", length: 5 },
-  { kind: "wall", x: -39.44157586581563, z: 238.5476461604251, axis: "x", length: 5 },
-  { kind: "wall", x: -34.81259158087513, z: 238.53846245008765, axis: "x", length: 5 },
-  { kind: "wall", x: -30.087563913408964, z: 238.6261446396316, axis: "x", length: 5 },
-  { kind: "wall", x: -21.54559811108159, z: 238.4108291796793, axis: "x", length: 5 },
-  { kind: "wall", x: -16.9374411701762, z: 238.2825172163605, axis: "x", length: 5 },
-  { kind: "wall", x: -13.335527527437339, z: 238.14510192864844, axis: "x", length: 5 },
-  { kind: "wall", x: -8.739925534924293, z: 238.0860893833553, axis: "x", length: 5 },
-  { kind: "wall", x: -4.357128063638039, z: 238.00110770250555, axis: "x", length: 5 },
-  { kind: "wall", x: 0.46614114752535696, z: 237.95531114077033, axis: "x", length: 5 },
-  { kind: "wall", x: -34.891963814071794, z: 270.1148875005029, axis: "z", length: 5 },
-  { kind: "wall", x: -32.31792651524054, z: 267.5963647420178, axis: "x", length: 5 },
-  { kind: "wall", x: -28.038994758254717, z: 267.596744546769, axis: "x", length: 5 },
-  { kind: "wall", x: -21.33599510311511, z: 267.5996636683485, axis: "x", length: 5 },
-  { kind: "wall", x: -16.327719875638582, z: 267.52625443461915, axis: "x", length: 5 },
-  { kind: "wall", x: -14.121234109691335, z: 270.314499022221, axis: "z", length: 5 },
-  { kind: "wall", x: -39.44198344352236, z: 255.46727824798148, axis: "x", length: 5 },
-  { kind: "wall", x: -32.40531967306718, z: 255.4756956316723, axis: "x", length: 5 },
-  { kind: "wall", x: 5.45780964419025, z: 237.91449402707022, axis: "x", length: 5 },
-  { kind: "wall", x: 9.777095862400754, z: 237.91339923192058, axis: "x", length: 5 },
-  { kind: "wall", x: -28.213480817577913, z: 255.43432060563467, axis: "x", length: 5 },
-  { kind: "wall", x: 14.617454187771136, z: 237.8520693603152, axis: "x", length: 5 },
-  { kind: "wall", x: 19.60467431059029, z: 237.77849951934152, axis: "x", length: 5 },
-  { kind: "wall", x: 24.696607834897183, z: 237.84044078665627, axis: "x", length: 5 },
-  { kind: "wall", x: 29.24880655004069, z: 237.83498237197736, axis: "x", length: 5 },
-  { kind: "wall", x: 34.26941078431879, z: 237.86899140199793, axis: "x", length: 5 },
-  { kind: "wall", x: 39.31911256482856, z: 237.9113213806086, axis: "x", length: 5 },
-  { kind: "wall", x: 43.409446259588634, z: 237.86402244307428, axis: "x", length: 5 },
-  { kind: "wall", x: 48.3376744905682, z: 237.80250545970569, axis: "x", length: 5 },
-  { kind: "wall", x: 52.98318301266804, z: 237.7625768589776, axis: "x", length: 5 },
-  { kind: "wall", x: 57.93551006732501, z: 237.73174054855926, axis: "x", length: 5 },
-  { kind: "wall", x: 62.45263637882471, z: 237.69772555997207, axis: "x", length: 5 },
-  { kind: "wall", x: 67.30603033414391, z: 237.69597139872903, axis: "x", length: 5 },
-  { kind: "wall", x: 72.32230841270716, z: 237.70488377540167, axis: "x", length: 5 },
-  { kind: "wall", x: 76.96669331110951, z: 237.66330681774053, axis: "x", length: 5 },
-  { kind: "wall", x: 81.44630123271267, z: 237.63245592759603, axis: "x", length: 5 },
-  { kind: "wall", x: 86.34954742006664, z: 237.6825034811422, axis: "x", length: 5 },
-  { kind: "wall", x: 90.54036228946704, z: 237.6577268836615, axis: "x", length: 5 },
-  { kind: "wall", x: 95.20565269814092, z: 237.6394821899236, axis: "x", length: 5 },
-  { kind: "wall", x: 100.16493153860665, z: 237.5957993292883, axis: "x", length: 5 },
-  { kind: "wall", x: 105.17264160727701, z: 237.5785386825753, axis: "x", length: 5 },
-  { kind: "wall", x: 106.64904541072588, z: 240.31785239900034, axis: "z", length: 5 },
-  { kind: "wall", x: 106.61389187528158, z: 244.85452919112356, axis: "z", length: 5 },
-  { kind: "wall", x: 105.87985180839644, z: 246.99714078036038, axis: "x", length: 1 },
+  // North wall
+  { kind: "wall", x: MAP4_ORIGIN.x - 6, z: MAP4_ORIGIN.z - 6, axis: "x", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x - 2, z: MAP4_ORIGIN.z - 6, axis: "x", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x + 2, z: MAP4_ORIGIN.z - 6, axis: "x", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x + 6, z: MAP4_ORIGIN.z - 6, axis: "x", length: 4 },
+  // South wall, with a 4m entrance gap in the middle
+  { kind: "wall", x: MAP4_ORIGIN.x - 6.5, z: MAP4_ORIGIN.z + 6, axis: "x", length: 3 },
+  { kind: "wall", x: MAP4_ORIGIN.x - 3.5, z: MAP4_ORIGIN.z + 6, axis: "x", length: 3 },
+  { kind: "wall", x: MAP4_ORIGIN.x + 3.5, z: MAP4_ORIGIN.z + 6, axis: "x", length: 3 },
+  { kind: "wall", x: MAP4_ORIGIN.x + 6.5, z: MAP4_ORIGIN.z + 6, axis: "x", length: 3 },
+  // West wall
+  { kind: "wall", x: MAP4_ORIGIN.x - 8, z: MAP4_ORIGIN.z - 4, axis: "z", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x - 8, z: MAP4_ORIGIN.z, axis: "z", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x - 8, z: MAP4_ORIGIN.z + 4, axis: "z", length: 4 },
+  // East wall, with a 4m window/side-gap in the middle
+  { kind: "wall", x: MAP4_ORIGIN.x + 8, z: MAP4_ORIGIN.z - 4, axis: "z", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x + 8, z: MAP4_ORIGIN.z + 4, axis: "z", length: 4 },
+  // Dividing wall between the two rooms, with a doorway gap near the south side
+  { kind: "wall", x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z - 4, axis: "z", length: 4 },
+  { kind: "wall", x: MAP4_ORIGIN.x, z: MAP4_ORIGIN.z, axis: "z", length: 4 },
+  // Cover inside both rooms
+  { kind: "obstacle", x: MAP4_ORIGIN.x - 4, z: MAP4_ORIGIN.z - 2, size: MAP4_OBSTACLE_BIG, rotY: 0 },
+  { kind: "obstacle", x: MAP4_ORIGIN.x + 4, z: MAP4_ORIGIN.z - 2, size: MAP4_OBSTACLE_SMALL, rotY: 0.4 },
+  { kind: "obstacle", x: MAP4_ORIGIN.x - 3, z: MAP4_ORIGIN.z + 3, size: MAP4_OBSTACLE_SMALL, rotY: 0.2 },
+  { kind: "drum", x: MAP4_ORIGIN.x + 3, z: MAP4_ORIGIN.z + 3, rotY: 0 },
+  { kind: "drum", x: MAP4_ORIGIN.x - 6, z: MAP4_ORIGIN.z, rotY: 0 },
 ];
 function isValidMap4Item(it: unknown): it is Map4Item {
   const i = it as
@@ -1573,6 +1411,14 @@ function loadMap4Items(key: string, legacyKey: string | null, defaultItems: Map4
       );
   } catch {
     return [];
+  }
+}
+function saveMap4Items(key: string, items: Map4Item[]) {
+  try {
+    localStorage.setItem(key, JSON.stringify(items));
+  } catch {
+    // Storage full/unavailable — the in-scene pieces still stand for the
+    // rest of this session, they just won't persist to the next one.
   }
 }
 // Whether an item's footprint should block movement at all — walls,
@@ -1671,6 +1517,21 @@ function stairSideRects(item: Map4Stairs, allItems: Map4Item[]): [Obstacle, Obst
         };
   return [mk(1), mk(-1)];
 }
+// Turns a cardinal unit vector 90° clockwise (seen from above) `steps`
+// times, wrapping every 4 — used to let a staged stairs chain's own
+// climb direction (see buildStairsRotateSteps) be turned away from
+// whatever the player's currently facing, instead of always matching it.
+function rotateCardinalDir(dirX: number, dirZ: number, steps: number): { dirX: number; dirZ: number } {
+  let x = dirX;
+  let z = dirZ;
+  for (let i = 0; i < ((steps % 4) + 4) % 4; i++) {
+    const nextX = -z;
+    const nextZ = x;
+    x = nextX;
+    z = nextZ;
+  }
+  return { dirX: x, dirZ: z };
+}
 // How many steps deep into its own chain a given stairs item is — 0 for the
 // first step off the ground, 1 for the one placed behind that, and so on.
 // Computed fresh from the current item list every time (never stored on the
@@ -1722,6 +1583,31 @@ function isTopOfStairChain(item: Map4Stairs, allItems: Map4Item[]): boolean {
   }
   return true;
 }
+// Which item indices AIM should move together when nudging the one at
+// pickedIdx — every other kind is just itself (nudging one wall doesn't
+// need to drag any other wall along), but a stairs step is one piece of
+// a whole run: nudging just the picked step left it visually detached
+// from the rest of the chain (e.g. sinking one step underground while
+// the others stayed put), since every step is its own separate item.
+// Same lane-matching test computeStairRank/isTopOfStairChain already use
+// (same dirX/dirZ, same baseY, within MAP4_STAIRS_WIDTH of the lane), but
+// without the along-direction restriction — this wants every step in the
+// run, both ahead of and behind the picked one, not just one side.
+function relatedItemIndices(pickedIdx: number, allItems: Map4Item[]): number[] {
+  const item = allItems[pickedIdx];
+  if (!item || item.kind !== "stairs") return [pickedIdx];
+  const indices: number[] = [];
+  allItems.forEach((other, idx) => {
+    if (other.kind !== "stairs") return;
+    if (other.dirX !== item.dirX || other.dirZ !== item.dirZ) return;
+    if ((other.baseY ?? 0) !== (item.baseY ?? 0)) return;
+    const perp = (other.z - item.z) * item.dirX - (other.x - item.x) * item.dirZ;
+    if (Math.abs(perp) > MAP4_STAIRS_WIDTH) return;
+    indices.push(idx);
+  });
+  return indices;
+}
+
 // Two items placed at (very nearly) the same spot render as perfectly
 // coplanar/overlapping surfaces -- the GPU can't consistently pick which
 // one wins from frame to frame, which is the "zig zag zig zag" flicker a
@@ -2234,6 +2120,199 @@ const GUN_TARGET_LENGTH = 0.55;
 // sit out along the barrel the way it would on a real two-handed hold, so
 // using it for orientation pointed the gun sideways instead of forward.
 const GUN_MUZZLE_TARGET_LOCAL = new THREE.Vector3(0.20400064267090037, 0.5153436536777963, -0.8323488792936196);
+// A hand-tuned correction on top of GUN_GRIP_LOCAL, in the same
+// RightHand-local, already-scaled space createGunAttachment computes
+// gun.position in — persisted so Build Mode's PLAYER tab (see
+// buildModeRef.current.nudgeGunGrip) can nudge exactly how the gun sits
+// in the hand without editing GUN_GRIP_LOCAL itself, and so the fix
+// applies to every fighter (player and bots share this same rig/
+// attachment code) on every future load, not just this session.
+const GUN_GRIP_OFFSET_STORAGE_KEY = "10sa-gun-grip-offset";
+function loadGunGripOffset(): THREE.Vector3 {
+  try {
+    const raw = localStorage.getItem(GUN_GRIP_OFFSET_STORAGE_KEY);
+    if (!raw) return new THREE.Vector3();
+    const parsed = JSON.parse(raw);
+    return new THREE.Vector3(
+      typeof parsed.x === "number" ? parsed.x : 0,
+      typeof parsed.y === "number" ? parsed.y : 0,
+      typeof parsed.z === "number" ? parsed.z : 0,
+    );
+  } catch {
+    return new THREE.Vector3();
+  }
+}
+// Read once at module load (not per-attach) and mutated in place by the
+// PLAYER tab's nudge buttons — every subsequent createGunAttachment call
+// (each new bot/boss spawn) picks up whatever's currently in this vector.
+const gunGripOffset = loadGunGripOffset();
+function saveGunGripOffset() {
+  localStorage.setItem(GUN_GRIP_OFFSET_STORAGE_KEY, JSON.stringify({ x: gunGripOffset.x, y: gunGripOffset.y, z: gunGripOffset.z }));
+}
+// One PLAYER-tab nudge tap's size, in the same local units as gunGripOffset
+// (RightHand-local, already scaled) — tuned by eye against the actual
+// rig, not derived from a real-world unit.
+const GUN_GRIP_NUDGE_STEP = 0.5;
+
+// Extra rotation on top of the base grip orientation (see
+// GUN_MUZZLE_TARGET_LOCAL), in the gun's OWN local frame at the moment
+// it's applied — pitch (x) tips the muzzle up/down, yaw (y) swings it
+// left/right, roll (z) spins the gun around its own barrel (which is
+// what moves the trigger/fire-button side up or down). Applied via
+// quaternion multiply AFTER gun.position is computed from the base
+// (non-extra-rotated) quaternion, so the grip point stays anchored in
+// the hand and the gun visibly pivots around it, the way tilting a
+// held gun pivots around the hand holding it rather than around the
+// muzzle or some arbitrary point.
+const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation";
+function loadGunGripRotation(): THREE.Euler {
+  try {
+    const raw = localStorage.getItem(GUN_GRIP_ROTATION_STORAGE_KEY);
+    if (!raw) return new THREE.Euler();
+    const parsed = JSON.parse(raw);
+    return new THREE.Euler(
+      typeof parsed.x === "number" ? parsed.x : 0,
+      typeof parsed.y === "number" ? parsed.y : 0,
+      typeof parsed.z === "number" ? parsed.z : 0,
+      "XYZ",
+    );
+  } catch {
+    return new THREE.Euler();
+  }
+}
+const gunGripRotation = loadGunGripRotation();
+function saveGunGripRotation() {
+  localStorage.setItem(GUN_GRIP_ROTATION_STORAGE_KEY, JSON.stringify({ x: gunGripRotation.x, y: gunGripRotation.y, z: gunGripRotation.z }));
+}
+// The PLAYER tab's PITCH/YAW/ROLL sliders — a full turn either way, so
+// no orientation is ever out of reach.
+const GUN_GRIP_ROTATION_MIN = -Math.PI;
+const GUN_GRIP_ROTATION_MAX = Math.PI;
+
+// Right-arm pose correction — shoulder (raises/lowers the whole arm),
+// elbow (bends the forearm), wrist (twists the hand), each a 3-axis
+// Euler on top of whatever the current idle/run/fire mocap clip is
+// already driving that joint to. Unlike the gun's own grip offset
+// (a one-time snap at attach, since it's a static prop nobody else
+// touches afterward), the arm's OWN bones get re-driven by the mixer
+// every single tick — see applyArmPoseCorrection, which has to
+// re-multiply this in every tick too or the very next frame's
+// animation update would silently erase it.
+type ArmAxisExtra = { x: number; y: number; z: number };
+type ArmJoint = "shoulder" | "elbow" | "wrist";
+type ArmSide = "left" | "right";
+interface ArmPoseExtra {
+  shoulder: ArmAxisExtra;
+  elbow: ArmAxisExtra;
+  wrist: ArmAxisExtra;
+}
+function zeroArmAxisExtra(): ArmAxisExtra {
+  return { x: 0, y: 0, z: 0 };
+}
+function zeroArmPoseExtra(): ArmPoseExtra {
+  return { shoulder: zeroArmAxisExtra(), elbow: zeroArmAxisExtra(), wrist: zeroArmAxisExtra() };
+}
+// v2: per-side (right AND left) instead of right-arm-only — the RIGHT
+// HAND / LEFT HAND Build tabs each get their own independent
+// shoulder/elbow/wrist correction now, so this has to be keyed by side
+// the same way fingerCurlExtras already is. A stale v1 (flat, right-arm
+// only) value under the old key is simply ignored — starts back at zero
+// for everyone rather than trying to migrate it into .right.
+const ARM_POSE_STORAGE_KEY = "10sa-arm-pose-v2";
+function loadArmPoseExtras(): { right: ArmPoseExtra; left: ArmPoseExtra } {
+  const fallback = { right: zeroArmPoseExtra(), left: zeroArmPoseExtra() };
+  try {
+    const raw = localStorage.getItem(ARM_POSE_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    for (const side of ["right", "left"] as const) {
+      for (const joint of ["shoulder", "elbow", "wrist"] as const) {
+        for (const axis of ["x", "y", "z"] as const) {
+          const v = parsed?.[side]?.[joint]?.[axis];
+          if (typeof v === "number") fallback[side][joint][axis] = v;
+        }
+      }
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+const armPoseExtras = loadArmPoseExtras();
+function saveArmPoseExtras() {
+  localStorage.setItem(ARM_POSE_STORAGE_KEY, JSON.stringify(armPoseExtras));
+}
+const armPoseQuat = new THREE.Quaternion();
+const armPoseEuler = new THREE.Euler();
+// Called every tick, right after updateOffHandReach (same "the mixer
+// keeps re-driving these bones, a one-time snap won't stick" reasoning)
+// — multiplies each joint's own extra rotation on top of whatever this
+// frame's baked animation pose already put there. Covers both arms: the
+// left arm's own bones are ALSO the ones updateOffHandReach solves an IK
+// pose for every tick (reaching the off-hand to the gun's foregrip), so
+// this composes on top of that solve the same way the right side already
+// composes on top of the idle/run/fire mocap clip — always applied last,
+// after whatever else touched these bones this frame.
+function applyArmPoseCorrection(rig: FighterRig) {
+  const bones: [THREE.Object3D | null, ArmAxisExtra][] = [
+    [rig.rightArm, armPoseExtras.right.shoulder],
+    [rig.rightForeArm, armPoseExtras.right.elbow],
+    [rig.rightHand, armPoseExtras.right.wrist],
+    [rig.leftArm, armPoseExtras.left.shoulder],
+    [rig.leftForeArm, armPoseExtras.left.elbow],
+    [rig.leftHand, armPoseExtras.left.wrist],
+  ];
+  for (const [bone, extra] of bones) {
+    if (!bone || (extra.x === 0 && extra.y === 0 && extra.z === 0)) continue;
+    armPoseEuler.set(extra.x, extra.y, extra.z, "XYZ");
+    armPoseQuat.setFromEuler(armPoseEuler);
+    bone.quaternion.multiply(armPoseQuat);
+  }
+}
+
+// Extra finger-curl on top of curlGunGripFingers' own fixed table — one
+// independent scale per finger (Thumb/Index/Middle/Ring/Pinky) per hand,
+// applied via the exact same per-joint table (see curlGunGripFingers'
+// `scale` param, now finger-keyed) so each finger's own 3 joints curl or
+// loosen together proportionally, without needing all 15 individual
+// joints controlled by hand. Rotations around a fixed axis compose by
+// simple angle addition regardless of order, so accumulating a finger's
+// scale across many nudge taps and applying it in one shot (equip time)
+// or incrementally (live nudge) always lands on the exact same final
+// pose either way.
+const FINGER_NAMES = ["Thumb", "Index", "Middle", "Ring", "Pinky"] as const;
+type FingerName = (typeof FINGER_NAMES)[number];
+type FingerCurlExtra = Record<FingerName, number>;
+function zeroFingerCurlExtra(): FingerCurlExtra {
+  return { Thumb: 0, Index: 0, Middle: 0, Ring: 0, Pinky: 0 };
+}
+const GUN_FINGER_CURL_STORAGE_KEY = "10sa-gun-finger-curl-v2";
+function loadFingerCurlExtras(): { right: FingerCurlExtra; left: FingerCurlExtra } {
+  const fallback = { right: zeroFingerCurlExtra(), left: zeroFingerCurlExtra() };
+  try {
+    const raw = localStorage.getItem(GUN_FINGER_CURL_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    for (const side of ["right", "left"] as const) {
+      for (const finger of FINGER_NAMES) {
+        const v = parsed?.[side]?.[finger];
+        if (typeof v === "number") fallback[side][finger] = v;
+      }
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+const fingerCurlExtras = loadFingerCurlExtras();
+function saveFingerCurlExtras() {
+  localStorage.setItem(GUN_FINGER_CURL_STORAGE_KEY, JSON.stringify(fingerCurlExtras));
+}
+// The PLAYER tab's per-finger curl sliders — -1 (fully uncurled/loose)
+// to +1 (an extra full base-curl's worth on top of the already-curled
+// starting grip) either side of the base table's own fixed curl.
+const GUN_FINGER_CURL_MIN = -1;
+const GUN_FINGER_CURL_MAX = 1;
 
 // The gun model is a static (unskinned) mesh, so one glTF load is shared
 // and cloned for whichever fighter needs it.
@@ -2396,21 +2475,34 @@ function getDrumCapMaterial(): THREE.MeshStandardMaterial {
 // look like it was floating outside the hand instead of held in it; a
 // solidly-gripped gun that isn't perfectly foregrip-touching reads better
 // than a foregrip-perfect gun that visibly isn't in the hand at all.
-function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): THREE.Object3D {
-  // hand.matrixWorld isn't guaranteed current here — this runs as soon as
-  // the shared gun prototype resolves, which can be before the scene has
+// Computes and applies the fully-calibrated local transform (position,
+// rotation, scale) for `gun` as a child of `hand`, from GUN_GRIP_LOCAL/
+// GUN_MUZZLE_TARGET_LOCAL plus whatever's currently in gunGripOffset/
+// gunGripRotation — the one place this math lives, shared by the
+// initial attach (createGunAttachment) and by re-attaching after the
+// PLAYER tab's DETACH (see buildModeRef.current.toggleGunDetach) and by
+// every live position/rotation nudge, so there's no way for a live
+// preview to drift from what a fresh reload recomputes.
+function applyCalibratedGunTransform(gun: THREE.Object3D, hand: THREE.Object3D) {
+  // hand.matrixWorld isn't guaranteed current here — this can run as
+  // soon as the shared gun prototype resolves, before the scene has
   // ever been rendered (matrixWorld only recomputes on render or an
   // explicit update), so a stale identity-scale matrix would silently
   // undo this rig's ~0.0094 model scale and shrink the gun to a speck.
   hand.updateWorldMatrix(true, false);
   const worldScale = new THREE.Vector3();
   hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
-  const gun = prototype.clone(true);
   const rawLength = 79.03;
   const scale = (GUN_TARGET_LENGTH / rawLength) / (worldScale.x || 1);
   gun.scale.setScalar(scale);
   gun.quaternion.setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
   gun.position.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gun.quaternion).multiplyScalar(-1);
+  gun.position.add(gunGripOffset);
+  gun.quaternion.multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
+}
+function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): THREE.Object3D {
+  const gun = prototype.clone(true);
+  applyCalibratedGunTransform(gun, hand);
   hand.add(gun);
   return gun;
 }
@@ -2533,7 +2625,16 @@ function updateOffHandReach(rig: FighterRig) {
 // nothing to fight frame to frame, and re-applying it every tick would
 // just keep curling the fingers further closed. `mirror` flips the
 // rotation sign for the off-hand, whose finger bones are mirrored across
-// the skeleton's centerline.
+// the skeleton's centerline. `scale` (default 1, the original fixed
+// curl) lets the PLAYER tab's per-finger nudges add or remove curl on
+// top of this base table proportionally — either one number applied to
+// every joint at once (the base call), or a FingerCurlExtra map giving
+// each finger (by its own name, joint number stripped) its own
+// independent scale. Every joint rotates about the SAME fixed axis, so
+// calling this multiple times with small scales and calling it once
+// with their sum produces the identical final pose (rotations about one
+// axis just add), so live incremental nudges and the persisted total
+// never drift apart.
 const FINGER_CURL_AXIS = new THREE.Vector3(0, 0, 1);
 const FINGER_CURL_ANGLES: Record<string, number> = {
   Index1: 0.55, Index2: 0.7, Index3: 0.6,
@@ -2543,11 +2644,13 @@ const FINGER_CURL_ANGLES: Record<string, number> = {
   Thumb1: 0.2, Thumb2: 0.4, Thumb3: 0.35,
 };
 const fingerCurlQuat = new THREE.Quaternion();
-function curlGunGripFingers(fingers: Record<string, THREE.Object3D>, mirror: 1 | -1) {
+function curlGunGripFingers(fingers: Record<string, THREE.Object3D>, mirror: 1 | -1, scale: number | FingerCurlExtra = 1) {
   for (const [joint, angle] of Object.entries(FINGER_CURL_ANGLES)) {
     const bone = fingers[joint];
     if (!bone) continue;
-    fingerCurlQuat.setFromAxisAngle(FINGER_CURL_AXIS, angle * mirror);
+    const jointScale = typeof scale === "number" ? scale : scale[joint.replace(/\d+$/, "") as FingerName];
+    if (!jointScale) continue;
+    fingerCurlQuat.setFromAxisAngle(FINGER_CURL_AXIS, angle * mirror * jointScale);
     bone.quaternion.multiply(fingerCurlQuat);
   }
 }
@@ -3385,12 +3488,156 @@ function CombatArena({
   // Map 3's decorative key prop in the Boss Lair (set while building the
   // level, spun slowly each frame in the tick below — null on Map 1/2).
   const keyPropRef = useRef<THREE.Group | null>(null);
-  // Map 4's fixed, permanent layout (see DEFAULT_MAP4_HOUSE) is rendered
-  // from these — every kind together, in placement order — but there's no
-  // more in-game way to add to or edit the list; it's baked at scene-build
-  // time and never touched again.
+  // Map 4 (Build Mode): a small API the scene-building effect wires up
+  // once (getPlayerFacing/addPreviewMesh/removeMesh/commitItem all close
+  // over the effect's own scene/player/materials), so the SELECT/PLACE/
+  // SAVE button handlers below — plain component functions, not part of
+  // that effect's closure — can still reach into the live scene.
+  const buildModeRef = useRef<{
+    getPlayerFacing: () => { x: number; y: number; z: number; axis: "x" | "z"; rotY: number; dirX: number; dirZ: number } | null;
+    addPreviewMesh: (item: Map4Item) => THREE.Object3D;
+    removeMesh: (obj: THREE.Object3D) => void;
+    commitItem: (item: Map4Item) => THREE.Object3D;
+    removeCollisionRect: (item: Map4Item) => void;
+    pickAimedItem: (items: Map4Item[]) => number | null;
+    nudgeDirs: () => { fwdX: number; fwdZ: number; rightX: number; rightZ: number } | null;
+    nudgeGunGrip: (dx: number, dy: number, dz: number) => void;
+    setGunGripRotation: (axis: "pitch" | "yaw" | "roll", value: number) => void;
+    setFingerCurl: (side: "left" | "right", finger: FingerName, value: number) => void;
+    setArmPose: (side: ArmSide, joint: ArmJoint, axis: "pitch" | "yaw" | "roll", value: number) => void;
+    resetGun: () => void;
+    resetHand: (side: ArmSide) => void;
+    toggleGunDetach: () => void;
+  } | null>(null);
+  // The piece(s) currently staged by SELECT (world position + orientation)
+  // and their translucent preview meshes, cleared once PLACE commits them
+  // or SELECT is pressed again to re-aim. Almost always a single entry —
+  // stairs are the exception: SELECT stages a whole buildStairsCount-long
+  // chain at once (see handleBuildSelect), all measured from that one
+  // aim, so the chain always comes out straight and evenly spaced instead
+  // of drifting the way placing each step separately (walking forward and
+  // re-aiming by hand between every one) used to. customItemsRef/
+  // customItemMeshesRef are the full placed-so-far list — every kind
+  // together, in placement order — loaded from localStorage on mount
+  // (recovering the original walls-only save if this is the first time
+  // under the new combined format), appended to by PLACE, popped from by
+  // REMOVE (one at a time, regardless of whether it was placed solo or as
+  // part of a stairs batch), written back out by SAVE. Kept outside React
+  // state since neither needs to trigger a re-render, only persist/stay in
+  // sync with the scene.
+  const buildSelectionRef = useRef<{ item: Map4Item; mesh: THREE.Object3D }[]>([]);
   const customItemsRef = useRef<Map4Item[]>([]);
   const customItemMeshesRef = useRef<THREE.Object3D[]>([]);
+  // Top-level Build Mode tab, above the WALL/CRATE/... one — "map" is
+  // everything that's been there all along (placing pieces); "right"/
+  // "left" are each hand's own shoulder/elbow/wrist + finger calibration
+  // panel, and "gun" is the gun's own grip position/rotation panel (see
+  // buildModeRef.current.nudgeGunGrip/setGunGripRotation) for correcting
+  // how the weapon sits in the hand without having to hand-tune the
+  // underlying GUN_GRIP_LOCAL constant blind. Only one tab's own controls
+  // render at a time — the GUN ON/OFF button next to these tabs is the
+  // one exception, always visible regardless of which tab is selected.
+  const [buildTopTab, setBuildTopTab] = useState<"map" | "right" | "left" | "gun">("map");
+  // Mirrors the imperative gunDetached flag inside the scene effect
+  // (buildModeRef.current.toggleGunDetach) purely so the GUN ON/OFF
+  // button's own label re-renders — same non-reactive-state pattern as
+  // buildItemCount mirroring customItemsRef. gunDetached === true means
+  // the gun is OFF (not following the hand — see toggleGunDetach).
+  const [gunDetachedUI, setGunDetachedUI] = useState(false);
+  // Mirrors gunGripRotation/fingerCurlExtras (module-level, loaded from
+  // localStorage once at import time) purely so the PLAYER tab's sliders
+  // have a controlled `value` to show — same pattern as gunDetachedUI.
+  // Read once at mount; every drag updates both the real (imperative)
+  // state via setGunGripRotation/setFingerCurl AND this mirror together
+  // (see handleGunRotationSlider/handleGunCurlSlider).
+  const [gunRotationUI, setGunRotationUI] = useState(() => ({ pitch: gunGripRotation.x, yaw: gunGripRotation.y, roll: gunGripRotation.z }));
+  const [gunCurlUI, setGunCurlUI] = useState(() => ({ right: { ...fingerCurlExtras.right }, left: { ...fingerCurlExtras.left } }));
+  // Same mirroring idea, for armPoseExtras' shoulder/elbow/wrist sliders —
+  // one copy per side now, shown on the RIGHT HAND / LEFT HAND tabs.
+  const [armPoseUI, setArmPoseUI] = useState(() => ({
+    right: { shoulder: { ...armPoseExtras.right.shoulder }, elbow: { ...armPoseExtras.right.elbow }, wrist: { ...armPoseExtras.right.wrist } },
+    left: { shoulder: { ...armPoseExtras.left.shoulder }, elbow: { ...armPoseExtras.left.elbow }, wrist: { ...armPoseExtras.left.wrist } },
+  }));
+  const [buildHasSelection, setBuildHasSelection] = useState(false);
+  // Mirrors customItemsRef.current.length purely so REMOVE's disabled
+  // state re-renders — the ref itself is intentionally not React state.
+  const [buildItemCount, setBuildItemCount] = useState(0);
+  // Which kind SELECT stages next, and the size/length chosen for it.
+  const [buildPlaceKind, setBuildPlaceKind] = useState<
+    "wall" | "obstacle" | "drum" | "floorTile" | "pillar" | "railing" | "door" | "light" | "stairs" | "line"
+  >("wall");
+  const [buildWallLength, setBuildWallLength] = useState(3);
+  const [buildObstacleSize, setBuildObstacleSize] = useState(MAP4_OBSTACLE_SMALL);
+  // Pillar only — width/depth in meters, +/- stepper like buildStairsCount
+  // rather than a fixed size, since one fixed 1m pillar wasn't enough.
+  const [buildPillarSize, setBuildPillarSize] = useState(MAP4_PILLAR_SIZE_MIN);
+  // Floor tile only — in-plane rotation angle in degrees, picked from a
+  // fixed preset row (0/30/60/90/120) rather than a free dial, matching how
+  // every other placement choice here (wall length, stairs count) is a
+  // small discrete set of buttons instead of a slider.
+  const [buildFloorAngleDeg, setBuildFloorAngleDeg] = useState(0);
+  // Blue line only — length (+/- stepper, same idea as buildPillarSize)
+  // and rotation angle (same preset row as buildFloorAngleDeg) — kept as
+  // its own separate state so switching tabs doesn't disturb whatever
+  // angle the floor tile tab was left on.
+  const [buildLineLength, setBuildLineLength] = useState(5);
+  const [buildLineAngleDeg, setBuildLineAngleDeg] = useState(0);
+  // Which Cypher Phunk palette color the next colorable piece (wall,
+  // floor tile, pillar, railing, door, light, stairs) uses — irrelevant for
+  // obstacle/drum, which aren't colorable. Starts at BUILD_DEFAULT_WALL_COLOR
+  // so a freshly opened Build Mode still places the classic plain wall by
+  // default, matching Map 4's original look.
+  const [buildColor, setBuildColor] = useState<number>(BUILD_DEFAULT_WALL_COLOR);
+  // How many chained steps SELECT stages at once for stairs — tap +/- to
+  // change it, then SELECT stages that many in one straight line from the
+  // current aim (see handleBuildSelect) instead of placing them one at a
+  // time by hand.
+  const [buildStairsCount, setBuildStairsCount] = useState(MAP4_STAIRS_COUNT_MIN);
+  // Which way a staged stairs chain climbs — 0 means "whatever direction
+  // the player's currently facing" (the old, only, behavior), and each
+  // ◄/► tap adds one 90° turn on top of that (wraps 0-3). Applies to both
+  // the stored dirX/dirZ (which way is "up") and the chain's own layout
+  // offset in handleBuildSelect — they're the same vector, since a run of
+  // stairs climbs in the direction it's laid out in. Lets a staircase be
+  // aimed to run left/right/behind the player, not just straight ahead —
+  // "aage se chadne wala ya piche jake chadne wala" — instead of only ever
+  // matching wherever the player happened to be looking when they placed it.
+  const [buildStairsRotateSteps, setBuildStairsRotateSteps] = useState(0);
+  // How far ahead of the player SELECT stages the next piece — tap +/- to
+  // change it (see MAP4_PLACE_DISTANCE_MIN/MAX). getPlayerFacing lives
+  // inside the Three.js scene-building effect (only re-created when the
+  // map itself reloads), so it can't just close over this state directly
+  // and see later updates — buildPlaceDistanceRef is what it actually
+  // reads, kept in sync by the effect right below.
+  const [buildPlaceDistance, setBuildPlaceDistance] = useState(MAP4_PLACE_DISTANCE_DEFAULT);
+  const buildPlaceDistanceRef = useRef(MAP4_PLACE_DISTANCE_DEFAULT);
+  useEffect(() => {
+    buildPlaceDistanceRef.current = buildPlaceDistance;
+  }, [buildPlaceDistance]);
+  // AIM: index into customItemsRef.current of the already-placed piece
+  // currently being repositioned, or null when nothing's being edited —
+  // see handleBuildAimToggle/handleBuildNudge. Null-checked everywhere
+  // it's read since REMOVE (LIFO, unrelated to this) is disabled while
+  // editing specifically to avoid it ever going stale mid-edit.
+  const [buildEditIndex, setBuildEditIndex] = useState<number | null>(null);
+  const [buildSaveLabel, setBuildSaveLabel] = useState<"SAVE" | "SAVED!">("SAVE");
+  // BACKUP: shows both a short cloud code (a few characters, needs
+  // internet — see MAP4_CLOUD_API) and a longer text code that works
+  // fully offline, so the player has a way out even without a network.
+  // Neither depends on this app's own local storage surviving, unlike
+  // the in-app SAVE — that's the whole point, since an uninstall wipes
+  // local storage but not whatever the player pasted the code into.
+  const [map4ExportText, setMap4ExportText] = useState<string | null>(null);
+  const [map4ExportCopied, setMap4ExportCopied] = useState(false);
+  const [map4CloudCode, setMap4CloudCode] = useState<string | null>(null);
+  const [map4CloudCodeCopied, setMap4CloudCodeCopied] = useState(false);
+  const [map4CloudSaveError, setMap4CloudSaveError] = useState<string | null>(null);
+  const [map4ImportOpen, setMap4ImportOpen] = useState(false);
+  const [map4ImportText, setMap4ImportText] = useState("");
+  const [map4ImportError, setMap4ImportError] = useState<string | null>(null);
+  const [map4CloudCodeInput, setMap4CloudCodeInput] = useState("");
+  const [map4CloudLoadError, setMap4CloudLoadError] = useState<string | null>(null);
+  const [map4CloudLoading, setMap4CloudLoading] = useState(false);
   // The bird's heading (horizontal drag) and look pitch (vertical drag —
   // negative looks down at the ground, positive looks up toward the sky),
   // both set in handleLookMove. Flight direction always follows yaw only;
@@ -4089,6 +4336,20 @@ function CombatArena({
       // every other map (addWallMesh); committed obstacles use the same
       // crate material used everywhere else (loadCrateMaterial/placeCrate)
       // — real materials, not a flat placeholder color.
+      const buildPreviewMat = new THREE.MeshStandardMaterial({
+        color: 0x6be2ff,
+        transparent: true,
+        opacity: 0.4,
+        depthWrite: false,
+        // A floor tile's PlaneGeometry is a single flat quad — without this,
+        // its default front-face-only culling makes it vanish the moment
+        // the camera is below it (e.g. standing under a floor tile placed
+        // above via the stairs, looking up) instead of just looking
+        // through empty air. Every other preview shape here is a real
+        // volume (box/cylinder), where single- vs double-sided makes no
+        // visible difference, so this is safe to apply to all of them.
+        side: THREE.DoubleSide,
+      });
       // Loaded synchronously (it's just a localStorage read) so
       // map4DynamicSpawn is ready in time for playerSpawnPos below —
       // only the mesh-building has to wait on the crate/drum materials.
@@ -4295,6 +4556,343 @@ function CombatArena({
           if (item.kind === "stairs") ACTIVE_OBSTACLES.push(...stairSideRects(item, customItemsRef.current));
           return addBuildItemMesh(item);
         });
+        setBuildItemCount(customItemsRef.current.length);
+        buildModeRef.current = {
+          getPlayerFacing: () => {
+            if (!player) return null;
+            // Snap to the nearest cardinal direction so a wall stays
+            // axis-aligned (matching how every other wall in the game is
+            // collided against — a freely-rotated wall can't be
+            // expressed as the axis-aligned Obstacle rects everything
+            // else uses). Crates are symmetric cubes so this axis is
+            // only relevant when placing a wall; rotY (the raw facing)
+            // is what a crate's cosmetic rotation actually uses.
+            const yaw = ((cameraYaw.current % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+            const facingNS = yaw < Math.PI / 4 || yaw >= (Math.PI * 7) / 4 || (yaw >= (Math.PI * 3) / 4 && yaw < (Math.PI * 5) / 4);
+            const axis: "x" | "z" = facingNS ? "x" : "z";
+            // The chase camera sits behind the player along
+            // (-sin(yaw), -cos(yaw)) (see camTargetPos below), so the
+            // direction the player is actually facing/walking toward is
+            // the opposite of that.
+            const forwardX = Math.sin(cameraYaw.current);
+            const forwardZ = Math.cos(cameraYaw.current);
+            // Cardinal-snapped forward vector — stairs need a clear "which
+            // way is up" (unlike a wall, symmetric along its axis), so this
+            // just picks whichever raw axis the player's facing more toward.
+            const dirX = Math.abs(forwardX) > Math.abs(forwardZ) ? Math.sign(forwardX) : 0;
+            const dirZ = Math.abs(forwardX) > Math.abs(forwardZ) ? 0 : Math.sign(forwardZ);
+            const dist = buildPlaceDistanceRef.current;
+            return {
+              x: player.root.position.x + forwardX * dist,
+              // Wherever the player is currently standing — a floor tile
+              // placed at the top of a stairs chain reads this to become a
+              // real floating platform there instead of always landing
+              // near ground level (see the floorTile branches below).
+              y: player.root.position.y,
+              z: player.root.position.z + forwardZ * dist,
+              axis,
+              rotY: cameraYaw.current,
+              dirX,
+              dirZ,
+            };
+          },
+          // AIM: which already-placed item (if any) is the player currently
+          // looking at, so it can be picked up for nudging (see
+          // handleBuildAimToggle/handleBuildNudge) instead of only ever
+          // being removable outright. Deliberately the RAW (unsnapped)
+          // camera forward direction, not the cardinal-snapped one
+          // getPlayerFacing uses for placing new pieces — placement needs
+          // an axis-aligned direction to place something along, but aiming
+          // at an existing piece needs to track wherever the player's
+          // actually looking, which can be up to ~45° away from the
+          // nearest cardinal axis. A cone (see MAP4_EDIT_PICK_CONE_TAN),
+          // not a flat perpendicular width, so the tolerance narrows the
+          // closer things are, the way an actual aim reticle would.
+          pickAimedItem: (items) => {
+            if (!player) return null;
+            const playerPos = player.root.position;
+            const forwardX = Math.sin(cameraYaw.current);
+            const forwardZ = Math.cos(cameraYaw.current);
+            let bestIdx: number | null = null;
+            let bestAlong = Infinity;
+            items.forEach((item, idx) => {
+              const dx = item.x - playerPos.x;
+              const dz = item.z - playerPos.z;
+              const along = dx * forwardX + dz * forwardZ;
+              if (along <= 0.3 || along > MAP4_EDIT_PICK_MAX_DIST) return;
+              const perp = dz * forwardX - dx * forwardZ;
+              if (Math.abs(perp) > along * MAP4_EDIT_PICK_CONE_TAN) return;
+              if (along < bestAlong) {
+                bestAlong = along;
+                bestIdx = idx;
+              }
+            });
+            return bestIdx;
+          },
+          // The same cardinal forward/right vectors AIM's targeting uses,
+          // exposed so the nudge D-pad moves a picked item relative to
+          // wherever the player's currently looking — "forward" walks it
+          // further away, "right" slides it to the player's right, etc.
+          nudgeDirs: () => {
+            if (!player) return null;
+            const forwardX = Math.sin(cameraYaw.current);
+            const forwardZ = Math.cos(cameraYaw.current);
+            const fwdX = Math.abs(forwardX) > Math.abs(forwardZ) ? Math.sign(forwardX) : 0;
+            const fwdZ = Math.abs(forwardX) > Math.abs(forwardZ) ? 0 : Math.sign(forwardZ);
+            return { fwdX, fwdZ, rightX: -fwdZ, rightZ: fwdX };
+          },
+          addPreviewMesh: (item) => {
+            if (item.kind === "wall") {
+              const ob = map4ItemRect(item);
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, ROOM_WALL_HEIGHT, ob.halfZ * 2), buildPreviewMat);
+              mesh.position.set(item.x, (item.y ?? 0) + ROOM_WALL_HEIGHT / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "drum") {
+              const geo = new THREE.CylinderGeometry(MAP4_DRUM_RADIUS, MAP4_DRUM_RADIUS, MAP4_DRUM_HEIGHT, 16);
+              const mesh = new THREE.Mesh(geo, buildPreviewMat);
+              mesh.rotation.y = item.rotY;
+              mesh.position.set(item.x, (item.y ?? 0) + MAP4_DRUM_HEIGHT / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "obstacle") {
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.size, item.size, item.size), buildPreviewMat);
+              mesh.rotation.y = item.rotY;
+              mesh.position.set(item.x, (item.y ?? 0) + item.size / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "floorTile") {
+              const mesh = new THREE.Mesh(new THREE.PlaneGeometry(MAP4_FLOOR_TILE_SIZE, MAP4_FLOOR_TILE_SIZE), buildPreviewMat);
+              mesh.rotation.set(-Math.PI / 2, 0, item.rotY ?? 0);
+              mesh.position.set(item.x, (item.y ?? 0) + 0.02, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "pillar") {
+              const pillarSize = item.size ?? MAP4_PILLAR_RADIUS * 2;
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(pillarSize, ROOM_WALL_HEIGHT, pillarSize), buildPreviewMat);
+              mesh.position.set(item.x, (item.y ?? 0) + ROOM_WALL_HEIGHT / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "railing") {
+              const ob = map4ItemRect(item);
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(ob.halfX * 2, MAP4_RAILING_HEIGHT, ob.halfZ * 2), buildPreviewMat);
+              mesh.position.set(item.x, (item.y ?? 0) + MAP4_RAILING_HEIGHT / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "door") {
+              const width = item.axis === "x" ? MAP4_DOOR_WIDTH + MAP4_DOOR_POST_THICKNESS : MAP4_DOOR_POST_THICKNESS;
+              const depth = item.axis === "x" ? MAP4_DOOR_POST_THICKNESS : MAP4_DOOR_WIDTH + MAP4_DOOR_POST_THICKNESS;
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, ROOM_WALL_HEIGHT, depth), buildPreviewMat);
+              mesh.position.set(item.x, (item.y ?? 0) + ROOM_WALL_HEIGHT / 2, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "light") {
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(MAP4_LIGHT_LENGTH, 0.1, 0.25), buildPreviewMat);
+              mesh.position.set(item.x, (item.y ?? 0) + 0.06, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            if (item.kind === "line") {
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(item.length, 0.06, MAP4_LINE_THICKNESS), buildPreviewMat);
+              mesh.rotation.y = item.rotY;
+              mesh.position.set(item.x, (item.y ?? 0) + 0.03, item.z);
+              scene.add(mesh);
+              return mesh;
+            }
+            // stairs — preview at this exact step's own rank height (see
+            // computeStairRank), so re-aiming shows the real height it
+            // would land at, not a generic guess. Also folds in whatever
+            // else is staged in the same batch (buildSelectionRef) so a
+            // multi-step SELECT previews as an actual climbing staircase —
+            // step 3 of 10 needs to see steps 1-2 are already "there" even
+            // though none of them are committed to customItemsRef yet.
+            {
+              const rank = computeStairRank(item, [...customItemsRef.current, ...buildSelectionRef.current.map((s) => s.item)]);
+              const baseY = item.baseY ?? 0;
+              const stepHeight = (rank + 1) * MAP4_STAIRS_RISE;
+              const alongX = item.dirX !== 0;
+              const dims: [number, number, number] = alongX
+                ? [MAP4_STAIRS_DEPTH, stepHeight, MAP4_STAIRS_WIDTH]
+                : [MAP4_STAIRS_WIDTH, stepHeight, MAP4_STAIRS_DEPTH];
+              const mesh = new THREE.Mesh(new THREE.BoxGeometry(...dims), buildPreviewMat);
+              mesh.position.set(item.x + item.dirX * (MAP4_STAIRS_DEPTH / 2), baseY + stepHeight / 2, item.z + item.dirZ * (MAP4_STAIRS_DEPTH / 2));
+              scene.add(mesh);
+              return mesh;
+            }
+          },
+          removeMesh: (obj) => scene.remove(obj),
+          commitItem: (item) => {
+            if (map4ItemBlocksMovement(item)) ACTIVE_OBSTACLES.push(map4ItemRect(item));
+            if (item.kind === "stairs") ACTIVE_OBSTACLES.push(...stairSideRects(item, customItemsRef.current));
+            return addBuildItemMesh(item);
+          },
+          // Collision rects aren't individually tagged, so find-by-value
+          // the exact one(s) this item pushed — safe since every blocking
+          // item's collision rect is one of these and each commit pushes
+          // exactly one (or, for stairs, exactly two side rails). Non-
+          // blocking, non-stairs kinds never pushed one, so this is a
+          // harmless no-op for them.
+          removeCollisionRect: (item) => {
+            if (map4ItemBlocksMovement(item)) {
+              const rect = map4ItemRect(item);
+              const idx = ACTIVE_OBSTACLES.findIndex(
+                (o) => o.x === rect.x && o.z === rect.z && o.halfX === rect.halfX && o.halfZ === rect.halfZ && o.y === rect.y,
+              );
+              if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
+            }
+            if (item.kind === "stairs") {
+              for (const rail of stairSideRects(item, customItemsRef.current)) {
+                const idx = ACTIVE_OBSTACLES.findIndex(
+                  (o) => o.x === rail.x && o.z === rail.z && o.halfX === rail.halfX && o.halfZ === rail.halfZ && o.y === rail.y,
+                );
+                if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
+              }
+            }
+          },
+          // While attached: moves the persisted grip offset (see
+          // gunGripOffset/applyCalibratedGunTransform) and re-derives the
+          // player's own already-equipped gun from scratch (not an
+          // incremental move) so it's always pixel-identical to what a
+          // fresh reload would compute — every OTHER fighter (bots, or
+          // the player next time they equip a gun) picks the new offset
+          // up the next time they attach. While detached: just shoves the
+          // free-floating gun itself, with nothing persisted, since it's
+          // not sitting in a hand-relative frame right now to persist a
+          // hand-relative number for.
+          nudgeGunGrip: (dx, dy, dz) => {
+            if (gunDetached) {
+              player?.gun?.position.add(new THREE.Vector3(dx, dy, dz));
+              return;
+            }
+            gunGripOffset.x += dx;
+            gunGripOffset.y += dy;
+            gunGripOffset.z += dz;
+            saveGunGripOffset();
+            if (player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
+          },
+          // A slider's onChange always hands over the new ABSOLUTE value,
+          // not a delta — sets gunGripRotation's axis directly (pitch tips
+          // the muzzle up/down, roll spins the gun around its own barrel,
+          // which is what moves the trigger/fire-button side up or down,
+          // yaw swings the muzzle left/right) and re-derives the player's
+          // own already-equipped gun from scratch, same as nudgeGunGrip.
+          // Only touches the live gun while attached — detached, the
+          // slider still updates (and persists) the calibration, it just
+          // has nothing on the hand to visibly apply to right now.
+          setGunGripRotation: (axis, value) => {
+            if (axis === "pitch") gunGripRotation.x = value;
+            else if (axis === "yaw") gunGripRotation.y = value;
+            else gunGripRotation.z = value;
+            saveGunGripRotation();
+            if (!gunDetached && player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
+          },
+          // Same idea for one finger's curl (see curlGunGripFingers'
+          // `scale` param) — `side` picks which hand's copy of
+          // fingerCurlExtras to set, independent of the other hand.
+          // curlGunGripFingers itself is still delta-based (bone
+          // quaternions accumulate by multiplication), so this applies
+          // just the difference from the finger's previous value.
+          setFingerCurl: (side, finger, value) => {
+            const extras = side === "right" ? fingerCurlExtras.right : fingerCurlExtras.left;
+            const delta = value - extras[finger];
+            extras[finger] = value;
+            saveFingerCurlExtras();
+            if (player && delta !== 0) {
+              const fingers = side === "right" ? player.rightFingers : player.leftFingers;
+              const mirror = side === "right" ? 1 : -1;
+              curlGunGripFingers(fingers, mirror, { ...zeroFingerCurlExtra(), [finger]: delta });
+            }
+          },
+          // Shoulder/elbow/wrist correction (see armPoseExtras) — unlike
+          // the gun's own quaternions, these bones get their rotation
+          // fully re-derived from the animation clip (and, on the left
+          // arm, updateOffHandReach's own IK solve) every tick anyway
+          // (see applyArmPoseCorrection), so simply zeroing the extra
+          // here is enough; there's nothing to actively undo.
+          setArmPose: (side, joint, axis, value) => {
+            armPoseExtras[side][joint][axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z"] = value;
+            saveArmPoseExtras();
+          },
+          // GUN tab's own RESET — just the grip position/rotation
+          // calibration, not the hands' finger curl or arm pose (each
+          // hand tab has its own separate RESET for those, see
+          // resetHand below).
+          resetGun: () => {
+            gunGripOffset.set(0, 0, 0);
+            saveGunGripOffset();
+            gunGripRotation.set(0, 0, 0);
+            saveGunGripRotation();
+            if (!gunDetached && player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
+          },
+          // RIGHT HAND / LEFT HAND tab's own RESET — just that one side's
+          // finger curl and shoulder/elbow/wrist pose, independent of the
+          // other hand and of the gun's own grip calibration.
+          resetHand: (side) => {
+            if (player) {
+              const negate = (e: FingerCurlExtra): FingerCurlExtra => ({
+                Thumb: -e.Thumb, Index: -e.Index, Middle: -e.Middle, Ring: -e.Ring, Pinky: -e.Pinky,
+              });
+              const fingers = side === "right" ? player.rightFingers : player.leftFingers;
+              const mirror = side === "right" ? 1 : -1;
+              curlGunGripFingers(fingers, mirror, negate(fingerCurlExtras[side]));
+            }
+            fingerCurlExtras[side] = zeroFingerCurlExtra();
+            saveFingerCurlExtras();
+            armPoseExtras[side] = zeroArmPoseExtra();
+            saveArmPoseExtras();
+          },
+          // Pulls the gun off the hand entirely and pops it to a fixed,
+          // clearly-visible spot out in front of the player (reparented
+          // to the scene root) instead of leaving it exactly where it
+          // was in the hand — right at hip height, which reads as "the
+          // gun disappeared" since it's visually buried in/behind the
+          // player's own body from the normal chase-cam angle. From
+          // there it can be freely repositioned/rotated with the D-pad
+          // and rotation buttons — see nudgeGunGrip/nudgeGunGripRotation's
+          // detached branch. Toggling back re-attaches to the hand and
+          // snaps to the calibrated pose fresh (see
+          // applyCalibratedGunTransform), discarding whatever free pose
+          // it had while detached — the persisted calibration itself is
+          // never touched by any of this.
+          toggleGunDetach: () => {
+            if (!player?.gun) return;
+            const gun = player.gun;
+            if (!gunDetached) {
+              // Under `hand`, gun.scale is divided by the hand's own
+              // world scale so the two cancel out to the real target
+              // size once combined through the parent chain (see
+              // applyCalibratedGunTransform). scene has no scale of its
+              // own to cancel, so the SAME division here would leave the
+              // hand's tiny world scale (~0.009) uncancelled, inflating
+              // the gun to roughly 100x too big — this needs the target
+              // size applied directly instead.
+              gun.scale.setScalar(GUN_TARGET_LENGTH / 79.03);
+              scene.add(gun);
+              const forwardX = Math.sin(cameraYaw.current);
+              const forwardZ = Math.cos(cameraYaw.current);
+              gun.position.set(
+                player.root.position.x + forwardX * 1.2,
+                player.root.position.y + 1.4,
+                player.root.position.z + forwardZ * 1.2,
+              );
+              gun.quaternion.identity();
+              gunDetached = true;
+            } else {
+              if (player.rightHand) {
+                player.rightHand.add(gun);
+                applyCalibratedGunTransform(gun, player.rightHand);
+              }
+              gunDetached = false;
+            }
+          },
+        };
       });
     } else {
       // Map 2 / Map 3 — both built from the same generic Map2Zone system
@@ -4588,6 +5186,11 @@ function CombatArena({
     addWallDecal("/textures/wall-hero-panel-2.jpg", ROOM_WALL_HEIGHT * (1536 / 1024), ROOM_WALL_HEIGHT / 2, 55.9, SOUTH_WALL_Z, Math.PI, 1024 / 1536);
 
     let player: FighterRig | null = null;
+    // Whether the PLAYER tab has pulled the gun off the hand for free
+    // positioning (see buildModeRef.current.toggleGunDetach) — purely a
+    // this-session UI state, never persisted, since a detached gun is
+    // only ever meant as a temporary "step back and look at it" view.
+    let gunDetached = false;
 
     // Preloaded here so it's very likely already resolved by the time each
     // fighter's rig finishes loading — every fighter is armed on spawn now,
@@ -4600,6 +5203,8 @@ function CombatArena({
         rig.gun = createGunAttachment(rig.rightHand as THREE.Object3D, proto);
         curlGunGripFingers(rig.rightFingers, 1);
         curlGunGripFingers(rig.leftFingers, -1);
+        curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right);
+        curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left);
       });
     };
 
@@ -4772,6 +5377,14 @@ function CombatArena({
       for (let i = 0; i < bots.length; i++) {
         const rig = bots[i];
         if (rig && botStates[i].deathT < 0) updateOffHandReach(rig);
+      }
+      // PLAYER tab's shoulder/elbow/wrist correction (see armPoseExtra) —
+      // same every-tick reasoning as updateOffHandReach just above, and
+      // the same "skip once dead" guard.
+      if (player && playerDeathT < 0) applyArmPoseCorrection(player);
+      for (let i = 0; i < bots.length; i++) {
+        const rig = bots[i];
+        if (rig && botStates[i].deathT < 0) applyArmPoseCorrection(rig);
       }
       updateTracers(tracers, dt);
 
@@ -5420,6 +6033,516 @@ function CombatArena({
     lookTouchId.current = null;
   };
 
+  // Map 4/5 (Build Mode): SELECT stages a piece a few units ahead of
+  // wherever the player's currently facing (re-aiming just replaces the
+  // preview, no need to explicitly cancel first); PLACE commits the staged
+  // spot(s) into real, permanent-for-this-session pieces; SAVE writes
+  // everything placed so far out to localStorage so it's still there next
+  // time this map is opened. Stairs are the one kind where SELECT stages
+  // more than one item at once — buildStairsCount of them, in a straight
+  // line from this single aim (see the +/- stepper next to the color
+  // swatches), instead of the player having to walk forward and re-aim by
+  // hand between every single step.
+  const handleBuildSelect = () => {
+    const api = buildModeRef.current;
+    if (!api) return;
+    const facing = api.getPlayerFacing();
+    if (!facing) return;
+    for (const prev of buildSelectionRef.current) api.removeMesh(prev.mesh);
+    buildSelectionRef.current = [];
+    const stairsDir = rotateCardinalDir(facing.dirX, facing.dirZ, buildStairsRotateSteps);
+    const buildOneItem = (x: number, z: number): Map4Item =>
+      buildPlaceKind === "wall"
+        ? { kind: "wall", x, z, axis: facing.axis, length: buildWallLength, y: facing.y, color: buildColor }
+        : buildPlaceKind === "drum"
+          ? { kind: "drum", x, z, rotY: facing.rotY, y: facing.y }
+          : buildPlaceKind === "obstacle"
+            ? { kind: "obstacle", x, z, size: buildObstacleSize, rotY: facing.rotY, y: facing.y }
+            : buildPlaceKind === "floorTile"
+              ? { kind: "floorTile", x, z, y: facing.y, color: buildColor, rotY: (buildFloorAngleDeg * Math.PI) / 180 }
+              : buildPlaceKind === "pillar"
+                ? { kind: "pillar", x, z, y: facing.y, color: buildColor, size: buildPillarSize }
+                : buildPlaceKind === "railing"
+                  ? { kind: "railing", x, z, y: facing.y, axis: facing.axis, color: buildColor }
+                  : buildPlaceKind === "door"
+                    ? { kind: "door", x, z, axis: facing.axis, y: facing.y, color: buildColor }
+                    : buildPlaceKind === "light"
+                      ? { kind: "light", x, z, y: facing.y, color: buildColor }
+                      : buildPlaceKind === "line"
+                        ? { kind: "line", x, z, y: facing.y, length: buildLineLength, rotY: (buildLineAngleDeg * Math.PI) / 180 }
+                        : { kind: "stairs", x, z, dirX: stairsDir.dirX, dirZ: stairsDir.dirZ, baseY: facing.y, color: buildColor };
+    const count = buildPlaceKind === "stairs" ? buildStairsCount : 1;
+    for (let i = 0; i < count; i++) {
+      const item = buildOneItem(facing.x + stairsDir.dirX * MAP4_STAIRS_DEPTH * i, facing.z + stairsDir.dirZ * MAP4_STAIRS_DEPTH * i);
+      const mesh = api.addPreviewMesh(item);
+      buildSelectionRef.current = [...buildSelectionRef.current, { item, mesh }];
+    }
+    setBuildHasSelection(buildSelectionRef.current.length > 0);
+  };
+  const handleBuildPlaceItem = () => {
+    const api = buildModeRef.current;
+    const selection = buildSelectionRef.current;
+    if (!api || selection.length === 0) return;
+    // Committed one at a time (not batched at the end) so that for a
+    // multi-step stairs selection, each step's own rank (see
+    // computeStairRank) already sees every step committed just before it —
+    // otherwise the whole batch would render at the same height instead of
+    // climbing.
+    for (const { item: rawItem, mesh } of selection) {
+      api.removeMesh(mesh);
+      // Placing a piece on the exact same spot as one already there (e.g. a
+      // second floor tile dropped on top of the first) would otherwise
+      // render as flickering coplanar surfaces -- separate it a hair first.
+      const item = dedupeItemY(rawItem, customItemsRef.current);
+      const committedMesh = api.commitItem(item);
+      customItemsRef.current = [...customItemsRef.current, item];
+      customItemMeshesRef.current = [...customItemMeshesRef.current, committedMesh];
+    }
+    buildSelectionRef.current = [];
+    setBuildHasSelection(false);
+    setBuildItemCount(customItemsRef.current.length);
+  };
+  // Undoes a placed piece. With nothing picked up in AIM, that's the most
+  // recently committed one (last in, first out) — simpler and more
+  // predictable than targeting/raycasting a specific one. But with AIM
+  // already holding a piece (buildEditIndex), REMOVE instead deletes
+  // exactly that one directly — no need to back out of AIM, re-find it by
+  // LIFO order, and hope nothing got placed after it in the meantime.
+  const handleBuildRemoveItem = () => {
+    const api = buildModeRef.current;
+    if (!api || customItemsRef.current.length === 0) return;
+    const idx = buildEditIndex ?? customItemsRef.current.length - 1;
+    const item = customItemsRef.current[idx];
+    const mesh = customItemMeshesRef.current[idx];
+    api.removeMesh(mesh);
+    api.removeCollisionRect(item);
+    customItemsRef.current = customItemsRef.current.filter((_, i) => i !== idx);
+    customItemMeshesRef.current = customItemMeshesRef.current.filter((_, i) => i !== idx);
+    setBuildItemCount(customItemsRef.current.length);
+    if (buildEditIndex !== null) setBuildEditIndex(null);
+  };
+  // AIM: pressed once with nothing picked up, it finds whichever placed
+  // piece the player's most directly facing (see pickAimedItem) and picks
+  // it up for repositioning; pressed again while one's already picked up,
+  // it just drops it back down (there's nothing to "confirm" — every nudge
+  // already committed the moved position live, see handleBuildNudge).
+  const handleBuildAimToggle = () => {
+    if (buildEditIndex !== null) {
+      setBuildEditIndex(null);
+      return;
+    }
+    const api = buildModeRef.current;
+    if (!api) return;
+    const idx = api.pickAimedItem(customItemsRef.current);
+    if (idx !== null) setBuildEditIndex(idx);
+  };
+  // Slides the picked-up piece (and, if it's a stairs step, every other
+  // step in the same run — see relatedItemIndices, since a nudged step
+  // used to visually detach from the rest of the chain otherwise, e.g.
+  // sinking underground while the rest of the staircase stayed put) one
+  // MAP4_EDIT_NUDGE_STEP in the given direction, relative to wherever the
+  // player's currently facing (see nudgeDirs) for forward/back/left/
+  // right — or straight up/down, which instead adjusts the piece's own
+  // height (y for everything except stairs, whose baseY plays the same
+  // role — see Map4Stairs.baseY). Not clamped at 0 going down — y=0 is
+  // just Build Mode's default ground plane, not a floor the piece can't
+  // pass through, so a pillar (or anything else) can be pushed below it
+  // same as any other direction.
+  //
+  // Every affected item's OLD mesh/collision is removed first, using the
+  // still-unmoved item list — a stairs step's own rank depends on the
+  // other steps around it, so removeCollisionRect needs to see the exact
+  // same list commitItem originally saw. Only once every old one is torn
+  // down does customItemsRef.current get updated to the new, moved
+  // positions all at once, then every affected item is re-committed
+  // (rebuilding its mesh geometry and collision rect(s) fresh) against
+  // that fully-updated list — since the whole run shifted together, each
+  // step's rank relative to the others is unchanged, so a nudged chain
+  // still climbs exactly the way it did before, just relocated.
+  const handleBuildNudge = (dir: "forward" | "back" | "left" | "right" | "up" | "down") => {
+    const api = buildModeRef.current;
+    if (!api || buildEditIndex === null) return;
+    const indices = relatedItemIndices(buildEditIndex, customItemsRef.current);
+    if (indices.length === 0) return;
+    let computeMoved: (item: Map4Item) => Map4Item;
+    if (dir === "up" || dir === "down") {
+      const deltaY = (dir === "up" ? 1 : -1) * MAP4_EDIT_NUDGE_STEP;
+      computeMoved = (item) =>
+        item.kind === "stairs" ? { ...item, baseY: (item.baseY ?? 0) + deltaY } : { ...item, y: (item.y ?? 0) + deltaY };
+    } else {
+      const dirs = api.nudgeDirs();
+      if (!dirs) return;
+      const sign = dir === "forward" || dir === "right" ? 1 : -1;
+      const useRight = dir === "left" || dir === "right";
+      const moveX = (useRight ? dirs.rightX : dirs.fwdX) * sign * MAP4_EDIT_NUDGE_STEP;
+      const moveZ = (useRight ? dirs.rightZ : dirs.fwdZ) * sign * MAP4_EDIT_NUDGE_STEP;
+      computeMoved = (item) => ({ ...item, x: item.x + moveX, z: item.z + moveZ });
+    }
+    for (const idx of indices) {
+      const mesh = customItemMeshesRef.current[idx];
+      const item = customItemsRef.current[idx];
+      if (mesh) api.removeMesh(mesh);
+      if (item) api.removeCollisionRect(item);
+    }
+    customItemsRef.current = customItemsRef.current.map((it, i) => (indices.includes(i) ? computeMoved(it) : it));
+    customItemMeshesRef.current = customItemMeshesRef.current.map((m, i) =>
+      indices.includes(i) ? api.commitItem(customItemsRef.current[i]) : m,
+    );
+  };
+  // PLAYER tab's own D-pad — an arbitrary but consistent mapping onto the
+  // gun's RightHand-local axes (up/down -> local Y, forward/back -> local
+  // Z, left/right -> local X), same cross+column layout as the MAP tab's
+  // AIM D-pad so it reads as the same kind of control.
+  const handleGunGripNudge = (dir: "forward" | "back" | "left" | "right" | "up" | "down") => {
+    const api = buildModeRef.current;
+    if (!api) return;
+    const s = GUN_GRIP_NUDGE_STEP;
+    if (dir === "up") api.nudgeGunGrip(0, s, 0);
+    else if (dir === "down") api.nudgeGunGrip(0, -s, 0);
+    else if (dir === "forward") api.nudgeGunGrip(0, 0, s);
+    else if (dir === "back") api.nudgeGunGrip(0, 0, -s);
+    else if (dir === "right") api.nudgeGunGrip(s, 0, 0);
+    else api.nudgeGunGrip(-s, 0, 0);
+  };
+  const handleGunRotationSlider = (axis: "pitch" | "yaw" | "roll", value: number) => {
+    buildModeRef.current?.setGunGripRotation(axis, value);
+    setGunRotationUI((prev) => ({ ...prev, [axis]: value }));
+  };
+  const handleGunCurlSlider = (side: "left" | "right", finger: FingerName, value: number) => {
+    buildModeRef.current?.setFingerCurl(side, finger, value);
+    setGunCurlUI((prev) => ({ ...prev, [side]: { ...prev[side], [finger]: value } }));
+  };
+  const handleArmPoseSlider = (side: ArmSide, joint: ArmJoint, axis: "pitch" | "yaw" | "roll", value: number) => {
+    buildModeRef.current?.setArmPose(side, joint, axis, value);
+    const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
+    setArmPoseUI((prev) => ({ ...prev, [side]: { ...prev[side], [joint]: { ...prev[side][joint], [key]: value } } }));
+  };
+  // One <input type="range"> + label-value header row, same shape as the
+  // LOOK SENSITIVITY slider in the settings panel — shared by the GUN /
+  // RIGHT HAND / LEFT HAND tabs below instead of three separate copies.
+  const renderSliderRow = (
+    rowKey: string,
+    label: string,
+    value: number,
+    min: number,
+    max: number,
+    step: number,
+    displayValue: string,
+    onChange: (v: number) => void,
+  ) => (
+    <div
+      key={rowKey}
+      style={{
+        flex: "none",
+        background: "rgba(8,14,24,0.7)",
+        border: "1px solid rgba(200,220,240,0.3)",
+        borderRadius: 8,
+        padding: "6px 10px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          color: "#dce8f5",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 12,
+          letterSpacing: "0.04em",
+          marginBottom: 4,
+        }}
+      >
+        <span>{label}</span>
+        <span>{displayValue}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label={label}
+        style={{ width: "100%" }}
+      />
+    </div>
+  );
+  // A small uppercase header separating one joint's/section's own slider
+  // rows from the next (SHOULDER / ELBOW / WRIST / FINGERS) — the elbow's
+  // own control now reads as visibly its own isolated section instead of
+  // being lumped into one flat list with shoulder and wrist.
+  const renderSectionHeader = (label: string) => (
+    <div
+      key={`header-${label}`}
+      style={{
+        color: "#8fd8ff",
+        fontFamily: "'Rajdhani', sans-serif",
+        fontWeight: 700,
+        fontSize: 11,
+        letterSpacing: "0.08em",
+        marginTop: 4,
+        opacity: 0.85,
+      }}
+    >
+      {label}
+    </div>
+  );
+  // RIGHT HAND / LEFT HAND tab's whole left-column panel — RESET (see
+  // buildModeRef.current.resetHand) plus SHOULDER/ELBOW/WRIST (each its
+  // own separately-headed 3-slider group, so elbow reads as an isolated
+  // control rather than lumped in with shoulder/wrist) and a FINGERS
+  // group of 5. Parameterized by side so RIGHT and LEFT stay in sync
+  // instead of drifting apart as two hand-copied JSX blocks.
+  const renderHandTab = (side: ArmSide) => (
+    <div
+      style={{
+        position: "absolute",
+        top: 52,
+        left: 16,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        width: "min(70vw, 230px)",
+      }}
+    >
+      <div
+        style={{
+          background: "rgba(8,14,24,0.7)",
+          border: "1px solid rgba(200,220,240,0.3)",
+          borderRadius: 8,
+          padding: 10,
+          color: "#dce8f5",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontSize: 12,
+          lineHeight: 1.4,
+        }}
+      >
+        {side === "right" ? "Right shoulder/elbow/wrist + fingers." : "Left shoulder/elbow/wrist + fingers."} Saved automatically.
+      </div>
+      <button
+        onPointerDown={(e) => {
+          e.preventDefault();
+          buildModeRef.current?.resetHand(side);
+          setGunCurlUI((prev) => ({ ...prev, [side]: zeroFingerCurlExtra() }));
+          setArmPoseUI((prev) => ({ ...prev, [side]: { shoulder: zeroArmAxisExtra(), elbow: zeroArmAxisExtra(), wrist: zeroArmAxisExtra() } }));
+        }}
+        aria-label={`Reset ${side} hand`}
+        style={{
+          padding: "8px 18px",
+          borderRadius: 6,
+          background: "rgba(255,255,255,0.1)",
+          border: "1px solid rgba(200,220,240,0.4)",
+          color: "#dce8f5",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          letterSpacing: "0.06em",
+          fontSize: 13,
+          cursor: "pointer",
+        }}
+      >
+        RESET
+      </button>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          maxHeight: "62vh",
+          overflowY: "auto",
+          touchAction: "pan-y",
+        }}
+      >
+        {(["shoulder", "elbow", "wrist"] as const).flatMap((joint) => [
+          renderSectionHeader(joint.toUpperCase()),
+          ...(["pitch", "yaw", "roll"] as const).map((axis) => {
+            const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
+            const value = armPoseUI[side][joint][key];
+            return renderSliderRow(
+              `${side}-${joint}-${axis}`,
+              axis.toUpperCase(),
+              value,
+              GUN_GRIP_ROTATION_MIN,
+              GUN_GRIP_ROTATION_MAX,
+              0.01,
+              `${Math.round((value * 180) / Math.PI)}°`,
+              (v) => handleArmPoseSlider(side, joint, axis, v),
+            );
+          }),
+        ])}
+        {renderSectionHeader("FINGERS")}
+        {FINGER_NAMES.map((finger) => {
+          const value = gunCurlUI[side][finger];
+          return renderSliderRow(
+            `${side}-${finger}`,
+            finger.toUpperCase(),
+            value,
+            GUN_FINGER_CURL_MIN,
+            GUN_FINGER_CURL_MAX,
+            0.02,
+            value.toFixed(2),
+            (v) => handleGunCurlSlider(side, finger, v),
+          );
+        })}
+      </div>
+    </div>
+  );
+  const handleBuildSave = () => {
+    saveMap4Items(activeBuildItemsKey, customItemsRef.current);
+    setBuildSaveLabel("SAVED!");
+    setTimeout(() => setBuildSaveLabel("SAVE"), 1500);
+  };
+  // BACKUP: opens a dialog with a short cloud code (needs internet — the
+  // actual house data lives in Vercel Blob, see api/house.js) and, right
+  // below it, a longer text code that works fully offline. Either one the
+  // player copies out somewhere of their own (WhatsApp to self, Notes,
+  // wherever) and pastes back in later via RESTORE — the only way a build
+  // survives something like an uninstall, since that wipes this app's own
+  // local storage entirely.
+  const handleBuildExport = () => {
+    const text = JSON.stringify(customItemsRef.current);
+    setMap4ExportText(text);
+    setMap4ExportCopied(false);
+    setMap4CloudCode(null);
+    setMap4CloudCodeCopied(false);
+    setMap4CloudSaveError(null);
+    fetch(MAP4_CLOUD_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: text }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((json) => setMap4CloudCode(json.code))
+      .catch(() => setMap4CloudSaveError("Cloud save nahi ho paya (internet check karo) — neeche wala text code use karo."));
+  };
+  const handleBuildExportCopy = () => {
+    if (!map4ExportText) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(map4ExportText)
+        .then(() => setMap4ExportCopied(true))
+        .catch(() => {});
+    }
+  };
+  const handleCloudCodeCopy = () => {
+    if (!map4CloudCode) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(map4CloudCode)
+        .then(() => setMap4CloudCodeCopied(true))
+        .catch(() => {});
+    }
+  };
+  // Loads a list of items (already parsed+validated) as the current house
+  // and hands control back to the lobby — re-entering is what actually
+  // rebuilds the scene with them, since items only load once at mount.
+  const applyImportedItems = (items: Map4Item[]) => {
+    saveMap4Items(activeBuildItemsKey, items);
+    setMap4ImportOpen(false);
+    setMap4ImportText("");
+    setMap4ImportError(null);
+    setMap4CloudCodeInput("");
+    setMap4CloudLoadError(null);
+    onExit();
+  };
+  const handleBuildImportLoad = () => {
+    try {
+      const parsed = JSON.parse(map4ImportText);
+      if (!Array.isArray(parsed)) throw new Error("not an array");
+      const valid = parsed.filter(isValidMap4Item);
+      if (valid.length === 0) throw new Error("no valid pieces");
+      applyImportedItems(valid);
+    } catch {
+      setMap4ImportError("Code sahi nahi hai — dobara check karke paste karo.");
+    }
+  };
+  const handleCloudCodeLoad = () => {
+    const code = map4CloudCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setMap4CloudLoading(true);
+    setMap4CloudLoadError(null);
+    fetch(`${MAP4_CLOUD_API}?code=${encodeURIComponent(code)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((json) => {
+        const parsed = JSON.parse(json.data);
+        if (!Array.isArray(parsed)) throw new Error("not an array");
+        const valid = parsed.filter(isValidMap4Item);
+        if (valid.length === 0) throw new Error("no valid pieces");
+        applyImportedItems(valid);
+      })
+      .catch(() => setMap4CloudLoadError("Code nahi mila — spelling check karo, ya neeche text code try karo."))
+      .finally(() => setMap4CloudLoading(false));
+  };
+
+  // Placement distance +/- stepper — shared markup dropped into whichever
+  // kind's own control row (see below), since every placeable kind should
+  // be droppable close-up or at range, not just the ones with a size/color
+  // row already. A plain local JSX value (not a helper function) so it's
+  // just built fresh with the render's current state, same as everything
+  // else here.
+  const distanceStepper = (
+    <>
+      <button
+        onPointerDown={(e) => {
+          e.preventDefault();
+          setBuildPlaceDistance((d) => Math.max(MAP4_PLACE_DISTANCE_MIN, d - MAP4_PLACE_DISTANCE_STEP));
+        }}
+        aria-label="Place closer"
+        style={{
+          flex: "none",
+          width: 28,
+          height: 28,
+          borderRadius: 6,
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(200,220,240,0.3)",
+          color: "#dce8f5",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 16,
+          lineHeight: 1,
+          cursor: "pointer",
+        }}
+      >
+        −
+      </button>
+      <div
+        style={{
+          flex: "none",
+          minWidth: 34,
+          textAlign: "center",
+          color: "#dce8f5",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 13,
+        }}
+      >
+        {buildPlaceDistance}m
+      </div>
+      <button
+        onPointerDown={(e) => {
+          e.preventDefault();
+          setBuildPlaceDistance((d) => Math.min(MAP4_PLACE_DISTANCE_MAX, d + MAP4_PLACE_DISTANCE_STEP));
+        }}
+        aria-label="Place farther"
+        style={{
+          flex: "none",
+          width: 28,
+          height: 28,
+          borderRadius: 6,
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(200,220,240,0.3)",
+          color: "#dce8f5",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          fontSize: 16,
+          lineHeight: 1,
+          cursor: "pointer",
+        }}
+      >
+        +
+      </button>
+    </>
+  );
+
   return (
     <div
       role="dialog"
@@ -5508,8 +6631,10 @@ function CombatArena({
         style={{
           position: "absolute",
           top: 16,
-          left: "50%",
-          transform: "translateX(-50%)",
+          // Map 4/5 put the WALL/OBSTACLE/DRUM tabs in EXIT's usual
+          // top-center spot (see below), so EXIT moves to the side,
+          // stacked directly above the settings gear instead.
+          ...(mapId === 4 || mapId === 5 ? { right: 16 } : { left: "50%", transform: "translateX(-50%)" }),
           padding: "6px 18px",
           background: "rgba(255,255,255,0.08)",
           border: "1px solid rgba(200,220,240,0.4)",
@@ -5861,7 +6986,1402 @@ function CombatArena({
               </button>
             </>
           )}
+
+          {/* Build Mode (Map 4 and Map 5 both — see activeBuildItemsKey
+              above): the category tabs (BUILD_PLACE_KINDS) pick what SELECT
+              stages next — a wall, crate, drum, or one of the newer Cypher
+              Phunk pieces (floor tile, pillar, railing, door, light,
+              stairs) — each with its own size and/or color row below the
+              tabs (see BUILD_COLORS/kindHasColor). PLACE commits whichever
+              is staged; SAVE persists everything placed so far. Sits in
+              EXIT's usual top-center spot, since EXIT moves to the side
+              for Build Mode (see above). */}
+          {/* Top-level Build Mode switch — MAP (everything below, placing
+              pieces) vs RIGHT/LEFT (each hand's own shoulder/elbow/wrist +
+              finger calibration) vs GUN (the gun's own grip position/
+              rotation panel). Sits right above the MAP panel's own top:16
+              spot (pushed down to top:52 below to make room), always
+              visible regardless of which one is selected so switching back
+              is always one tap away — the selected one's own controls are
+              what actually hide/show. GUN ON/OFF sits in the same row,
+              wrapping onto its own line on narrow screens (flexWrap) —
+              unlike the tabs it is NOT part of the tab selection, it stays
+              visible and tappable no matter which tab is open (see
+              toggleGunDetach). */}
+          {(mapId === 4 || mapId === 5) && (
+            <div
+              style={{
+                position: "absolute",
+                top: 16,
+                left: 16,
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 5,
+                maxWidth: "calc(100vw - 90px)",
+              }}
+            >
+              {(["map", "right", "left", "gun"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    setBuildTopTab(tab);
+                  }}
+                  aria-label={`Build tab ${tab}`}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 6,
+                    background: buildTopTab === tab ? "rgba(107,216,255,0.4)" : "rgba(8,14,24,0.7)",
+                    border: buildTopTab === tab ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                    color: "#dce8f5",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    letterSpacing: "0.04em",
+                    cursor: "pointer",
+                  }}
+                >
+                  {tab === "map" ? "MAP" : tab === "right" ? "RIGHT" : tab === "left" ? "LEFT" : "GUN"}
+                </button>
+              ))}
+              {/* GUN ON/OFF — ON means the gun is attached and follows the
+                  hand (see applyCalibratedGunTransform, re-run every nudge/
+                  slider so it always tracks); OFF means the gun is
+                  detached and stays exactly where it is while the hand/arm
+                  moves freely (see toggleGunDetach's scene-reparent
+                  branch). Physically it's the same ATTACH/DETACH toggle
+                  this always was, just standalone now instead of living
+                  inside one tab's own panel. */}
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  buildModeRef.current?.toggleGunDetach();
+                  setGunDetachedUI((d) => !d);
+                }}
+                aria-label="Toggle gun detach"
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 6,
+                  background: gunDetachedUI ? "rgba(255,110,90,0.3)" : "rgba(120,255,140,0.3)",
+                  border: gunDetachedUI ? "1px solid rgba(255,150,130,0.9)" : "1px solid rgba(150,255,170,0.9)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  letterSpacing: "0.04em",
+                  cursor: "pointer",
+                }}
+              >
+                {gunDetachedUI ? "○ GUN: OFF" : "● GUN: ON"}
+              </button>
+            </div>
+          )}
+          {(mapId === 4 || mapId === 5) && buildTopTab === "map" && (
+            <>
+              <div
+                style={{
+                  position: "absolute",
+                  top: 52,
+                  // Capped well short of center — EXIT/settings sit at
+                  // right:16 near the top-right corner (see the EXIT
+                  // position swap above), and this panel used to be narrow
+                  // enough (3 tabs) to never reach that far. Now that it
+                  // holds all 9 tabs, a true 50%-centered width tall/wide
+                  // enough to fit them wrapped actually reached under
+                  // EXIT and stole its clicks — a real regression caught
+                  // by the full 5-map regression test. Scrolling
+                  // horizontally within a fixed, safely narrow width (
+                  // instead of wrapping wider) keeps this panel's footprint
+                  // exactly where the original 3-tab version was.
+                  left: 16,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  gap: 6,
+                  width: "min(70vw, 230px)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "nowrap",
+                    overflowX: "auto",
+                    gap: 5,
+                    background: "rgba(8,14,24,0.7)",
+                    border: "1px solid rgba(200,220,240,0.3)",
+                    borderRadius: 8,
+                    padding: 5,
+                    maxWidth: "100%",
+                  }}
+                >
+                  {(
+                    [
+                      { kind: "wall", label: "WALL" },
+                      { kind: "obstacle", label: "CRATE" },
+                      { kind: "drum", label: "DRUM" },
+                      { kind: "floorTile", label: "FLOOR" },
+                      { kind: "pillar", label: "PILLAR" },
+                      { kind: "railing", label: "RAIL" },
+                      { kind: "door", label: "DOOR" },
+                      { kind: "light", label: "LIGHT" },
+                      { kind: "stairs", label: "STAIRS" },
+                      { kind: "line", label: "LINE" },
+                    ] as const
+                  ).map(({ kind, label }) => (
+                    <button
+                      key={kind}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        setBuildPlaceKind(kind);
+                        // A wall's own DEFAULT swatch is 0 (the classic
+                        // plain textured look); every other colorable kind
+                        // has no such "no color" option, so switching to
+                        // one of them while 0 was still selected would
+                        // otherwise stage an invisible/degenerate accent —
+                        // land on the first real palette color instead.
+                        if (kind !== "wall" && buildColor === BUILD_DEFAULT_WALL_COLOR) setBuildColor(BUILD_COLORS[0].color);
+                      }}
+                      aria-label={`Place kind ${kind}`}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 6,
+                        background: buildPlaceKind === kind ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                        border: buildPlaceKind === kind ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                        color: "#dce8f5",
+                        fontFamily: "'Rajdhani', sans-serif",
+                        fontWeight: 700,
+                        fontSize: 12,
+                        letterSpacing: "0.04em",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {buildPlaceKind === "obstacle" && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "nowrap",
+                      overflowX: "auto",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "rgba(8,14,24,0.7)",
+                      border: "1px solid rgba(200,220,240,0.3)",
+                      borderRadius: 8,
+                      padding: 5,
+                      maxWidth: "100%",
+                    }}
+                  >
+                    {distanceStepper}
+                    <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
+                    {[
+                      { size: MAP4_OBSTACLE_SMALL, label: "SMALL" },
+                      { size: MAP4_OBSTACLE_BIG, label: "BIG" },
+                    ].map(({ size, label }) => (
+                      <button
+                        key={label}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          setBuildObstacleSize(size);
+                        }}
+                        aria-label={`Obstacle size ${label.toLowerCase()}`}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 6,
+                          background: buildObstacleSize === size ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                          border: buildObstacleSize === size ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                          color: "#dce8f5",
+                          fontFamily: "'Rajdhani', sans-serif",
+                          fontWeight: 700,
+                          fontSize: 13,
+                          letterSpacing: "0.05em",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Drum has no size or color picker of its own (unlike
+                    every other kind), so it's the only one that would
+                    otherwise never show the distance stepper at all —
+                    give it a lone one-row panel just for that. */}
+                {buildPlaceKind === "drum" && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "nowrap",
+                      overflowX: "auto",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "rgba(8,14,24,0.7)",
+                      border: "1px solid rgba(200,220,240,0.3)",
+                      borderRadius: 8,
+                      padding: 5,
+                      maxWidth: "100%",
+                    }}
+                  >
+                    {distanceStepper}
+                  </div>
+                )}
+
+                {/* Distance stepper + wall length/stairs count + color
+                    swatches all share ONE scrolling row (not several
+                    stacked ones) — a wall is the kind with the most
+                    controls at once (distance, length, color), and
+                    stacking them into separate rows made this panel tall
+                    enough to overlap SAVE/REMOVE below it, a real
+                    regression the layout-overlap test caught. Every other
+                    colorable kind (floor tile, pillar, railing, door,
+                    light, stairs — everything except crate/drum, neither
+                    of which has color variants in the reference sheet)
+                    just gets distance + color swatches, still one row. */}
+                {buildPlaceKind !== "obstacle" && buildPlaceKind !== "drum" && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "nowrap",
+                      overflowX: "auto",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "rgba(8,14,24,0.7)",
+                      border: "1px solid rgba(200,220,240,0.3)",
+                      borderRadius: 8,
+                      padding: 5,
+                      maxWidth: "100%",
+                    }}
+                  >
+                    {distanceStepper}
+                    <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
+                    {buildPlaceKind === "wall" &&
+                      Array.from({ length: MAP4_WALL_LENGTH_MAX - MAP4_WALL_LENGTH_MIN + 1 }, (_, i) => MAP4_WALL_LENGTH_MIN + i).map((n) => (
+                        <button
+                          key={n}
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildWallLength(n);
+                          }}
+                          aria-label={`Wall length ${n}m`}
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: buildWallLength === n ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                            border: buildWallLength === n ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 13,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    {buildPlaceKind === "floorTile" &&
+                      MAP4_ANGLE_OPTIONS.map((deg) => (
+                        <button
+                          key={deg}
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildFloorAngleDeg(deg);
+                          }}
+                          aria-label={`Floor angle ${deg} degrees`}
+                          style={{
+                            flex: "none",
+                            width: 34,
+                            height: 28,
+                            borderRadius: 6,
+                            background: buildFloorAngleDeg === deg ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                            border: buildFloorAngleDeg === deg ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 12,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {deg}°
+                        </button>
+                      ))}
+                    {buildPlaceKind === "pillar" && (
+                      <>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildPillarSize((n) => Math.max(MAP4_PILLAR_SIZE_MIN, n - 1));
+                          }}
+                          aria-label="Smaller pillar"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          −
+                        </button>
+                        <div
+                          style={{
+                            flex: "none",
+                            minWidth: 34,
+                            textAlign: "center",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 14,
+                          }}
+                        >
+                          {buildPillarSize}m
+                        </div>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildPillarSize((n) => Math.min(MAP4_PILLAR_SIZE_MAX, n + 1));
+                          }}
+                          aria-label="Bigger pillar"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          +
+                        </button>
+                      </>
+                    )}
+                    {buildPlaceKind === "line" && (
+                      <>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildLineLength((n) => Math.max(MAP4_LINE_LENGTH_MIN, n - 1));
+                          }}
+                          aria-label="Shorter line"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          −
+                        </button>
+                        <div
+                          style={{
+                            flex: "none",
+                            minWidth: 34,
+                            textAlign: "center",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 14,
+                          }}
+                        >
+                          {buildLineLength}m
+                        </div>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildLineLength((n) => Math.min(MAP4_LINE_LENGTH_MAX, n + 1));
+                          }}
+                          aria-label="Longer line"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          +
+                        </button>
+                        <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
+                        {MAP4_ANGLE_OPTIONS.map((deg) => (
+                          <button
+                            key={deg}
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              setBuildLineAngleDeg(deg);
+                            }}
+                            aria-label={`Line angle ${deg} degrees`}
+                            style={{
+                              flex: "none",
+                              width: 34,
+                              height: 28,
+                              borderRadius: 6,
+                              background: buildLineAngleDeg === deg ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                              border: buildLineAngleDeg === deg ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                              color: "#dce8f5",
+                              fontFamily: "'Rajdhani', sans-serif",
+                              fontWeight: 700,
+                              fontSize: 12,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {deg}°
+                          </button>
+                        ))}
+                      </>
+                    )}
+                    {buildPlaceKind === "stairs" && (
+                      <>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildStairsCount((n) => Math.max(MAP4_STAIRS_COUNT_MIN, n - 1));
+                          }}
+                          aria-label="Fewer stairs"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          −
+                        </button>
+                        <div
+                          style={{
+                            flex: "none",
+                            minWidth: 26,
+                            textAlign: "center",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 14,
+                          }}
+                        >
+                          {buildStairsCount}
+                        </div>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildStairsCount((n) => Math.min(MAP4_STAIRS_COUNT_MAX, n + 1));
+                          }}
+                          aria-label="More stairs"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          +
+                        </button>
+                        <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
+                        {/* Which way the staged chain climbs — 0 (no
+                            rotation) matches wherever the player's
+                            currently facing, same as it always did; each
+                            tap turns it another 90°, so a run can be aimed
+                            to climb going left/right/back instead of only
+                            ever straight ahead of the aim. */}
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildStairsRotateSteps((s) => (s + 3) % 4);
+                          }}
+                          aria-label="Rotate stairs left"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 15,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          ◄
+                        </button>
+                        <button
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildStairsRotateSteps((s) => (s + 1) % 4);
+                          }}
+                          aria-label="Rotate stairs right"
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(200,220,240,0.3)",
+                            color: "#dce8f5",
+                            fontFamily: "'Rajdhani', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 15,
+                            lineHeight: 1,
+                            cursor: "pointer",
+                          }}
+                        >
+                          ►
+                        </button>
+                      </>
+                    )}
+                    {(buildPlaceKind === "wall" ||
+                      buildPlaceKind === "stairs" ||
+                      buildPlaceKind === "floorTile" ||
+                      buildPlaceKind === "pillar" ||
+                      buildPlaceKind === "line") && (
+                      <div style={{ width: 1, alignSelf: "stretch", background: "rgba(200,220,240,0.3)" }} />
+                    )}
+                    {(buildPlaceKind === "wall" ? [{ color: BUILD_DEFAULT_WALL_COLOR, label: "DEFAULT" }, ...BUILD_COLORS] : BUILD_COLORS).map(
+                      ({ color, label }) => (
+                        <button
+                          key={label}
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setBuildColor(color);
+                          }}
+                          aria-label={`Color ${label.toLowerCase()}`}
+                          title={label}
+                          style={{
+                            flex: "none",
+                            width: 28,
+                            height: 28,
+                            borderRadius: "50%",
+                            background: color === BUILD_DEFAULT_WALL_COLOR ? "#7a8290" : `#${color.toString(16).padStart(6, "0")}`,
+                            border: buildColor === color ? "2px solid #ffffff" : "1px solid rgba(200,220,240,0.4)",
+                            boxShadow: buildColor === color ? "0 0 8px rgba(255,255,255,0.8)" : "none",
+                            cursor: "pointer",
+                          }}
+                        />
+                      ),
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {buildEditIndex === null && (
+                <>
+                  <button
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      handleBuildSelect();
+                    }}
+                    aria-label="Select area"
+                    style={{
+                      position: "absolute",
+                      right: "calc(7% + clamp(72px, 13vw, 100px) + 14px)",
+                      bottom: "9%",
+                      width: "clamp(72px, 13vw, 100px)",
+                      height: "clamp(72px, 13vw, 100px)",
+                      borderRadius: "50%",
+                      background: "radial-gradient(circle, #baf0ff, #2f9fd8)",
+                      border: "2px solid rgba(210,245,255,0.85)",
+                      boxShadow: "0 0 20px rgba(80,190,255,0.6)",
+                      color: "#06212e",
+                      fontFamily: "'Rajdhani', sans-serif",
+                      fontWeight: 700,
+                      letterSpacing: "0.05em",
+                      fontSize: "clamp(12px, 1.9vw, 15px)",
+                      cursor: "pointer",
+                      opacity: settings.buttonOpacity,
+                    }}
+                  >
+                    SELECT
+                  </button>
+
+                  <button
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      handleBuildPlaceItem();
+                    }}
+                    disabled={!buildHasSelection}
+                    aria-label="Place item"
+                    style={{
+                      position: "absolute",
+                      right: "7%",
+                      bottom: "9%",
+                      width: "clamp(72px, 13vw, 100px)",
+                      height: "clamp(72px, 13vw, 100px)",
+                      borderRadius: "50%",
+                      background: buildHasSelection ? "radial-gradient(circle, #ffe2a6, #d88a2c)" : "rgba(255,255,255,0.1)",
+                      border: buildHasSelection ? "2px solid rgba(255,235,210,0.85)" : "1px solid rgba(200,220,240,0.35)",
+                      boxShadow: buildHasSelection ? "0 0 20px rgba(255,170,40,0.6)" : "none",
+                      color: buildHasSelection ? "#2e1c06" : "rgba(220,230,240,0.5)",
+                      fontFamily: "'Rajdhani', sans-serif",
+                      fontWeight: 700,
+                      letterSpacing: "0.03em",
+                      fontSize: "clamp(10px, 1.6vw, 12px)",
+                      cursor: buildHasSelection ? "pointer" : "default",
+                      opacity: settings.buttonOpacity,
+                    }}
+                  >
+                    {buildPlaceKind === "wall" ? "WALL" : buildPlaceKind === "obstacle" ? "OBSTACLE" : "DRUM"}
+                  </button>
+                </>
+              )}
+
+              {/* AIM's nudge controls take over the SELECT/PLACE corner
+                  while a piece is picked up — those two don't mean
+                  anything mid-edit (you're repositioning an existing
+                  piece, not staging a new one), so swapping them out
+                  avoids a cluttered corner with buttons that don't apply.
+                  FWD/BACK and LEFT/RIGHT are relative to wherever the
+                  player's currently facing, same as handleBuildNudge
+                  itself; UP/DOWN sit in their own column, separate from
+                  the plus-shaped pad, since they move the piece along a
+                  completely different axis (height, not position) and
+                  reusing the same ↑/↓ glyphs there would read as more
+                  forward/back rather than the vertical move it actually is. */}
+              {buildEditIndex !== null && (
+                <div
+                  style={{
+                    position: "absolute",
+                    right: "7%",
+                    bottom: "7%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    opacity: settings.buttonOpacity,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                      width: "clamp(46px, 9vw, 60px)",
+                      height: "clamp(150px, 28vw, 210px)",
+                    }}
+                  >
+                    {(["up", "down"] as const).map((dir) => (
+                      <button
+                        key={dir}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          handleBuildNudge(dir);
+                        }}
+                        aria-label={`Nudge ${dir}`}
+                        style={{
+                          flex: 1,
+                          borderRadius: 8,
+                          background: "rgba(255,190,90,0.3)",
+                          border: "1px solid rgba(255,215,150,0.8)",
+                          color: "#dce8f5",
+                          fontFamily: "'Rajdhani', sans-serif",
+                          fontWeight: 700,
+                          fontSize: 13,
+                          letterSpacing: "0.05em",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {dir === "up" ? "▲ UP" : "▼ DOWN"}
+                      </button>
+                    ))}
+                  </div>
+                  <div
+                    style={{
+                      width: "clamp(150px, 28vw, 210px)",
+                      height: "clamp(150px, 28vw, 210px)",
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr 1fr",
+                      gridTemplateRows: "1fr 1fr 1fr",
+                      gap: 6,
+                    }}
+                  >
+                    {(
+                      [
+                        [null, "forward", null],
+                        ["left", null, "right"],
+                        [null, "back", null],
+                      ] as const
+                    ).map((row, rowIdx) =>
+                      row.map((dir, colIdx) =>
+                        dir ? (
+                          <button
+                            key={dir}
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              handleBuildNudge(dir);
+                            }}
+                            aria-label={`Nudge ${dir}`}
+                            style={{
+                              gridColumn: colIdx + 1,
+                              gridRow: rowIdx + 1,
+                              borderRadius: 8,
+                              background: "rgba(107,216,255,0.3)",
+                              border: "1px solid rgba(190,235,255,0.8)",
+                              color: "#dce8f5",
+                              fontFamily: "'Rajdhani', sans-serif",
+                              fontWeight: 700,
+                              fontSize: 20,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
+                          </button>
+                        ) : (
+                          <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
+                        ),
+                      ),
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* SAVE/REMOVE sit below the WALL/OBSTACLE/DRUM tabs (and the
+                  HP bar, which now shows in Map 4 too since its 20 bots
+                  actually fight back) instead of over the joystick. */}
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildSave();
+                }}
+                aria-label="Save map"
+                style={{
+                  position: "absolute",
+                  top: 140,
+                  left: 16,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: buildSaveLabel === "SAVED!" ? "rgba(107,216,255,0.35)" : "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {buildSaveLabel}
+              </button>
+
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildRemoveItem();
+                }}
+                disabled={buildItemCount === 0}
+                aria-label={buildEditIndex !== null ? "Remove aimed item" : "Remove last item"}
+                style={{
+                  position: "absolute",
+                  top: 140,
+                  left: 96,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: buildItemCount === 0 ? "rgba(255,255,255,0.06)" : "rgba(255,90,80,0.12)",
+                  border: buildItemCount === 0 ? "1px solid rgba(200,220,240,0.25)" : "1px solid rgba(255,140,130,0.4)",
+                  color: buildItemCount === 0 ? "rgba(220,230,240,0.4)" : "#ffb3ac",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: buildItemCount === 0 ? "default" : "pointer",
+                }}
+              >
+                REMOVE
+              </button>
+
+              {/* AIM: pick up whichever placed piece the player's most
+                  directly facing and nudge its position afterward, instead
+                  of only ever being able to REMOVE and redo it from
+                  scratch (see handleBuildAimToggle/handleBuildNudge). Sits
+                  in its own row below BACKUP/RESTORE — the other utility
+                  buttons are all 2-per-row already. */}
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildAimToggle();
+                }}
+                disabled={buildEditIndex === null && buildItemCount === 0}
+                aria-label="Aim edit"
+                style={{
+                  position: "absolute",
+                  top: 220,
+                  left: 16,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: buildEditIndex !== null ? "rgba(107,216,255,0.35)" : "rgba(255,255,255,0.1)",
+                  border: buildEditIndex !== null ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.4)",
+                  color: buildEditIndex === null && buildItemCount === 0 ? "rgba(220,230,240,0.4)" : "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: buildEditIndex === null && buildItemCount === 0 ? "default" : "pointer",
+                }}
+              >
+                {buildEditIndex !== null ? "DONE" : "AIM"}
+              </button>
+
+              {/* BACKUP/RESTORE: a short cloud code (needs internet) plus a
+                  longer text code that works fully offline — either one
+                  lives wherever the player pastes it, not in this app's
+                  own storage, so a build survives something like an
+                  uninstall that a plain in-app SAVE can't. */}
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleBuildExport();
+                }}
+                aria-label="Backup house"
+                style={{
+                  position: "absolute",
+                  top: 180,
+                  left: 16,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                BACKUP
+              </button>
+
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  setMap4ImportOpen(true);
+                  setMap4ImportError(null);
+                  setMap4CloudLoadError(null);
+                }}
+                aria-label="Restore house"
+                style={{
+                  position: "absolute",
+                  top: 180,
+                  left: 96,
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                RESTORE
+              </button>
+            </>
+          )}
         </>
+      )}
+
+      {/* GUN tab — nudges how the gun sits in the hand (see
+          gunGripOffset/createGunAttachment), position D-pad plus PITCH/
+          YAW/ROLL sliders. The gun's ON/OFF state itself now lives in the
+          always-visible button next to the tab switcher (see
+          toggleGunDetach), not here. */}
+      {(mapId === 4 || mapId === 5) && buildTopTab === "gun" && (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              top: 52,
+              left: 16,
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              width: "min(70vw, 230px)",
+            }}
+          >
+            <div
+              style={{
+                background: "rgba(8,14,24,0.7)",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 8,
+                padding: 10,
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontSize: 12,
+                lineHeight: 1.4,
+              }}
+            >
+              Nudge the gun's grip in the hand with the D-pad. Saved automatically.
+            </div>
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                buildModeRef.current?.resetGun();
+                setGunRotationUI({ pitch: 0, yaw: 0, roll: 0 });
+              }}
+              aria-label="Reset gun grip"
+              style={{
+                padding: "8px 18px",
+                borderRadius: 6,
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(200,220,240,0.4)",
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              RESET
+            </button>
+            {/* PITCH/YAW/ROLL (see gunGripRotation) — same native <input
+                type="range"> + label-row shape as the LOOK SENSITIVITY
+                slider in the settings panel. */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              {(["pitch", "yaw", "roll"] as const).map((axis) => {
+                const value = gunRotationUI[axis];
+                return renderSliderRow(
+                  `gun-${axis}`,
+                  `GUN ${axis.toUpperCase()}`,
+                  value,
+                  GUN_GRIP_ROTATION_MIN,
+                  GUN_GRIP_ROTATION_MAX,
+                  0.01,
+                  `${Math.round((value * 180) / Math.PI)}°`,
+                  (v) => handleGunRotationSlider(axis, v),
+                );
+              })}
+            </div>
+          </div>
+          <div
+            style={{
+              position: "absolute",
+              right: "7%",
+              bottom: "7%",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              opacity: settings.buttonOpacity,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                width: "clamp(46px, 9vw, 60px)",
+                height: "clamp(150px, 28vw, 210px)",
+              }}
+            >
+              {(["up", "down"] as const).map((dir) => (
+                <button
+                  key={dir}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    handleGunGripNudge(dir);
+                  }}
+                  aria-label={`Gun grip ${dir}`}
+                  style={{
+                    flex: 1,
+                    borderRadius: 8,
+                    background: "rgba(255,190,90,0.3)",
+                    border: "1px solid rgba(255,215,150,0.8)",
+                    color: "#dce8f5",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 13,
+                    letterSpacing: "0.05em",
+                    cursor: "pointer",
+                  }}
+                >
+                  {dir === "up" ? "▲ UP" : "▼ DOWN"}
+                </button>
+              ))}
+            </div>
+            <div
+              style={{
+                width: "clamp(150px, 28vw, 210px)",
+                height: "clamp(150px, 28vw, 210px)",
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1fr",
+                gridTemplateRows: "1fr 1fr 1fr",
+                gap: 6,
+              }}
+            >
+              {(
+                [
+                  [null, "forward", null],
+                  ["left", null, "right"],
+                  [null, "back", null],
+                ] as const
+              ).map((row, rowIdx) =>
+                row.map((dir, colIdx) =>
+                  dir ? (
+                    <button
+                      key={dir}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        handleGunGripNudge(dir);
+                      }}
+                      aria-label={`Gun grip ${dir}`}
+                      style={{
+                        gridColumn: colIdx + 1,
+                        gridRow: rowIdx + 1,
+                        borderRadius: 8,
+                        background: "rgba(107,216,255,0.3)",
+                        border: "1px solid rgba(190,235,255,0.8)",
+                        color: "#dce8f5",
+                        fontFamily: "'Rajdhani', sans-serif",
+                        fontWeight: 700,
+                        fontSize: 20,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
+                    </button>
+                  ) : (
+                    <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
+                  ),
+                ),
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* RIGHT HAND / LEFT HAND tabs — each side's own shoulder/elbow/
+          wrist pose plus its 5 fingers (see renderHandTab). */}
+      {(mapId === 4 || mapId === 5) && buildTopTab === "right" && renderHandTab("right")}
+      {(mapId === 4 || mapId === 5) && buildTopTab === "left" && renderHandTab("left")}
+
+      {map4ExportText !== null && (
+        <div
+          role="dialog"
+          aria-label="Backup house"
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(4,6,16,0.7)",
+            zIndex: 30,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0 6%",
+          }}
+        >
+          <div
+            style={{
+              width: "min(340px, 90vw)",
+              background: "rgba(12,16,30,0.96)",
+              border: "1px solid rgba(107,216,255,0.45)",
+              borderRadius: 12,
+              padding: "16px 18px",
+              color: "#e8e2ff",
+              fontFamily: "'Barlow', sans-serif",
+            }}
+          >
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", marginBottom: 6 }}>
+              SHORT CODE
+            </div>
+            <div style={{ fontSize: 11, color: "#9d8ac2", marginBottom: 8, lineHeight: 1.5 }}>Internet chahiye — RESTORE me ye type karke laa sakte ho.</div>
+            {map4CloudCode ? (
+              <div
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: 26,
+                  letterSpacing: 4,
+                  textAlign: "center",
+                  color: "#6be2ff",
+                  background: "rgba(107,216,255,0.1)",
+                  border: "1px solid rgba(107,216,255,0.4)",
+                  borderRadius: 8,
+                  padding: "10px 0",
+                }}
+              >
+                {map4CloudCode}
+              </div>
+            ) : map4CloudSaveError ? (
+              <div style={{ color: "#ff9c9c", fontSize: 12, textAlign: "center", padding: "10px 0" }}>{map4CloudSaveError}</div>
+            ) : (
+              <div style={{ color: "#9d8ac2", fontSize: 12, textAlign: "center", padding: "10px 0" }}>Saving...</div>
+            )}
+            {map4CloudCode && (
+              <button
+                onClick={handleCloudCodeCopy}
+                style={{
+                  width: "100%",
+                  marginTop: 8,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: map4CloudCodeCopied ? "rgba(107,216,255,0.35)" : "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                {map4CloudCodeCopied ? "COPIED!" : "COPY SHORT CODE"}
+              </button>
+            )}
+
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", margin: "14px 0 6px" }}>
+              TEXT CODE (works offline)
+            </div>
+            <textarea
+              readOnly
+              value={map4ExportText}
+              onFocus={(e) => e.currentTarget.select()}
+              style={{
+                width: "100%",
+                height: 70,
+                fontSize: 10,
+                fontFamily: "monospace",
+                background: "rgba(255,255,255,0.06)",
+                color: "#dce8f5",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 6,
+                padding: 8,
+                resize: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button
+                onClick={handleBuildExportCopy}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: map4ExportCopied ? "rgba(107,216,255,0.35)" : "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {map4ExportCopied ? "COPIED!" : "COPY"}
+              </button>
+              <button
+                onClick={() => setMap4ExportText(null)}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                CLOSE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {map4ImportOpen && (
+        <div
+          role="dialog"
+          aria-label="Restore house"
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(4,6,16,0.7)",
+            zIndex: 30,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0 6%",
+          }}
+        >
+          <div
+            style={{
+              width: "min(340px, 90vw)",
+              background: "rgba(12,16,30,0.96)",
+              border: "1px solid rgba(107,216,255,0.45)",
+              borderRadius: 12,
+              padding: "16px 18px",
+              color: "#e8e2ff",
+              fontFamily: "'Barlow', sans-serif",
+            }}
+          >
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", marginBottom: 6 }}>
+              SHORT CODE
+            </div>
+            <input
+              value={map4CloudCodeInput}
+              onChange={(e) => setMap4CloudCodeInput(e.target.value.toUpperCase())}
+              placeholder="e.g. ZE4GFX"
+              style={{
+                width: "100%",
+                fontSize: 18,
+                letterSpacing: 3,
+                textAlign: "center",
+                fontFamily: "monospace",
+                background: "rgba(255,255,255,0.06)",
+                color: "#dce8f5",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 6,
+                padding: "8px 0",
+                boxSizing: "border-box",
+              }}
+            />
+            {map4CloudLoadError && <div style={{ color: "#ff9c9c", fontSize: 11, marginTop: 6 }}>{map4CloudLoadError}</div>}
+            <button
+              onClick={handleCloudCodeLoad}
+              disabled={map4CloudCodeInput.trim().length === 0 || map4CloudLoading}
+              style={{
+                width: "100%",
+                marginTop: 8,
+                padding: "10px 0",
+                borderRadius: 6,
+                background: map4CloudCodeInput.trim().length === 0 ? "rgba(255,255,255,0.08)" : "rgba(107,216,255,0.3)",
+                border: "1px solid rgba(107,216,255,0.5)",
+                color: map4CloudCodeInput.trim().length === 0 ? "rgba(220,230,240,0.4)" : "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                fontSize: 13,
+                cursor: map4CloudCodeInput.trim().length === 0 ? "default" : "pointer",
+              }}
+            >
+              {map4CloudLoading ? "LOADING..." : "LOAD"}
+            </button>
+
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", margin: "14px 0 6px" }}>
+              OR TEXT CODE
+            </div>
+            <textarea
+              value={map4ImportText}
+              onChange={(e) => setMap4ImportText(e.target.value)}
+              placeholder="Paste text code here"
+              style={{
+                width: "100%",
+                height: 70,
+                fontSize: 10,
+                fontFamily: "monospace",
+                background: "rgba(255,255,255,0.06)",
+                color: "#dce8f5",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 6,
+                padding: 8,
+                resize: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            {map4ImportError && <div style={{ color: "#ff9c9c", fontSize: 11, marginTop: 6 }}>{map4ImportError}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button
+                onClick={handleBuildImportLoad}
+                disabled={map4ImportText.trim().length === 0}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: map4ImportText.trim().length === 0 ? "rgba(255,255,255,0.08)" : "rgba(107,216,255,0.3)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: map4ImportText.trim().length === 0 ? "rgba(220,230,240,0.4)" : "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: map4ImportText.trim().length === 0 ? "default" : "pointer",
+                }}
+              >
+                LOAD TEXT
+              </button>
+              <button
+                onClick={() => {
+                  setMap4ImportOpen(false);
+                  setMap4ImportText("");
+                  setMap4ImportError(null);
+                  setMap4CloudCodeInput("");
+                  setMap4CloudLoadError(null);
+                }}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showTutorial && (
@@ -6721,6 +9241,108 @@ function StorePanel({
 
         <div style={{ marginTop: 14, fontSize: 11, color: "#7a70a0", lineHeight: 1.5, textAlign: "center" }}>
           In-app purchases aren't connected yet — for now, earn Trophies by playing matches.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const MAP_CARDS: { id: 1 | 2 | 3 | 4 | 5; title: string; subtitle: string }[] = [
+  { id: 1, title: "MAP 1", subtitle: "Outpost — the original 6-room facility" },
+  { id: 2, title: "MAP 2", subtitle: "Central Hall — an 11-zone military complex" },
+  { id: 3, title: "MAP 3", subtitle: "Safehouse — a big house, one way through" },
+  { id: 4, title: "MAP 4", subtitle: "Build Mode — place walls, design your own" },
+  { id: 5, title: "MAP 5", subtitle: "Build Mode 2 — a second canvas, blank" },
+];
+
+function MapSelectPanel({ onClose, onSelect }: { onClose: () => void; onSelect: (mapId: 1 | 2 | 3 | 4 | 5) => void }) {
+  return (
+    <div
+      role="dialog"
+      aria-label="Select Map"
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgba(4, 6, 16, 0.75)",
+        backdropFilter: "blur(6px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 10,
+        padding: 12,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(420px, 92vw)",
+          background: "linear-gradient(180deg, rgba(20,14,42,0.97), rgba(8,6,20,0.97))",
+          border: "1px solid rgba(168,120,255,0.45)",
+          borderRadius: 14,
+          boxShadow: "0 0 60px rgba(120,60,255,0.35), inset 0 0 40px rgba(80,40,180,0.15)",
+          padding: "22px 26px 26px",
+          fontFamily: "'Barlow', sans-serif",
+          color: "#e8e2ff",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2
+            style={{
+              margin: 0,
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 22,
+              letterSpacing: 2,
+              color: "#c9a8ff",
+              textShadow: "0 0 18px rgba(170,110,255,0.7)",
+            }}
+          >
+            SELECT MAP
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              border: "1px solid rgba(168,120,255,0.5)",
+              background: "rgba(255,255,255,0.05)",
+              color: "#e8e2ff",
+              fontSize: 18,
+              lineHeight: 1,
+              cursor: "pointer",
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+          {MAP_CARDS.map((card) => (
+            <button
+              key={card.id}
+              onClick={() => onSelect(card.id)}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                gap: 4,
+                padding: "16px 18px",
+                borderRadius: 10,
+                background: "rgba(107,216,255,0.08)",
+                border: "1px solid rgba(120,255,255,0.35)",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+            >
+              <span style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 17, color: "#bff3ff" }}>
+                {card.title}
+              </span>
+              <span style={{ fontSize: 12, color: "#9d8ac2" }}>{card.subtitle}</span>
+            </button>
+          ))}
         </div>
       </div>
     </div>
@@ -8397,6 +11019,8 @@ function SettingsPanel({
 export default function Lobby({ visible }: { visible: boolean }) {
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployPressed, setDeployPressed] = useState(false);
+  const [mapSelectOpen, setMapSelectOpen] = useState(false);
+  const [selectedMapId, setSelectedMapId] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [rankOpen, setRankOpen] = useState(false);
   const [characterOpen, setCharacterOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
@@ -8546,8 +11170,19 @@ export default function Lobby({ visible }: { visible: boolean }) {
         missionPressed={deployPressed}
         onMissionPress={() => setDeployPressed(true)}
         onMissionRelease={() => setDeployPressed(false)}
-        onMissionClick={() => setDeployOpen(true)}
+        onMissionClick={() => setMapSelectOpen(true)}
       />
+
+      {mapSelectOpen && (
+        <MapSelectPanel
+          onClose={() => setMapSelectOpen(false)}
+          onSelect={(id) => {
+            setSelectedMapId(id);
+            setMapSelectOpen(false);
+            setDeployOpen(true);
+          }}
+        />
+      )}
 
       {/* RANK / Character / Mail row: bottom-left corner, matching the
           reference mockup's position (measured at ~1.25% left inset,
@@ -8605,7 +11240,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
         </div>
       )}
 
-      {deployOpen && <CombatArena mapId={4} onExit={() => setDeployOpen(false)} onMatchEnd={handleMatchEnd} />}
+      {deployOpen && <CombatArena mapId={selectedMapId} onExit={() => setDeployOpen(false)} onMatchEnd={handleMatchEnd} />}
       {rankOpen && (
         <ComingSoonPanel
           title="RANK"
