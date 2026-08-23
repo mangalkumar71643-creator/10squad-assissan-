@@ -4739,15 +4739,15 @@ function CombatArena({
             if (!player?.gun) return;
             const gun = player.gun;
             if (!gunDetached) {
-              // Scale still needs deriving from the hand's current world
-              // scale (same formula applyCalibratedGunTransform uses) so
-              // the gun doesn't change size when it pops free.
-              if (player.rightHand) {
-                player.rightHand.updateWorldMatrix(true, false);
-                const worldScale = new THREE.Vector3();
-                player.rightHand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
-                gun.scale.setScalar((GUN_TARGET_LENGTH / 79.03) / (worldScale.x || 1));
-              }
+              // Under `hand`, gun.scale is divided by the hand's own
+              // world scale so the two cancel out to the real target
+              // size once combined through the parent chain (see
+              // applyCalibratedGunTransform). scene has no scale of its
+              // own to cancel, so the SAME division here would leave the
+              // hand's tiny world scale (~0.009) uncancelled, inflating
+              // the gun to roughly 100x too big — this needs the target
+              // size applied directly instead.
+              gun.scale.setScalar(GUN_TARGET_LENGTH / 79.03);
               scene.add(gun);
               const forwardX = Math.sin(cameraYaw.current);
               const forwardZ = Math.cos(cameraYaw.current);
@@ -7600,6 +7600,32 @@ function CombatArena({
               width: "min(70vw, 230px)",
             }}
           >
+            {/* DETACH/ATTACH sits first and in its own amber color (matching
+                the AIM D-pad's UP/DOWN column elsewhere in Build Mode) so
+                it reads as a distinct mode switch, not just another
+                action button lumped in with RESET below it. */}
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                buildModeRef.current?.toggleGunDetach();
+                setGunDetachedUI((d) => !d);
+              }}
+              aria-label="Toggle gun detach"
+              style={{
+                padding: "10px 18px",
+                borderRadius: 6,
+                background: gunDetachedUI ? "rgba(255,190,90,0.4)" : "rgba(255,190,90,0.18)",
+                border: "1px solid rgba(255,215,150,0.8)",
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              {gunDetachedUI ? "● DETACHED — TAP TO ATTACH" : "○ ATTACHED — TAP TO DETACH"}
+            </button>
             <div
               style={{
                 background: "rgba(8,14,24,0.7)",
@@ -7634,28 +7660,6 @@ function CombatArena({
               }}
             >
               RESET
-            </button>
-            <button
-              onPointerDown={(e) => {
-                e.preventDefault();
-                buildModeRef.current?.toggleGunDetach();
-                setGunDetachedUI((d) => !d);
-              }}
-              aria-label="Toggle gun detach"
-              style={{
-                padding: "8px 18px",
-                borderRadius: 6,
-                background: gunDetachedUI ? "rgba(107,216,255,0.35)" : "rgba(255,255,255,0.1)",
-                border: gunDetachedUI ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.4)",
-                color: "#dce8f5",
-                fontFamily: "'Rajdhani', sans-serif",
-                fontWeight: 700,
-                letterSpacing: "0.06em",
-                fontSize: 13,
-                cursor: "pointer",
-              }}
-            >
-              {gunDetachedUI ? "ATTACH" : "DETACH"}
             </button>
             {/* PITCH/YAW/ROLL (see gunGripRotation) plus one -/+ row per
                 finger per hand (see fingerCurlExtras) — 13 rows total, so
