@@ -2120,6 +2120,39 @@ const GUN_TARGET_LENGTH = 0.55;
 // sit out along the barrel the way it would on a real two-handed hold, so
 // using it for orientation pointed the gun sideways instead of forward.
 const GUN_MUZZLE_TARGET_LOCAL = new THREE.Vector3(0.20400064267090037, 0.5153436536777963, -0.8323488792936196);
+// A hand-tuned correction on top of GUN_GRIP_LOCAL, in the same
+// RightHand-local, already-scaled space createGunAttachment computes
+// gun.position in — persisted so Build Mode's PLAYER tab (see
+// buildModeRef.current.nudgeGunGrip) can nudge exactly how the gun sits
+// in the hand without editing GUN_GRIP_LOCAL itself, and so the fix
+// applies to every fighter (player and bots share this same rig/
+// attachment code) on every future load, not just this session.
+const GUN_GRIP_OFFSET_STORAGE_KEY = "10sa-gun-grip-offset";
+function loadGunGripOffset(): THREE.Vector3 {
+  try {
+    const raw = localStorage.getItem(GUN_GRIP_OFFSET_STORAGE_KEY);
+    if (!raw) return new THREE.Vector3();
+    const parsed = JSON.parse(raw);
+    return new THREE.Vector3(
+      typeof parsed.x === "number" ? parsed.x : 0,
+      typeof parsed.y === "number" ? parsed.y : 0,
+      typeof parsed.z === "number" ? parsed.z : 0,
+    );
+  } catch {
+    return new THREE.Vector3();
+  }
+}
+// Read once at module load (not per-attach) and mutated in place by the
+// PLAYER tab's nudge buttons — every subsequent createGunAttachment call
+// (each new bot/boss spawn) picks up whatever's currently in this vector.
+const gunGripOffset = loadGunGripOffset();
+function saveGunGripOffset() {
+  localStorage.setItem(GUN_GRIP_OFFSET_STORAGE_KEY, JSON.stringify({ x: gunGripOffset.x, y: gunGripOffset.y, z: gunGripOffset.z }));
+}
+// One PLAYER-tab nudge tap's size, in the same local units as gunGripOffset
+// (RightHand-local, already scaled) — tuned by eye against the actual
+// rig, not derived from a real-world unit.
+const GUN_GRIP_NUDGE_STEP = 0.5;
 
 // The gun model is a static (unskinned) mesh, so one glTF load is shared
 // and cloned for whichever fighter needs it.
@@ -2297,6 +2330,7 @@ function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): T
   gun.scale.setScalar(scale);
   gun.quaternion.setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
   gun.position.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gun.quaternion).multiplyScalar(-1);
+  gun.position.add(gunGripOffset);
   hand.add(gun);
   return gun;
 }
@@ -3284,6 +3318,8 @@ function CombatArena({
     removeCollisionRect: (item: Map4Item) => void;
     pickAimedItem: (items: Map4Item[]) => number | null;
     nudgeDirs: () => { fwdX: number; fwdZ: number; rightX: number; rightZ: number } | null;
+    nudgeGunGrip: (dx: number, dy: number, dz: number) => void;
+    resetGunGrip: () => void;
   } | null>(null);
   // The piece(s) currently staged by SELECT (world position + orientation)
   // and their translucent preview meshes, cleared once PLACE commits them
@@ -3304,6 +3340,13 @@ function CombatArena({
   const buildSelectionRef = useRef<{ item: Map4Item; mesh: THREE.Object3D }[]>([]);
   const customItemsRef = useRef<Map4Item[]>([]);
   const customItemMeshesRef = useRef<THREE.Object3D[]>([]);
+  // Top-level Build Mode tab, above the WALL/CRATE/... one — "map" is
+  // everything that's been there all along (placing pieces); "player"
+  // is the gun-grip nudge panel (see buildModeRef.current.nudgeGunGrip)
+  // for correcting how the weapon sits in the hand without having to
+  // hand-tune the underlying GUN_GRIP_LOCAL constant blind. Only one
+  // tab's own controls render at a time.
+  const [buildTopTab, setBuildTopTab] = useState<"map" | "player">("map");
   const [buildHasSelection, setBuildHasSelection] = useState(false);
   // Mirrors customItemsRef.current.length purely so REMOVE's disabled
   // state re-renders — the ref itself is intentionally not React state.
@@ -4501,6 +4544,24 @@ function CombatArena({
                 if (idx !== -1) ACTIVE_OBSTACLES.splice(idx, 1);
               }
             }
+          },
+          // Moves the persisted grip offset (see gunGripOffset/
+          // createGunAttachment) AND, for live feedback, the already-
+          // attached gun on the player rig currently standing here — every
+          // other fighter (bots, or the player next time they equip a gun)
+          // only picks the new offset up the next time createGunAttachment
+          // actually runs.
+          nudgeGunGrip: (dx, dy, dz) => {
+            gunGripOffset.x += dx;
+            gunGripOffset.y += dy;
+            gunGripOffset.z += dz;
+            saveGunGripOffset();
+            if (player?.gun) player.gun.position.set(player.gun.position.x + dx, player.gun.position.y + dy, player.gun.position.z + dz);
+          },
+          resetGunGrip: () => {
+            if (player?.gun) player.gun.position.sub(gunGripOffset);
+            gunGripOffset.set(0, 0, 0);
+            saveGunGripOffset();
           },
         };
       });
@@ -5784,6 +5845,21 @@ function CombatArena({
       indices.includes(i) ? api.commitItem(customItemsRef.current[i]) : m,
     );
   };
+  // PLAYER tab's own D-pad — an arbitrary but consistent mapping onto the
+  // gun's RightHand-local axes (up/down -> local Y, forward/back -> local
+  // Z, left/right -> local X), same cross+column layout as the MAP tab's
+  // AIM D-pad so it reads as the same kind of control.
+  const handleGunGripNudge = (dir: "forward" | "back" | "left" | "right" | "up" | "down") => {
+    const api = buildModeRef.current;
+    if (!api) return;
+    const s = GUN_GRIP_NUDGE_STEP;
+    if (dir === "up") api.nudgeGunGrip(0, s, 0);
+    else if (dir === "down") api.nudgeGunGrip(0, -s, 0);
+    else if (dir === "forward") api.nudgeGunGrip(0, 0, s);
+    else if (dir === "back") api.nudgeGunGrip(0, 0, -s);
+    else if (dir === "right") api.nudgeGunGrip(s, 0, 0);
+    else api.nudgeGunGrip(-s, 0, 0);
+  };
   const handleBuildSave = () => {
     saveMap4Items(activeBuildItemsKey, customItemsRef.current);
     setBuildSaveLabel("SAVED!");
@@ -6394,12 +6470,55 @@ function CombatArena({
               is staged; SAVE persists everything placed so far. Sits in
               EXIT's usual top-center spot, since EXIT moves to the side
               for Build Mode (see above). */}
+          {/* Top-level Build Mode switch — MAP (everything below, placing
+              pieces) vs PLAYER (the gun-grip nudge panel just past it).
+              Sits right above the MAP panel's own top:16 spot (pushed down
+              to top:52 below to make room), always visible regardless of
+              which one is selected so switching back is always one tap
+              away — the selected one's own controls are what actually
+              hide/show. */}
           {(mapId === 4 || mapId === 5) && (
+            <div
+              style={{
+                position: "absolute",
+                top: 16,
+                left: 16,
+                display: "flex",
+                gap: 5,
+              }}
+            >
+              {(["map", "player"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    setBuildTopTab(tab);
+                  }}
+                  aria-label={`Build tab ${tab}`}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 6,
+                    background: buildTopTab === tab ? "rgba(107,216,255,0.4)" : "rgba(8,14,24,0.7)",
+                    border: buildTopTab === tab ? "1px solid rgba(190,235,255,0.9)" : "1px solid rgba(200,220,240,0.3)",
+                    color: "#dce8f5",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    letterSpacing: "0.04em",
+                    cursor: "pointer",
+                  }}
+                >
+                  {tab === "map" ? "MAP" : "PLAYER"}
+                </button>
+              ))}
+            </div>
+          )}
+          {(mapId === 4 || mapId === 5) && buildTopTab === "map" && (
             <>
               <div
                 style={{
                   position: "absolute",
-                  top: 16,
+                  top: 52,
                   // Capped well short of center — EXIT/settings sit at
                   // right:16 near the top-right corner (see the EXIT
                   // position swap above), and this panel used to be narrow
@@ -7243,6 +7362,157 @@ function CombatArena({
               </button>
             </>
           )}
+        </>
+      )}
+
+      {/* PLAYER tab — nudges how the gun sits in the hand (see
+          gunGripOffset/createGunAttachment) instead of any map piece.
+          Reuses the exact D-pad layout the MAP tab's AIM controls use
+          (same bottom-right spot, empty here since AIM never shows
+          alongside this tab) so it reads as the same kind of control,
+          just aimed at the gun instead of a placed item. */}
+      {(mapId === 4 || mapId === 5) && buildTopTab === "player" && (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              top: 52,
+              left: 16,
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              width: "min(70vw, 230px)",
+            }}
+          >
+            <div
+              style={{
+                background: "rgba(8,14,24,0.7)",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 8,
+                padding: 10,
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontSize: 12,
+                lineHeight: 1.4,
+              }}
+            >
+              Nudge the gun's grip in the hand with the D-pad. Saved automatically.
+            </div>
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                buildModeRef.current?.resetGunGrip();
+              }}
+              aria-label="Reset gun grip"
+              style={{
+                padding: "8px 18px",
+                borderRadius: 6,
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(200,220,240,0.4)",
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              RESET
+            </button>
+          </div>
+          <div
+            style={{
+              position: "absolute",
+              right: "7%",
+              bottom: "7%",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              opacity: settings.buttonOpacity,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                width: "clamp(46px, 9vw, 60px)",
+                height: "clamp(150px, 28vw, 210px)",
+              }}
+            >
+              {(["up", "down"] as const).map((dir) => (
+                <button
+                  key={dir}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    handleGunGripNudge(dir);
+                  }}
+                  aria-label={`Gun grip ${dir}`}
+                  style={{
+                    flex: 1,
+                    borderRadius: 8,
+                    background: "rgba(255,190,90,0.3)",
+                    border: "1px solid rgba(255,215,150,0.8)",
+                    color: "#dce8f5",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 13,
+                    letterSpacing: "0.05em",
+                    cursor: "pointer",
+                  }}
+                >
+                  {dir === "up" ? "▲ UP" : "▼ DOWN"}
+                </button>
+              ))}
+            </div>
+            <div
+              style={{
+                width: "clamp(150px, 28vw, 210px)",
+                height: "clamp(150px, 28vw, 210px)",
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1fr",
+                gridTemplateRows: "1fr 1fr 1fr",
+                gap: 6,
+              }}
+            >
+              {(
+                [
+                  [null, "forward", null],
+                  ["left", null, "right"],
+                  [null, "back", null],
+                ] as const
+              ).map((row, rowIdx) =>
+                row.map((dir, colIdx) =>
+                  dir ? (
+                    <button
+                      key={dir}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        handleGunGripNudge(dir);
+                      }}
+                      aria-label={`Gun grip ${dir}`}
+                      style={{
+                        gridColumn: colIdx + 1,
+                        gridRow: rowIdx + 1,
+                        borderRadius: 8,
+                        background: "rgba(107,216,255,0.3)",
+                        border: "1px solid rgba(190,235,255,0.8)",
+                        color: "#dce8f5",
+                        fontFamily: "'Rajdhani', sans-serif",
+                        fontWeight: 700,
+                        fontSize: 20,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
+                    </button>
+                  ) : (
+                    <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
+                  ),
+                ),
+              )}
+            </div>
+          </div>
         </>
       )}
 
