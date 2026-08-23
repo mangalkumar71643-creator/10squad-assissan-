@@ -28,6 +28,7 @@ const EYE_HEIGHT = 1.65;
 const PLAYER_RADIUS = 0.4;
 const PLAYER_SPEED = 4.2;
 const SPRINT_MULT = 1.7;
+const FLY_SPEED = 16; // free-fly "bird view" camera — no collision, moves along full look direction
 const SKY_RADIUS = 200;
 const FOG_NEAR = 40;
 const FOG_FAR = 170;
@@ -222,6 +223,12 @@ export default function CypherPhunkArena({ onExit }: { onExit: () => void }) {
   const joystickBaseRef = useRef<HTMLDivElement>(null);
   const joystickKnobRef = useRef<HTMLDivElement>(null);
   const [running, setRunning] = useState(false);
+  // "walk" (grounded, collides with walls/stairs) vs "fly" (free-fly bird's-
+  // eye camera, no collision) — modeRef is what the render loop reads each
+  // frame, modeUi is only for the HUD text/button label.
+  const modeRef = useRef<"walk" | "fly">("walk");
+  const [modeUi, setModeUi] = useState<"walk" | "fly">("walk");
+  const toggleModeRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     const container = containerRef.current;
@@ -376,11 +383,34 @@ export default function CypherPhunkArena({ onExit }: { onExit: () => void }) {
 
     // ---------------- player state / controls ----------------
     const player = { x: 0, z: 24, y: 0 };
+    const flyPos = { x: 0, y: 45, z: 24 };
     let yaw = 0;
     let pitch = -0.05;
     const keys = new Set<string>();
     let sprinting = false;
     let pointerLocked = false;
+
+    // Switching to fly: jump the free camera above wherever the player is
+    // standing and tilt the view down, for an immediate bird's-eye look.
+    // Switching back to walk: land the player under wherever the fly
+    // camera ended up (clamped/collision-resolved), not back at the old
+    // walking spot.
+    toggleModeRef.current = () => {
+      if (modeRef.current === "walk") {
+        flyPos.x = player.x;
+        flyPos.y = Math.max(player.y + 40, 30);
+        flyPos.z = player.z;
+        pitch = clamp(pitch - 0.6, -1.4, 1.4);
+        modeRef.current = "fly";
+      } else {
+        player.x = flyPos.x;
+        player.z = flyPos.z;
+        resolveAllCollisions(player);
+        pitch = clamp(pitch, -1.3, 0.4);
+        modeRef.current = "walk";
+      }
+      setModeUi(modeRef.current);
+    };
 
     const onKeyDown = (e: KeyboardEvent) => {
       keys.add(e.code);
@@ -498,48 +528,100 @@ export default function CypherPhunkArena({ onExit }: { onExit: () => void }) {
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
 
-      const forwardX = -Math.sin(yaw);
-      const forwardZ = -Math.cos(yaw);
-      const rightX = Math.cos(yaw);
-      const rightZ = -Math.sin(yaw);
-
-      let moveX = 0;
-      let moveZ = 0;
-      if (keys.has("KeyW") || keys.has("ArrowUp")) {
-        moveX += forwardX;
-        moveZ += forwardZ;
-      }
-      if (keys.has("KeyS") || keys.has("ArrowDown")) {
-        moveX -= forwardX;
-        moveZ -= forwardZ;
-      }
-      if (keys.has("KeyD") || keys.has("ArrowRight")) {
-        moveX += rightX;
-        moveZ += rightZ;
-      }
-      if (keys.has("KeyA") || keys.has("ArrowLeft")) {
-        moveX -= rightX;
-        moveZ -= rightZ;
-      }
-      // Joystick overrides keyboard when active (mobile).
       const joyMag = Math.hypot(joystickVec.x, joystickVec.y);
-      if (joyMag > 0.05) {
-        moveX = forwardX * -joystickVec.y + rightX * joystickVec.x;
-        moveZ = forwardZ * -joystickVec.y + rightZ * joystickVec.x;
-      }
-      const moveLen = Math.hypot(moveX, moveZ);
-      const speed = PLAYER_SPEED * (sprinting ? SPRINT_MULT : 1);
-      if (moveLen > 0.001) {
-        player.x += (moveX / moveLen) * speed * dt * Math.min(moveLen, 1);
-        player.z += (moveZ / moveLen) * speed * dt * Math.min(moveLen, 1);
-      }
-      resolveAllCollisions(player);
 
-      const targetY = groundHeightAt(player.x, player.z);
-      displayY += (targetY - displayY) * Math.min(dt * 8, 1);
-      player.y = displayY;
+      if (modeRef.current === "fly") {
+        // No-clip flycam: "forward" follows the full look direction
+        // (including pitch), so looking up and pushing forward climbs,
+        // looking down and pushing forward descends — the natural way to
+        // fly up for a bird's-eye view and swoop back down.
+        const fx = -Math.sin(yaw) * Math.cos(pitch);
+        const fy = Math.sin(pitch);
+        const fz = -Math.cos(yaw) * Math.cos(pitch);
+        const rx = Math.cos(yaw);
+        const rz = -Math.sin(yaw);
 
-      camera.position.set(player.x, player.y + EYE_HEIGHT, player.z);
+        let mx = 0;
+        let my = 0;
+        let mz = 0;
+        if (keys.has("KeyW") || keys.has("ArrowUp")) {
+          mx += fx;
+          my += fy;
+          mz += fz;
+        }
+        if (keys.has("KeyS") || keys.has("ArrowDown")) {
+          mx -= fx;
+          my -= fy;
+          mz -= fz;
+        }
+        if (keys.has("KeyD") || keys.has("ArrowRight")) {
+          mx += rx;
+          mz += rz;
+        }
+        if (keys.has("KeyA") || keys.has("ArrowLeft")) {
+          mx -= rx;
+          mz -= rz;
+        }
+        if (joyMag > 0.05) {
+          mx = fx * -joystickVec.y + rx * joystickVec.x;
+          my = fy * -joystickVec.y;
+          mz = fz * -joystickVec.y + rz * joystickVec.x;
+        }
+        const mLen = Math.hypot(mx, my, mz);
+        const flySpeed = FLY_SPEED * (sprinting ? SPRINT_MULT : 1);
+        if (mLen > 0.001) {
+          flyPos.x += (mx / mLen) * flySpeed * dt * Math.min(mLen, 1);
+          flyPos.y += (my / mLen) * flySpeed * dt * Math.min(mLen, 1);
+          flyPos.z += (mz / mLen) * flySpeed * dt * Math.min(mLen, 1);
+        }
+        flyPos.x = clamp(flyPos.x, -MAP_HALF - 25, MAP_HALF + 25);
+        flyPos.z = clamp(flyPos.z, -MAP_HALF - 25, MAP_HALF + 25);
+        flyPos.y = clamp(flyPos.y, 3, 150);
+
+        camera.position.set(flyPos.x, flyPos.y, flyPos.z);
+      } else {
+        const forwardX = -Math.sin(yaw);
+        const forwardZ = -Math.cos(yaw);
+        const rightX = Math.cos(yaw);
+        const rightZ = -Math.sin(yaw);
+
+        let moveX = 0;
+        let moveZ = 0;
+        if (keys.has("KeyW") || keys.has("ArrowUp")) {
+          moveX += forwardX;
+          moveZ += forwardZ;
+        }
+        if (keys.has("KeyS") || keys.has("ArrowDown")) {
+          moveX -= forwardX;
+          moveZ -= forwardZ;
+        }
+        if (keys.has("KeyD") || keys.has("ArrowRight")) {
+          moveX += rightX;
+          moveZ += rightZ;
+        }
+        if (keys.has("KeyA") || keys.has("ArrowLeft")) {
+          moveX -= rightX;
+          moveZ -= rightZ;
+        }
+        // Joystick overrides keyboard when active (mobile).
+        if (joyMag > 0.05) {
+          moveX = forwardX * -joystickVec.y + rightX * joystickVec.x;
+          moveZ = forwardZ * -joystickVec.y + rightZ * joystickVec.x;
+        }
+        const moveLen = Math.hypot(moveX, moveZ);
+        const speed = PLAYER_SPEED * (sprinting ? SPRINT_MULT : 1);
+        if (moveLen > 0.001) {
+          player.x += (moveX / moveLen) * speed * dt * Math.min(moveLen, 1);
+          player.z += (moveZ / moveLen) * speed * dt * Math.min(moveLen, 1);
+        }
+        resolveAllCollisions(player);
+
+        const targetY = groundHeightAt(player.x, player.z);
+        displayY += (targetY - displayY) * Math.min(dt * 8, 1);
+        player.y = displayY;
+
+        camera.position.set(player.x, player.y + EYE_HEIGHT, player.z);
+      }
       camera.rotation.order = "YXZ";
       camera.rotation.y = yaw;
       camera.rotation.x = pitch;
@@ -585,32 +667,54 @@ export default function CypherPhunkArena({ onExit }: { onExit: () => void }) {
           pointerEvents: "none",
         }}
       >
-        <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: 1 }}>CYPHER PHUNK — TEST MAP</div>
+        <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: 1 }}>
+          CYPHER PHUNK — TEST MAP {modeUi === "fly" ? "· BIRD VIEW" : ""}
+        </div>
         <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>
-          {running ? "WASD / joystick to move · drag or click+move to look · Shift to sprint" : "Loading…"}
+          {!running
+            ? "Loading…"
+            : modeUi === "fly"
+              ? "WASD / joystick to fly (look up/down + forward to climb/descend) · Shift to speed up"
+              : "WASD / joystick to move · drag or click+move to look · Shift to sprint"}
         </div>
       </div>
 
-      <button
-        onClick={onExit}
-        style={{
-          position: "absolute",
-          top: 14,
-          right: 14,
-          padding: "8px 16px",
-          borderRadius: 999,
-          border: "1px solid rgba(232,217,255,0.4)",
-          background: "rgba(20,10,30,0.65)",
-          color: "#e8d9ff",
-          fontFamily: "sans-serif",
-          fontSize: 13,
-          fontWeight: 700,
-          letterSpacing: 0.5,
-          cursor: "pointer",
-        }}
-      >
-        EXIT
-      </button>
+      <div style={{ position: "absolute", top: 14, right: 14, display: "flex", gap: 8 }}>
+        <button
+          onClick={() => toggleModeRef.current()}
+          style={{
+            padding: "8px 16px",
+            borderRadius: 999,
+            border: "1px solid rgba(232,217,255,0.4)",
+            background: modeUi === "fly" ? "rgba(85,25,140,0.75)" : "rgba(20,10,30,0.65)",
+            color: "#e8d9ff",
+            fontFamily: "sans-serif",
+            fontSize: 13,
+            fontWeight: 700,
+            letterSpacing: 0.5,
+            cursor: "pointer",
+          }}
+        >
+          {modeUi === "fly" ? "🧍 WALK" : "🦅 BIRD VIEW"}
+        </button>
+        <button
+          onClick={onExit}
+          style={{
+            padding: "8px 16px",
+            borderRadius: 999,
+            border: "1px solid rgba(232,217,255,0.4)",
+            background: "rgba(20,10,30,0.65)",
+            color: "#e8d9ff",
+            fontFamily: "sans-serif",
+            fontSize: 13,
+            fontWeight: 700,
+            letterSpacing: 0.5,
+            cursor: "pointer",
+          }}
+        >
+          EXIT
+        </button>
+      </div>
 
       {/* Virtual joystick — visible only as a touch target; harmless on desktop. */}
       <div
