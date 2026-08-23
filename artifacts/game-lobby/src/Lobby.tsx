@@ -6,6 +6,8 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { createSciFiFloorTexture, createSciFiWallTexture, createSkyTexture } from "./textures";
+import CypherPhunkArena from "./CypherPhunkArena";
 
 function StartMissionButton({
   pressed,
@@ -117,46 +119,6 @@ function valueNoise(x: number, y: number): number {
   const ix0 = n00 + (n10 - n00) * sx;
   const ix1 = n01 + (n11 - n01) * sx;
   return ix0 + (ix1 - ix0) * sy;
-}
-
-// A real sci-fi floor-panel image for the main arena ground, tiled with
-// RepeatWrapping the same way createFloorTexture's procedural texture is —
-// same wrapping/repeat/anisotropy setup, just loaded from an image file
-// instead of drawn on a canvas.
-const sciFiFloorTextureLoader = new THREE.TextureLoader();
-function createSciFiFloorTexture(repeatCount: number, maxAnisotropy: number): THREE.Texture {
-  const texture = sciFiFloorTextureLoader.load("/textures/floor-scifi.jpg");
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(repeatCount, repeatCount);
-  texture.anisotropy = maxAnisotropy;
-  return texture;
-}
-
-// Two real sci-fi wall-panel images (rusted plating, glowing seams) — each
-// loaded once and cloned per wall segment so every segment can carry its
-// own repeat count (walls come in many different lengths across the level;
-// cloning a THREE.Texture is cheap, it shares the same decoded image/GPU
-// upload and only duplicates the small wrapper object holding repeat/wrap
-// state). Variant 1 (calmer, intact panels) dresses the rooms; variant 2
-// (bullet-scarred, hazard-striped panels) dresses the corridors/tunnels
-// connecting them, so moving between rooms reads as leaving "clean" zones
-// through more fought-over passageways.
-const sciFiWallTextureBases: (THREE.Texture | null)[] = [null, null];
-const SCIFI_WALL_URLS = ["/textures/wall-scifi.jpg", "/textures/wall-scifi-2.jpg"];
-function createSciFiWallTexture(repeatX: number, repeatY: number, maxAnisotropy: number, variant: 0 | 1 = 0): THREE.Texture {
-  if (!sciFiWallTextureBases[variant]) {
-    const base = new THREE.TextureLoader().load(SCIFI_WALL_URLS[variant]);
-    base.colorSpace = THREE.SRGBColorSpace;
-    base.wrapS = THREE.RepeatWrapping;
-    base.wrapT = THREE.RepeatWrapping;
-    sciFiWallTextureBases[variant] = base;
-  }
-  const texture = sciFiWallTextureBases[variant]!.clone();
-  texture.repeat.set(repeatX, repeatY);
-  texture.anisotropy = maxAnisotropy;
-  return texture;
 }
 
 // A real sci-fi ceiling-panel image (square plating, glowing cyan grid
@@ -303,36 +265,6 @@ function createHazardStripeTexture(): THREE.CanvasTexture {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  return texture;
-}
-
-// A simple vertical-gradient sky, painted onto a canvas and wrapped around
-// a big inward-facing sphere — without this the scene has no background
-// at all (the canvas is alpha-transparent, so it just shows the page's
-// near-black CSS background through it), which reads as floating in open
-// space rather than standing outdoors, especially now that the arena is
-// big enough for its edges to be visible in the distance.
-function createSkyTexture(): THREE.CanvasTexture {
-  const width = 4;
-  const height = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d")!;
-  // A sphere's equator (v=0.5) is what a roughly-horizontal camera actually
-  // sees, so the lit "horizon glow" band needs to sit there, not near the
-  // bottom of the gradient — the very bottom of the sphere is hidden below
-  // the ground plane and never visible anyway.
-  const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, "#050a14"); // zenith — near-black, matching the arena's night tone
-  gradient.addColorStop(0.38, "#0d1f34");
-  gradient.addColorStop(0.52, "#2f5678"); // lit horizon band, where the camera actually looks
-  gradient.addColorStop(0.62, "#5f8aa3");
-  gradient.addColorStop(1, "#5f8aa3");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
 
@@ -5053,6 +4985,7 @@ function MatchDetailPanel({ entry, onClose }: { entry: MatchHistoryEntry; onClos
 export default function Lobby({ visible }: { visible: boolean }) {
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployPressed, setDeployPressed] = useState(false);
+  const [cypherPhunkOpen, setCypherPhunkOpen] = useState(false);
   const [rankOpen, setRankOpen] = useState(false);
   const [characterOpen, setCharacterOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
@@ -5132,6 +5065,28 @@ export default function Lobby({ visible }: { visible: boolean }) {
 
       <PlayerProfileButton progress={progress} onClick={() => setProfileOpen(true)} />
 
+      <button
+        onClick={() => setCypherPhunkOpen(true)}
+        aria-label="Open Cypher Phunk test map"
+        style={{
+          position: "absolute",
+          top: 16,
+          right: 16,
+          padding: "7px 14px",
+          borderRadius: 999,
+          border: "1px solid rgba(232,217,255,0.4)",
+          background: "rgba(20,10,30,0.55)",
+          color: "#e8d9ff",
+          fontFamily: "sans-serif",
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: 0.5,
+          cursor: "pointer",
+        }}
+      >
+        🗺 CYPHER PHUNK
+      </button>
+
       <GiftBox
         missionPressed={deployPressed}
         onMissionPress={() => setDeployPressed(true)}
@@ -5157,6 +5112,7 @@ export default function Lobby({ visible }: { visible: boolean }) {
       </div>
 
       {deployOpen && <CombatArena onExit={() => setDeployOpen(false)} onMatchEnd={handleMatchEnd} />}
+      {cypherPhunkOpen && <CypherPhunkArena onExit={() => setCypherPhunkOpen(false)} />}
       {rankOpen && (
         <ComingSoonPanel
           title="RANK"
