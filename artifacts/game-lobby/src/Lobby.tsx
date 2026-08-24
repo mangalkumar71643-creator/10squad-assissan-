@@ -2099,14 +2099,20 @@ const TRACER_TARGET_HEIGHT = 1.3;
 // in this mesh, so its own bounding-box center is used directly as the
 // hand target instead of a hand-tuned point.
 const GUN_GRIP_LOCAL = new THREE.Vector3(0, -10.43, 18.33);
-// Where the off-hand actually reaches for (see updateOffHandReach) — much
-// further forward than the SMG's own foregrip. That point sits only ~11cm
-// from the main grip on this short SMG, which put both hands so close
-// together they read as one bunched-up fist instead of a two-handed
-// hold; interpolated most of the way from the grip toward the muzzle tip
-// (see MUZZLE_TIP_LOCAL) gives the classic "rear hand on the trigger,
-// front hand out near the muzzle" look the reference grip has.
-const GUN_OFFHAND_TARGET_LOCAL = new THREE.Vector3(0, -10.43, 18.33).lerp(new THREE.Vector3(0, 0, -31.4), 0.75);
+// Where the off-hand actually reaches for (see updateOffHandReach) — a
+// little forward of the main grip, toward the muzzle. Measured (not
+// guessed): the off-hand's own two-bone reach (upper arm + forearm) from
+// this rig's left shoulder tops out around 0.50m, and the main grip
+// itself already sits ~0.47m from that shoulder — barely 3cm of slack.
+// A larger lerp fraction here (tried up to 0.75, further toward the
+// muzzle) put the target past max reach, so the IK solve stretched the
+// arm as far as it could and stopped short — the off-hand visibly
+// floated ~15cm away from the gun instead of touching it, which read as
+// a much worse "not holding the gun" bug than the hands sitting close
+// together. 0.2 keeps the target just inside reach (~2cm short, fully
+// closed by the hand/finger mesh itself) so the off-hand actually grips
+// the gun instead of reaching for a point past its own arm's length.
+const GUN_OFFHAND_TARGET_LOCAL = new THREE.Vector3(0, -10.43, 18.33).lerp(new THREE.Vector3(0, 0, -31.4), 0.2);
 const GUN_MUZZLE_AXIS = new THREE.Vector3(0, 0, -1);
 // A real SMG is roughly this long; the rest of the transform is derived
 // from that, not guessed independently.
