@@ -2314,6 +2314,8 @@ const fingerCurlExtras = loadFingerCurlExtras();
 function saveFingerCurlExtras() {
   localStorage.setItem(GUN_FINGER_CURL_STORAGE_KEY, JSON.stringify(fingerCurlExtras));
 }
+// LOCK button's own persisted state — see buildLockedUI in CombatArena.
+const BUILD_LOCK_STORAGE_KEY = "10sa-build-locked";
 // The PLAYER tab's per-finger curl sliders — -1 (fully uncurled/loose)
 // to +1 (an extra full base-curl's worth on top of the already-curled
 // starting grip) either side of the base table's own fixed curl.
@@ -3550,6 +3552,34 @@ function CombatArena({
   // buildItemCount mirroring customItemsRef. gunDetached === true means
   // the gun is OFF (not following the hand — see toggleGunDetach).
   const [gunDetachedUI, setGunDetachedUI] = useState(false);
+  // LOCK — disables every RIGHT/LEFT/GUN tab control (sliders, D-pad,
+  // RESET, the GUN ON/OFF toggle) so an accidental mid-match mis-touch
+  // can't move a value that took real tuning to get right. Persisted
+  // (unlike the other *UI mirrors above) since the whole point is
+  // protection against fat-fingering — it should still be locked the
+  // next time the app opens, not reset back to unlocked. Tab switching
+  // and this button itself stay live either way — only pure viewing
+  // is unaffected by the lock.
+  const [buildLockedUI, setBuildLockedUI] = useState(() => {
+    try {
+      return localStorage.getItem(BUILD_LOCK_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(BUILD_LOCK_STORAGE_KEY, buildLockedUI ? "1" : "0");
+    } catch {
+      // Storage full/unavailable — the lock still works for the rest of
+      // this session, it just won't persist to the next one.
+    }
+  }, [buildLockedUI]);
+  // VALUES — a read-only readout of every current RIGHT/LEFT shoulder/
+  // elbow/wrist degree and finger curl number, for checking calibration
+  // at a glance without having to flip between the RIGHT and LEFT tabs
+  // and read each slider row individually.
+  const [buildInfoOpen, setBuildInfoOpen] = useState(false);
   // Mirrors gunGripRotation/fingerCurlExtras (module-level, loaded from
   // localStorage once at import time) purely so the PLAYER tab's sliders
   // have a controlled `value` to show — same pattern as gunDetachedUI.
@@ -6200,6 +6230,7 @@ function CombatArena({
   // Z, left/right -> local X), same cross+column layout as the MAP tab's
   // AIM D-pad so it reads as the same kind of control.
   const handleGunGripNudge = (dir: "forward" | "back" | "left" | "right" | "up" | "down") => {
+    if (buildLockedUI) return;
     const api = buildModeRef.current;
     if (!api) return;
     const s = GUN_GRIP_NUDGE_STEP;
@@ -6267,9 +6298,13 @@ function CombatArena({
         max={max}
         step={step}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onChange={(e) => {
+          if (buildLockedUI) return;
+          onChange(Number(e.target.value));
+        }}
+        disabled={buildLockedUI}
         aria-label={label}
-        style={{ width: "100%" }}
+        style={{ width: "100%", opacity: buildLockedUI ? 0.5 : 1 }}
       />
     </div>
   );
@@ -6328,10 +6363,12 @@ function CombatArena({
       <button
         onPointerDown={(e) => {
           e.preventDefault();
+          if (buildLockedUI) return;
           buildModeRef.current?.resetHand(side);
           setGunCurlUI((prev) => ({ ...prev, [side]: zeroFingerCurlExtra() }));
           setArmPoseUI((prev) => ({ ...prev, [side]: { shoulder: zeroArmAxisExtra(), elbow: zeroArmAxisExtra(), wrist: zeroArmAxisExtra() } }));
         }}
+        disabled={buildLockedUI}
         aria-label={`Reset ${side} hand`}
         style={{
           padding: "8px 18px",
@@ -6343,7 +6380,8 @@ function CombatArena({
           fontWeight: 700,
           letterSpacing: "0.06em",
           fontSize: 13,
-          cursor: "pointer",
+          cursor: buildLockedUI ? "not-allowed" : "pointer",
+          opacity: buildLockedUI ? 0.5 : 1,
         }}
       >
         RESET
@@ -7061,9 +7099,11 @@ function CombatArena({
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
+                  if (buildLockedUI) return;
                   buildModeRef.current?.toggleGunDetach();
                   setGunDetachedUI((d) => !d);
                 }}
+                disabled={buildLockedUI}
                 aria-label="Toggle gun detach"
                 style={{
                   padding: "6px 14px",
@@ -7075,11 +7115,132 @@ function CombatArena({
                   fontWeight: 700,
                   fontSize: 12,
                   letterSpacing: "0.04em",
-                  cursor: "pointer",
+                  cursor: buildLockedUI ? "not-allowed" : "pointer",
+                  opacity: buildLockedUI ? 0.5 : 1,
                 }}
               >
                 {gunDetachedUI ? "○ GUN: OFF" : "● GUN: ON"}
               </button>
+            </div>
+          )}
+          {/* VALUES / LOCK — kept out of the tab row above (that row
+              already wraps to 2 lines on a narrow phone with MAP/RIGHT/
+              LEFT/GUN + the GUN toggle in it; two more items pushed it to
+              3 and the wrapped rows started overlapping the tab content
+              below). Small round icon buttons at top:58, matching the
+              Camera-settings/Map-View icon row's own style, just further
+              left so they don't collide with those. */}
+          {(mapId === 4 || mapId === 5) && (
+            <>
+              {/* VALUES — read-only readout of every current RIGHT/LEFT
+                  shoulder/elbow/wrist degree and finger curl number (see
+                  the buildInfoOpen panel below), so a quick check doesn't
+                  need flipping between both tabs and reading every row.
+                  Stays tappable even while LOCK is on — it only shows
+                  numbers, it can't change anything. */}
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  setBuildInfoOpen((o) => !o);
+                }}
+                aria-label="Toggle build values"
+                style={{
+                  position: "absolute",
+                  top: 58,
+                  left: 254,
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  background: buildInfoOpen ? "rgba(107,216,255,0.4)" : "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontSize: 16,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                ℹ
+              </button>
+              {/* LOCK — freezes every RIGHT/LEFT/GUN control (see
+                  buildLockedUI) so a mid-match mis-touch can't nudge a
+                  value that took real tuning to get right. Always stays
+                  tappable itself (it's the only way back out of a lock),
+                  and persists across reloads (see the useEffect saving
+                  it to BUILD_LOCK_STORAGE_KEY) since the whole point is
+                  protection, not a one-session toggle. */}
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  setBuildLockedUI((l) => !l);
+                }}
+                aria-label="Toggle build lock"
+                style={{
+                  position: "absolute",
+                  top: 58,
+                  left: 294,
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  background: buildLockedUI ? "rgba(255,190,90,0.4)" : "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontSize: 16,
+                  cursor: "pointer",
+                }}
+              >
+                {buildLockedUI ? "🔒" : "🔓"}
+              </button>
+            </>
+          )}
+          {/* VALUES panel — every RIGHT/LEFT shoulder/elbow/wrist degree
+              and finger curl number in one place, read straight from
+              armPoseUI/gunCurlUI (already the live mirrors the sliders
+              themselves use) rather than a separate read path — so this
+              can never show a stale number the sliders don't agree with.
+              Sits at right:16 so it never overlaps the RIGHT/LEFT/GUN
+              tab's own left-column panel. */}
+          {(mapId === 4 || mapId === 5) && buildInfoOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: 52,
+                right: 16,
+                width: "min(48vw, 170px)",
+                maxHeight: "70vh",
+                overflowY: "auto",
+                background: "rgba(8,14,24,0.85)",
+                border: "1px solid rgba(107,216,255,0.4)",
+                borderRadius: 8,
+                padding: "8px 10px",
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontSize: 11,
+                lineHeight: 1.5,
+              }}
+            >
+              {(["right", "left"] as const).map((side) => (
+                <div key={side} style={{ marginBottom: 8 }}>
+                  <div style={{ color: "#8fd8ff", fontWeight: 700, letterSpacing: "0.06em", marginBottom: 2 }}>
+                    {side.toUpperCase()} HAND
+                  </div>
+                  {(["shoulder", "elbow", "wrist"] as const).map((joint) => (
+                    <div key={joint} style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ opacity: 0.75 }}>{joint[0].toUpperCase() + joint.slice(1)}</span>
+                      <span>
+                        {(["x", "y", "z"] as const)
+                          .map((axis) => `${Math.round((armPoseUI[side][joint][axis] * 180) / Math.PI)}°`)
+                          .join(" / ")}
+                      </span>
+                    </div>
+                  ))}
+                  {FINGER_NAMES.map((finger) => (
+                    <div key={finger} style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ opacity: 0.75 }}>{finger}</span>
+                      <span>{gunCurlUI[side][finger].toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           )}
           {(mapId === 4 || mapId === 5) && buildTopTab === "map" && (
@@ -7969,9 +8130,11 @@ function CombatArena({
             <button
               onPointerDown={(e) => {
                 e.preventDefault();
+                if (buildLockedUI) return;
                 buildModeRef.current?.resetGun();
                 setGunRotationUI({ pitch: 0, yaw: 0, roll: 0 });
               }}
+              disabled={buildLockedUI}
               aria-label="Reset gun grip"
               style={{
                 padding: "8px 18px",
@@ -7983,7 +8146,8 @@ function CombatArena({
                 fontWeight: 700,
                 letterSpacing: "0.06em",
                 fontSize: 13,
-                cursor: "pointer",
+                cursor: buildLockedUI ? "not-allowed" : "pointer",
+                opacity: buildLockedUI ? 0.5 : 1,
               }}
             >
               RESET
@@ -8021,7 +8185,8 @@ function CombatArena({
               display: "flex",
               alignItems: "center",
               gap: 10,
-              opacity: settings.buttonOpacity,
+              opacity: buildLockedUI ? settings.buttonOpacity * 0.5 : settings.buttonOpacity,
+              pointerEvents: buildLockedUI ? "none" : "auto",
             }}
           >
             <div
