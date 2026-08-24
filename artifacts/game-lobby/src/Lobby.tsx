@@ -2323,6 +2323,11 @@ function saveFingerCurlExtras() {
 }
 // LOCK button's own persisted state — see buildLockedUI in CombatArena.
 const BUILD_LOCK_STORAGE_KEY = "10sa-build-locked";
+// Per-slider LOCK — each individual row (see renderSliderRow's own lock
+// icon) instead of the one all-or-nothing LOCK above. Keyed by the same
+// rowKey every slider row is already keyed by (e.g. "right-shoulder-
+// pitch", "gun-roll", "left-Thumb"), so no separate id scheme is needed.
+const LOCKED_SLIDERS_STORAGE_KEY = "10sa-locked-sliders";
 // BACKUP/RESTORE POSE's own bundle — everything the RIGHT/LEFT/GUN tabs
 // calibrate, together, so one code brings all of it back at once instead
 // of needing a separate code per tab (see handlePoseExport/
@@ -3615,6 +3620,37 @@ function CombatArena({
       // this session, it just won't persist to the next one.
     }
   }, [buildLockedUI]);
+  // Per-slider LOCK — each row's own lock icon (see renderSliderRow),
+  // independent of the all-or-nothing LOCK above: once a specific
+  // value's been dialed in, that ONE slider can be frozen while every
+  // other one stays adjustable, instead of having to lock (and re-tune
+  // around) everything at once. A row counts as locked if it's in this
+  // set OR the global LOCK is on — see renderSliderRow's `isLocked`.
+  // Persisted the same way and for the same reason as buildLockedUI.
+  const [lockedSlidersUI, setLockedSlidersUI] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(LOCKED_SLIDERS_STORAGE_KEY);
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOCKED_SLIDERS_STORAGE_KEY, JSON.stringify([...lockedSlidersUI]));
+    } catch {
+      // Storage full/unavailable — same as buildLockedUI, still works
+      // for the rest of this session.
+    }
+  }, [lockedSlidersUI]);
+  const toggleSliderLock = (rowKey: string) => {
+    setLockedSlidersUI((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowKey)) next.delete(rowKey);
+      else next.add(rowKey);
+      return next;
+    });
+  };
   // VALUES — a read-only readout of every current RIGHT/LEFT shoulder/
   // elbow/wrist degree and finger curl number, for checking calibration
   // at a glance without having to flip between the RIGHT and LEFT tabs
@@ -6404,100 +6440,137 @@ function CombatArena({
     // armPoseExtras/fingerCurlExtras themselves, which are always
     // current regardless of whether React has re-rendered yet.
     onNudge: (delta: number) => void,
-  ) => (
-    <div
-      key={rowKey}
-      style={{
-        flex: "none",
-        background: "rgba(8,14,24,0.7)",
-        border: "1px solid rgba(200,220,240,0.3)",
-        borderRadius: 8,
-        padding: "6px 10px",
-      }}
-    >
+  ) => {
+    // A row counts as locked if ITS OWN lock icon is on, or the global
+    // LOCK is on — either one alone is enough to freeze it, so every
+    // guard/disabled check below reads this single flag rather than
+    // buildLockedUI directly.
+    const rowLocked = buildLockedUI || lockedSlidersUI.has(rowKey);
+    return (
       <div
+        key={rowKey}
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          color: "#dce8f5",
-          fontFamily: "'Rajdhani', sans-serif",
-          fontWeight: 700,
-          fontSize: 12,
-          letterSpacing: "0.04em",
-          marginBottom: 4,
+          flex: "none",
+          background: "rgba(8,14,24,0.7)",
+          border: "1px solid rgba(200,220,240,0.3)",
+          borderRadius: 8,
+          padding: "6px 10px",
         }}
       >
-        <span>{label}</span>
-        <span>{displayValue}</span>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <button
-          onPointerDown={(e) => {
-            e.preventDefault();
-            if (buildLockedUI) return;
-            onNudge(-pointStep);
-          }}
-          disabled={buildLockedUI}
-          aria-label={`${label} minus`}
+        <div
           style={{
-            flex: "none",
-            width: 22,
-            height: 22,
-            borderRadius: "50%",
-            background: "rgba(255,255,255,0.1)",
-            border: "1px solid rgba(200,220,240,0.4)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
             color: "#dce8f5",
-            fontSize: 14,
-            lineHeight: 1,
-            padding: 0,
-            cursor: buildLockedUI ? "not-allowed" : "pointer",
-            opacity: buildLockedUI ? 0.5 : 1,
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: 12,
+            letterSpacing: "0.04em",
+            marginBottom: 4,
           }}
         >
-          −
-        </button>
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(e) => {
-            if (buildLockedUI) return;
-            onChange(Number(e.target.value));
-          }}
-          disabled={buildLockedUI}
-          aria-label={label}
-          style={{ flex: "1 1 0%", minWidth: 0, opacity: buildLockedUI ? 0.5 : 1 }}
-        />
-        <button
-          onPointerDown={(e) => {
-            e.preventDefault();
-            if (buildLockedUI) return;
-            onNudge(pointStep);
-          }}
-          disabled={buildLockedUI}
-          aria-label={`${label} plus`}
-          style={{
-            flex: "none",
-            width: 22,
-            height: 22,
-            borderRadius: "50%",
-            background: "rgba(255,255,255,0.1)",
-            border: "1px solid rgba(200,220,240,0.4)",
-            color: "#dce8f5",
-            fontSize: 14,
-            lineHeight: 1,
-            padding: 0,
-            cursor: buildLockedUI ? "not-allowed" : "pointer",
-            opacity: buildLockedUI ? 0.5 : 1,
-          }}
-        >
-          +
-        </button>
+          <span>{label}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span>{displayValue}</span>
+            {/* This ONE row's own lock — independent of the all-or-
+                nothing LOCK next to the tab switcher, so a value that's
+                already right can be frozen without having to lock (and
+                re-tune around) every other slider too. Always tappable
+                itself, same as the global LOCK. */}
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                toggleSliderLock(rowKey);
+              }}
+              aria-label={`${label} lock`}
+              style={{
+                flex: "none",
+                width: 18,
+                height: 18,
+                padding: 0,
+                borderRadius: "50%",
+                background: lockedSlidersUI.has(rowKey) ? "rgba(255,190,90,0.4)" : "rgba(255,255,255,0.08)",
+                border: lockedSlidersUI.has(rowKey) ? "1px solid rgba(255,215,150,0.9)" : "1px solid rgba(200,220,240,0.35)",
+                color: "#dce8f5",
+                fontSize: 10,
+                lineHeight: 1,
+                cursor: "pointer",
+              }}
+            >
+              {lockedSlidersUI.has(rowKey) ? "🔒" : "🔓"}
+            </button>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              if (rowLocked) return;
+              onNudge(-pointStep);
+            }}
+            disabled={rowLocked}
+            aria-label={`${label} minus`}
+            style={{
+              flex: "none",
+              width: 22,
+              height: 22,
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.1)",
+              border: "1px solid rgba(200,220,240,0.4)",
+              color: "#dce8f5",
+              fontSize: 14,
+              lineHeight: 1,
+              padding: 0,
+              cursor: rowLocked ? "not-allowed" : "pointer",
+              opacity: rowLocked ? 0.5 : 1,
+            }}
+          >
+            −
+          </button>
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            onChange={(e) => {
+              if (rowLocked) return;
+              onChange(Number(e.target.value));
+            }}
+            disabled={rowLocked}
+            aria-label={label}
+            style={{ flex: "1 1 0%", minWidth: 0, opacity: rowLocked ? 0.5 : 1 }}
+          />
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              if (rowLocked) return;
+              onNudge(pointStep);
+            }}
+            disabled={rowLocked}
+            aria-label={`${label} plus`}
+            style={{
+              flex: "none",
+              width: 22,
+              height: 22,
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.1)",
+              border: "1px solid rgba(200,220,240,0.4)",
+              color: "#dce8f5",
+              fontSize: 14,
+              lineHeight: 1,
+              padding: 0,
+              cursor: rowLocked ? "not-allowed" : "pointer",
+              opacity: rowLocked ? 0.5 : 1,
+            }}
+          >
+            +
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
   // A small uppercase header separating one joint's/section's own slider
   // rows from the next (SHOULDER / ELBOW / WRIST / FINGERS) — the elbow's
   // own control now reads as visibly its own isolated section instead of
