@@ -1294,6 +1294,13 @@ type Map4Item = Map4Wall | Map4Crate | Map4Drum | Map4FloorTile | Map4Pillar | M
 // origin with this deployment, so a relative "/api/house" would resolve
 // against the app's own local origin instead of actually reaching it.
 const MAP4_CLOUD_API = "https://10squad-permanent-test.vercel.app/api/house";
+// Same short-code cloud save as MAP4_CLOUD_API, just a separate endpoint/
+// blob namespace (see api/pose.js) for the gun/hand pose calibration —
+// gunGripOffset, gunGripRotation, fingerCurlExtras, armPoseExtras —
+// bundled together as one BACKUP/RESTORE, since a house code and a pose
+// code should never be interchangeable even though both are plain
+// 6-character codes.
+const POSE_CLOUD_API = "https://10squad-permanent-test.vercel.app/api/pose";
 const MAP4_ITEMS_KEY = "10sa-map4-items";
 // Build Mode's very first version only placed walls, saved under this key —
 // kept only as a one-time recovery source for whatever was already built
@@ -2316,6 +2323,38 @@ function saveFingerCurlExtras() {
 }
 // LOCK button's own persisted state — see buildLockedUI in CombatArena.
 const BUILD_LOCK_STORAGE_KEY = "10sa-build-locked";
+// BACKUP/RESTORE POSE's own bundle — everything the RIGHT/LEFT/GUN tabs
+// calibrate, together, so one code brings all of it back at once instead
+// of needing a separate code per tab (see handlePoseExport/
+// applyImportedPose in CombatArena, and api/pose.js on the server side).
+interface PoseBundle {
+  gunGripOffset: { x: number; y: number; z: number };
+  gunGripRotation: { x: number; y: number; z: number };
+  fingerCurlExtras: { right: FingerCurlExtra; left: FingerCurlExtra };
+  armPoseExtras: { right: ArmPoseExtra; left: ArmPoseExtra };
+}
+function isValidPoseBundle(data: unknown): data is PoseBundle {
+  const d = data as Record<string, unknown> | null;
+  if (!d || typeof d !== "object") return false;
+  const isVec3 = (v: unknown): v is { x: number; y: number; z: number } => {
+    const o = v as Record<string, unknown> | null;
+    return !!o && typeof o.x === "number" && typeof o.y === "number" && typeof o.z === "number";
+  };
+  if (!isVec3(d.gunGripOffset) || !isVec3(d.gunGripRotation)) return false;
+  const isCurl = (c: unknown): c is FingerCurlExtra => {
+    const o = c as Record<string, unknown> | null;
+    return !!o && FINGER_NAMES.every((f) => typeof o[f] === "number");
+  };
+  const curls = d.fingerCurlExtras as { right?: unknown; left?: unknown } | undefined;
+  if (!curls || !isCurl(curls.right) || !isCurl(curls.left)) return false;
+  const isArmSide = (a: unknown): a is ArmPoseExtra => {
+    const o = a as Record<string, unknown> | null;
+    return !!o && (["shoulder", "elbow", "wrist"] as const).every((j) => isVec3(o[j]));
+  };
+  const arms = d.armPoseExtras as { right?: unknown; left?: unknown } | undefined;
+  if (!arms || !isArmSide(arms.right) || !isArmSide(arms.left)) return false;
+  return true;
+}
 // The PLAYER tab's per-finger curl sliders — -1 (fully uncurled/loose)
 // to +1 (an extra full base-curl's worth on top of the already-curled
 // starting grip) either side of the base table's own fixed curl.
@@ -3516,6 +3555,7 @@ function CombatArena({
     resetGun: () => void;
     resetHand: (side: ArmSide) => void;
     toggleGunDetach: () => void;
+    restorePose: (bundle: PoseBundle) => void;
   } | null>(null);
   // The piece(s) currently staged by SELECT (world position + orientation)
   // and their translucent preview meshes, cleared once PLACE commits them
@@ -3580,6 +3620,22 @@ function CombatArena({
   // at a glance without having to flip between the RIGHT and LEFT tabs
   // and read each slider row individually.
   const [buildInfoOpen, setBuildInfoOpen] = useState(false);
+  // BACKUP/RESTORE POSE — same short-cloud-code + offline-text-code shape
+  // as the house BACKUP/RESTORE below (see handlePoseExport/
+  // handlePoseCloudCodeLoad), just bundling gunGripOffset/gunGripRotation/
+  // fingerCurlExtras/armPoseExtras (everything RIGHT/LEFT/GUN cover)
+  // together as one pose instead of the placed map pieces.
+  const [poseExportText, setPoseExportText] = useState<string | null>(null);
+  const [poseExportCopied, setPoseExportCopied] = useState(false);
+  const [poseCloudCode, setPoseCloudCode] = useState<string | null>(null);
+  const [poseCloudCodeCopied, setPoseCloudCodeCopied] = useState(false);
+  const [poseCloudSaveError, setPoseCloudSaveError] = useState<string | null>(null);
+  const [poseImportOpen, setPoseImportOpen] = useState(false);
+  const [poseImportText, setPoseImportText] = useState("");
+  const [poseImportError, setPoseImportError] = useState<string | null>(null);
+  const [poseCloudCodeInput, setPoseCloudCodeInput] = useState("");
+  const [poseCloudLoadError, setPoseCloudLoadError] = useState<string | null>(null);
+  const [poseCloudLoading, setPoseCloudLoading] = useState(false);
   // Mirrors gunGripRotation/fingerCurlExtras (module-level, loaded from
   // localStorage once at import time) purely so the PLAYER tab's sliders
   // have a controlled `value` to show — same pattern as gunDetachedUI.
@@ -4883,6 +4939,53 @@ function CombatArena({
             saveFingerCurlExtras();
             armPoseExtras[side] = zeroArmPoseExtra();
             saveArmPoseExtras();
+          },
+          // RESTORE POSE — applies an entire backed-up bundle (gun grip
+          // offset/rotation + both hands' finger curl + arm pose) at
+          // once, live, the same way every other live nudge here does:
+          // finger curl accumulates by a delta (see curlGunGripFingers'
+          // "rotations about the same axis just add" note), so this
+          // computes each finger's delta from whatever's currently
+          // curled to the restored target rather than assuming the
+          // fingers start at zero. Arm pose just overwrites — it's
+          // re-applied fresh from armPoseExtras every tick regardless
+          // (see applyArmPoseCorrection), nothing to undo first.
+          restorePose: (bundle) => {
+            gunGripOffset.set(bundle.gunGripOffset.x, bundle.gunGripOffset.y, bundle.gunGripOffset.z);
+            saveGunGripOffset();
+            gunGripRotation.set(bundle.gunGripRotation.x, bundle.gunGripRotation.y, bundle.gunGripRotation.z);
+            saveGunGripRotation();
+            if (player) {
+              for (const side of ["right", "left"] as const) {
+                const fingers = side === "right" ? player.rightFingers : player.leftFingers;
+                const mirror = side === "right" ? 1 : -1;
+                const old = fingerCurlExtras[side];
+                const next = bundle.fingerCurlExtras[side];
+                const delta: FingerCurlExtra = {
+                  Thumb: next.Thumb - old.Thumb,
+                  Index: next.Index - old.Index,
+                  Middle: next.Middle - old.Middle,
+                  Ring: next.Ring - old.Ring,
+                  Pinky: next.Pinky - old.Pinky,
+                };
+                curlGunGripFingers(fingers, mirror, delta);
+              }
+            }
+            fingerCurlExtras.right = { ...bundle.fingerCurlExtras.right };
+            fingerCurlExtras.left = { ...bundle.fingerCurlExtras.left };
+            saveFingerCurlExtras();
+            armPoseExtras.right = {
+              shoulder: { ...bundle.armPoseExtras.right.shoulder },
+              elbow: { ...bundle.armPoseExtras.right.elbow },
+              wrist: { ...bundle.armPoseExtras.right.wrist },
+            };
+            armPoseExtras.left = {
+              shoulder: { ...bundle.armPoseExtras.left.shoulder },
+              elbow: { ...bundle.armPoseExtras.left.elbow },
+              wrist: { ...bundle.armPoseExtras.left.wrist },
+            };
+            saveArmPoseExtras();
+            if (!gunDetached && player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
           },
           // Pulls the gun off the hand entirely and pops it to a fixed,
           // clearly-visible spot out in front of the player (reparented
@@ -6254,9 +6357,32 @@ function CombatArena({
     const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
     setArmPoseUI((prev) => ({ ...prev, [side]: { ...prev[side], [joint]: { ...prev[side][joint], [key]: value } } }));
   };
+  // +/- nudge variants — read the LIVE module-level value (gunGripRotation/
+  // fingerCurlExtras/armPoseExtras, always current) rather than the React
+  // state mirror a render closure captured, so a burst of rapid taps each
+  // add their own delta instead of several of them computing off the same
+  // stale number and only the last one sticking (see renderSliderRow's
+  // onNudge comment).
+  const handleGunRotationNudge = (axis: "pitch" | "yaw" | "roll", delta: number) => {
+    const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
+    handleGunRotationSlider(axis, clamp(gunGripRotation[key] + delta, GUN_GRIP_ROTATION_MIN, GUN_GRIP_ROTATION_MAX));
+  };
+  const handleGunCurlNudge = (side: "left" | "right", finger: FingerName, delta: number) => {
+    handleGunCurlSlider(side, finger, clamp(fingerCurlExtras[side][finger] + delta, GUN_FINGER_CURL_MIN, GUN_FINGER_CURL_MAX));
+  };
+  const handleArmPoseNudge = (side: ArmSide, joint: ArmJoint, axis: "pitch" | "yaw" | "roll", delta: number) => {
+    const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
+    handleArmPoseSlider(side, joint, axis, clamp(armPoseExtras[side][joint][key] + delta, GUN_GRIP_ROTATION_MIN, GUN_GRIP_ROTATION_MAX));
+  };
   // One <input type="range"> + label-value header row, same shape as the
   // LOOK SENSITIVITY slider in the settings panel — shared by the GUN /
   // RIGHT HAND / LEFT HAND tabs below instead of three separate copies.
+  // pointStep — the "1 point" a +/- tap moves, in the SAME unit the
+  // display already shows: 1 whole degree (Math.PI/180) for every
+  // rotation/arm-pose row (all shown as a rounded °), 0.01 for every
+  // finger-curl row (shown to 2 decimals) — so a single tap always moves
+  // the on-screen number by exactly 1, not some fraction of the drag
+  // slider's own (finer) step.
   const renderSliderRow = (
     rowKey: string,
     label: string,
@@ -6264,8 +6390,20 @@ function CombatArena({
     min: number,
     max: number,
     step: number,
+    pointStep: number,
     displayValue: string,
     onChange: (v: number) => void,
+    // +/- reads and clamps against the LIVE module-level value (not this
+    // render's own `value` prop) — several taps fired in the same event
+    // batch (a fast double-tap, or a test dispatching a burst of
+    // pointerdowns) would otherwise all compute their target from the
+    // same stale `value` this closure captured at render time, and only
+    // the last one would actually stick. onNudge sidesteps that by
+    // letting the caller (handleGunRotationNudge/handleArmPoseNudge/
+    // handleGunCurlNudge) read straight from gunGripRotation/
+    // armPoseExtras/fingerCurlExtras themselves, which are always
+    // current regardless of whether React has re-rendered yet.
+    onNudge: (delta: number) => void,
   ) => (
     <div
       key={rowKey}
@@ -6292,20 +6430,72 @@ function CombatArena({
         <span>{label}</span>
         <span>{displayValue}</span>
       </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => {
-          if (buildLockedUI) return;
-          onChange(Number(e.target.value));
-        }}
-        disabled={buildLockedUI}
-        aria-label={label}
-        style={{ width: "100%", opacity: buildLockedUI ? 0.5 : 1 }}
-      />
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button
+          onPointerDown={(e) => {
+            e.preventDefault();
+            if (buildLockedUI) return;
+            onNudge(-pointStep);
+          }}
+          disabled={buildLockedUI}
+          aria-label={`${label} minus`}
+          style={{
+            flex: "none",
+            width: 22,
+            height: 22,
+            borderRadius: "50%",
+            background: "rgba(255,255,255,0.1)",
+            border: "1px solid rgba(200,220,240,0.4)",
+            color: "#dce8f5",
+            fontSize: 14,
+            lineHeight: 1,
+            padding: 0,
+            cursor: buildLockedUI ? "not-allowed" : "pointer",
+            opacity: buildLockedUI ? 0.5 : 1,
+          }}
+        >
+          −
+        </button>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => {
+            if (buildLockedUI) return;
+            onChange(Number(e.target.value));
+          }}
+          disabled={buildLockedUI}
+          aria-label={label}
+          style={{ flex: "1 1 0%", minWidth: 0, opacity: buildLockedUI ? 0.5 : 1 }}
+        />
+        <button
+          onPointerDown={(e) => {
+            e.preventDefault();
+            if (buildLockedUI) return;
+            onNudge(pointStep);
+          }}
+          disabled={buildLockedUI}
+          aria-label={`${label} plus`}
+          style={{
+            flex: "none",
+            width: 22,
+            height: 22,
+            borderRadius: "50%",
+            background: "rgba(255,255,255,0.1)",
+            border: "1px solid rgba(200,220,240,0.4)",
+            color: "#dce8f5",
+            fontSize: 14,
+            lineHeight: 1,
+            padding: 0,
+            cursor: buildLockedUI ? "not-allowed" : "pointer",
+            opacity: buildLockedUI ? 0.5 : 1,
+          }}
+        >
+          +
+        </button>
+      </div>
     </div>
   );
   // A small uppercase header separating one joint's/section's own slider
@@ -6386,6 +6576,62 @@ function CombatArena({
       >
         RESET
       </button>
+      {/* BACKUP/RESTORE POSE — covers ALL of gun grip + both hands
+          together (see PoseBundle), not just this one side, so it's the
+          same pair of buttons repeated in every RIGHT/LEFT/GUN tab
+          rather than needing to hunt for one specific tab that "owns"
+          it. BACKUP stays live even while LOCKed (it only reads/exports
+          current values); RESTORE is blocked, same as everything else
+          that would actually change a value. */}
+      <div style={{ display: "flex", gap: 6 }}>
+        <button
+          onPointerDown={(e) => {
+            e.preventDefault();
+            handlePoseExport();
+          }}
+          aria-label="Backup pose"
+          style={{
+            flex: 1,
+            padding: "8px 0",
+            borderRadius: 6,
+            background: "rgba(107,216,255,0.18)",
+            border: "1px solid rgba(107,216,255,0.5)",
+            color: "#dce8f5",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          💾 BACKUP
+        </button>
+        <button
+          onPointerDown={(e) => {
+            e.preventDefault();
+            if (buildLockedUI) return;
+            setPoseImportOpen(true);
+          }}
+          disabled={buildLockedUI}
+          aria-label="Restore pose"
+          style={{
+            flex: 1,
+            padding: "8px 0",
+            borderRadius: 6,
+            background: "rgba(255,255,255,0.1)",
+            border: "1px solid rgba(200,220,240,0.4)",
+            color: "#dce8f5",
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+            fontSize: 12,
+            cursor: buildLockedUI ? "not-allowed" : "pointer",
+            opacity: buildLockedUI ? 0.5 : 1,
+          }}
+        >
+          📥 RESTORE
+        </button>
+      </div>
       <div
         style={{
           display: "flex",
@@ -6408,8 +6654,10 @@ function CombatArena({
               GUN_GRIP_ROTATION_MIN,
               GUN_GRIP_ROTATION_MAX,
               0.01,
+              Math.PI / 180,
               `${Math.round((value * 180) / Math.PI)}°`,
               (v) => handleArmPoseSlider(side, joint, axis, v),
+              (delta) => handleArmPoseNudge(side, joint, axis, delta),
             );
           }),
         ])}
@@ -6423,8 +6671,10 @@ function CombatArena({
             GUN_FINGER_CURL_MIN,
             GUN_FINGER_CURL_MAX,
             0.02,
+            0.01,
             value.toFixed(2),
             (v) => handleGunCurlSlider(side, finger, v),
+            (delta) => handleGunCurlNudge(side, finger, delta),
           );
         })}
       </div>
@@ -6515,6 +6765,115 @@ function CombatArena({
       })
       .catch(() => setMap4CloudLoadError("Code nahi mila — spelling check karo, ya neeche text code try karo."))
       .finally(() => setMap4CloudLoading(false));
+  };
+
+  // BACKUP POSE — same short-cloud-code + offline-text-code shape as
+  // handleBuildExport above, bundling gunGripOffset/gunGripRotation/
+  // fingerCurlExtras/armPoseExtras (see PoseBundle) instead of the
+  // placed map pieces, so RIGHT/LEFT/GUN's calibration survives an
+  // uninstall the same way a Build Mode house does.
+  const handlePoseExport = () => {
+    const bundle: PoseBundle = {
+      gunGripOffset: { x: gunGripOffset.x, y: gunGripOffset.y, z: gunGripOffset.z },
+      gunGripRotation: { x: gunGripRotation.x, y: gunGripRotation.y, z: gunGripRotation.z },
+      fingerCurlExtras: { right: { ...fingerCurlExtras.right }, left: { ...fingerCurlExtras.left } },
+      armPoseExtras: {
+        right: {
+          shoulder: { ...armPoseExtras.right.shoulder },
+          elbow: { ...armPoseExtras.right.elbow },
+          wrist: { ...armPoseExtras.right.wrist },
+        },
+        left: {
+          shoulder: { ...armPoseExtras.left.shoulder },
+          elbow: { ...armPoseExtras.left.elbow },
+          wrist: { ...armPoseExtras.left.wrist },
+        },
+      },
+    };
+    const text = JSON.stringify(bundle);
+    setPoseExportText(text);
+    setPoseExportCopied(false);
+    setPoseCloudCode(null);
+    setPoseCloudCodeCopied(false);
+    setPoseCloudSaveError(null);
+    fetch(POSE_CLOUD_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: text }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((json) => setPoseCloudCode(json.code))
+      .catch(() => setPoseCloudSaveError("Cloud save nahi ho paya (internet check karo) — neeche wala text code use karo."));
+  };
+  const handlePoseExportCopy = () => {
+    if (!poseExportText) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(poseExportText)
+        .then(() => setPoseExportCopied(true))
+        .catch(() => {});
+    }
+  };
+  const handlePoseCloudCodeCopy = () => {
+    if (!poseCloudCode) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(poseCloudCode)
+        .then(() => setPoseCloudCodeCopied(true))
+        .catch(() => {});
+    }
+  };
+  // Applies a validated pose bundle live (see buildModeRef.current.
+  // restorePose) and syncs every *UI mirror so the RIGHT/LEFT/GUN
+  // sliders immediately reflect the restored numbers — unlike
+  // applyImportedItems, this never needs onExit(): nothing here is
+  // baked into the Three.js scene at mount the way placed items are,
+  // so a live re-apply is enough.
+  const applyImportedPose = (bundle: PoseBundle) => {
+    buildModeRef.current?.restorePose(bundle);
+    setGunRotationUI({ pitch: bundle.gunGripRotation.x, yaw: bundle.gunGripRotation.y, roll: bundle.gunGripRotation.z });
+    setGunCurlUI({ right: { ...bundle.fingerCurlExtras.right }, left: { ...bundle.fingerCurlExtras.left } });
+    setArmPoseUI({
+      right: {
+        shoulder: { ...bundle.armPoseExtras.right.shoulder },
+        elbow: { ...bundle.armPoseExtras.right.elbow },
+        wrist: { ...bundle.armPoseExtras.right.wrist },
+      },
+      left: {
+        shoulder: { ...bundle.armPoseExtras.left.shoulder },
+        elbow: { ...bundle.armPoseExtras.left.elbow },
+        wrist: { ...bundle.armPoseExtras.left.wrist },
+      },
+    });
+    setPoseImportOpen(false);
+    setPoseImportText("");
+    setPoseImportError(null);
+    setPoseCloudCodeInput("");
+    setPoseCloudLoadError(null);
+  };
+  const handlePoseImportLoad = () => {
+    try {
+      const parsed = JSON.parse(poseImportText);
+      if (!isValidPoseBundle(parsed)) throw new Error("invalid pose");
+      applyImportedPose(parsed);
+    } catch {
+      setPoseImportError("Code sahi nahi hai — dobara check karke paste karo.");
+    }
+  };
+  const handlePoseCloudCodeLoad = () => {
+    const code = poseCloudCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setPoseCloudLoading(true);
+    setPoseCloudLoadError(null);
+    fetch(`${POSE_CLOUD_API}?code=${encodeURIComponent(code)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((json) => {
+        const parsed = JSON.parse(json.data);
+        if (!isValidPoseBundle(parsed)) throw new Error("invalid pose");
+        applyImportedPose(parsed);
+      })
+      .catch(() => setPoseCloudLoadError("Code nahi mila — spelling check karo, ya neeche text code try karo."))
+      .finally(() => setPoseCloudLoading(false));
   };
 
   // Placement distance +/- stepper — shared markup dropped into whichever
@@ -8152,6 +8511,59 @@ function CombatArena({
             >
               RESET
             </button>
+            {/* BACKUP/RESTORE POSE — same pair as RIGHT/LEFT's own tabs
+                (see renderHandTab), covers gun grip + both hands
+                together (PoseBundle) regardless of which tab it's
+                tapped from. */}
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handlePoseExport();
+                }}
+                aria-label="Backup pose"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                💾 BACKUP
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  if (buildLockedUI) return;
+                  setPoseImportOpen(true);
+                }}
+                disabled={buildLockedUI}
+                aria-label="Restore pose"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: buildLockedUI ? "not-allowed" : "pointer",
+                  opacity: buildLockedUI ? 0.5 : 1,
+                }}
+              >
+                📥 RESTORE
+              </button>
+            </div>
             {/* PITCH/YAW/ROLL (see gunGripRotation) — same native <input
                 type="range"> + label-row shape as the LOOK SENSITIVITY
                 slider in the settings panel. */}
@@ -8171,8 +8583,10 @@ function CombatArena({
                   GUN_GRIP_ROTATION_MIN,
                   GUN_GRIP_ROTATION_MAX,
                   0.01,
+                  Math.PI / 180,
                   `${Math.round((value * 180) / Math.PI)}°`,
                   (v) => handleGunRotationSlider(axis, v),
+                  (delta) => handleGunRotationNudge(axis, delta),
                 );
               })}
             </div>
@@ -8533,6 +8947,287 @@ function CombatArena({
                   setMap4ImportError(null);
                   setMap4CloudCodeInput("");
                   setMap4CloudLoadError(null);
+                }}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BACKUP POSE — same short-code + text-code shape as "Backup
+          house" above, for the PoseBundle handlePoseExport builds. */}
+      {poseExportText !== null && (
+        <div
+          role="dialog"
+          aria-label="Backup pose"
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(4,6,16,0.7)",
+            zIndex: 30,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0 6%",
+          }}
+        >
+          <div
+            style={{
+              width: "min(340px, 90vw)",
+              background: "rgba(12,16,30,0.96)",
+              border: "1px solid rgba(107,216,255,0.45)",
+              borderRadius: 12,
+              padding: "16px 18px",
+              color: "#e8e2ff",
+              fontFamily: "'Barlow', sans-serif",
+            }}
+          >
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", marginBottom: 6 }}>
+              SHORT CODE
+            </div>
+            <div style={{ fontSize: 11, color: "#9d8ac2", marginBottom: 8, lineHeight: 1.5 }}>Internet chahiye — RESTORE me ye type karke laa sakte ho.</div>
+            {poseCloudCode ? (
+              <div
+                style={{
+                  fontFamily: "monospace",
+                  fontSize: 26,
+                  letterSpacing: 4,
+                  textAlign: "center",
+                  color: "#6be2ff",
+                  background: "rgba(107,216,255,0.1)",
+                  border: "1px solid rgba(107,216,255,0.4)",
+                  borderRadius: 8,
+                  padding: "10px 0",
+                }}
+              >
+                {poseCloudCode}
+              </div>
+            ) : poseCloudSaveError ? (
+              <div style={{ color: "#ff9c9c", fontSize: 12, textAlign: "center", padding: "10px 0" }}>{poseCloudSaveError}</div>
+            ) : (
+              <div style={{ color: "#9d8ac2", fontSize: 12, textAlign: "center", padding: "10px 0" }}>Saving...</div>
+            )}
+            {poseCloudCode && (
+              <button
+                onClick={handlePoseCloudCodeCopy}
+                style={{
+                  width: "100%",
+                  marginTop: 8,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: poseCloudCodeCopied ? "rgba(107,216,255,0.35)" : "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                {poseCloudCodeCopied ? "COPIED!" : "COPY SHORT CODE"}
+              </button>
+            )}
+
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", margin: "14px 0 6px" }}>
+              TEXT CODE (works offline)
+            </div>
+            <textarea
+              readOnly
+              value={poseExportText}
+              onFocus={(e) => e.currentTarget.select()}
+              style={{
+                width: "100%",
+                height: 70,
+                fontSize: 10,
+                fontFamily: "monospace",
+                background: "rgba(255,255,255,0.06)",
+                color: "#dce8f5",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 6,
+                padding: 8,
+                resize: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button
+                onClick={handlePoseExportCopy}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: poseExportCopied ? "rgba(107,216,255,0.35)" : "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {poseExportCopied ? "COPIED!" : "COPY"}
+              </button>
+              <button
+                onClick={() => setPoseExportText(null)}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                CLOSE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESTORE POSE — same short-code + text-code shape as "Restore
+          house" above, applying live via applyImportedPose instead of
+          needing onExit() to rebuild a scene. */}
+      {poseImportOpen && (
+        <div
+          role="dialog"
+          aria-label="Restore pose"
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(4,6,16,0.7)",
+            zIndex: 30,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0 6%",
+          }}
+        >
+          <div
+            style={{
+              width: "min(340px, 90vw)",
+              background: "rgba(12,16,30,0.96)",
+              border: "1px solid rgba(107,216,255,0.45)",
+              borderRadius: 12,
+              padding: "16px 18px",
+              color: "#e8e2ff",
+              fontFamily: "'Barlow', sans-serif",
+            }}
+          >
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", marginBottom: 6 }}>
+              SHORT CODE
+            </div>
+            <input
+              value={poseCloudCodeInput}
+              onChange={(e) => setPoseCloudCodeInput(e.target.value.toUpperCase())}
+              placeholder="e.g. ZE4GFX"
+              style={{
+                width: "100%",
+                fontSize: 18,
+                letterSpacing: 3,
+                textAlign: "center",
+                fontFamily: "monospace",
+                background: "rgba(255,255,255,0.06)",
+                color: "#dce8f5",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 6,
+                padding: "8px 0",
+                boxSizing: "border-box",
+              }}
+            />
+            {poseCloudLoadError && <div style={{ color: "#ff9c9c", fontSize: 11, marginTop: 6 }}>{poseCloudLoadError}</div>}
+            <button
+              onClick={handlePoseCloudCodeLoad}
+              disabled={poseCloudCodeInput.trim().length === 0 || poseCloudLoading}
+              style={{
+                width: "100%",
+                marginTop: 8,
+                padding: "10px 0",
+                borderRadius: 6,
+                background: poseCloudCodeInput.trim().length === 0 ? "rgba(255,255,255,0.08)" : "rgba(107,216,255,0.3)",
+                border: "1px solid rgba(107,216,255,0.5)",
+                color: poseCloudCodeInput.trim().length === 0 ? "rgba(220,230,240,0.4)" : "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                fontSize: 13,
+                cursor: poseCloudCodeInput.trim().length === 0 ? "default" : "pointer",
+              }}
+            >
+              {poseCloudLoading ? "LOADING..." : "LOAD"}
+            </button>
+
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, letterSpacing: 1, color: "#6be2ff", margin: "14px 0 6px" }}>
+              OR TEXT CODE
+            </div>
+            <textarea
+              value={poseImportText}
+              onChange={(e) => setPoseImportText(e.target.value)}
+              placeholder="Paste text code here"
+              style={{
+                width: "100%",
+                height: 70,
+                fontSize: 10,
+                fontFamily: "monospace",
+                background: "rgba(255,255,255,0.06)",
+                color: "#dce8f5",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 6,
+                padding: 8,
+                resize: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            {poseImportError && <div style={{ color: "#ff9c9c", fontSize: 11, marginTop: 6 }}>{poseImportError}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button
+                onClick={handlePoseImportLoad}
+                disabled={poseImportText.trim().length === 0}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 6,
+                  background: poseImportText.trim().length === 0 ? "rgba(255,255,255,0.08)" : "rgba(107,216,255,0.3)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: poseImportText.trim().length === 0 ? "rgba(220,230,240,0.4)" : "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  fontSize: 13,
+                  cursor: poseImportText.trim().length === 0 ? "default" : "pointer",
+                }}
+              >
+                LOAD TEXT
+              </button>
+              <button
+                onClick={() => {
+                  setPoseImportOpen(false);
+                  setPoseImportText("");
+                  setPoseImportError(null);
+                  setPoseCloudCodeInput("");
+                  setPoseCloudLoadError(null);
                 }}
                 style={{
                   flex: 1,
