@@ -2567,6 +2567,36 @@ function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): T
   return gun;
 }
 
+// Same position/rotation/scale math as applyCalibratedGunTransform above,
+// but composed straight into a world matrix instead of written onto a
+// real gun object — lets updateOffHandReach (below) target "where the
+// grip is" purely from the RightHand bone's own current transform,
+// independent of whether the actual gun mesh is attached there right
+// now or has been pulled off to one side for free positioning (see
+// toggleGunDetach). Targeting the real gun object's matrixWorld used to
+// mean the off-hand followed the gun wherever it got moved, including
+// out to its parked detached spot — which visibly yanked the off-hand
+// out of its calibrated pose the instant GUN went OFF, and again the
+// instant it went back ON. Targeting this instead never changes as
+// long as the calibration (gunGripOffset/gunGripRotation) and the
+// RightHand bone itself don't, so the off-hand now looks identical
+// whether the gun happens to be attached or detached.
+const gripWorldScaleTmp = new THREE.Vector3();
+const gripLocalPosTmp = new THREE.Vector3();
+const gripLocalQuatTmp = new THREE.Quaternion();
+function calibratedGripWorldMatrix(hand: THREE.Object3D, out: THREE.Matrix4) {
+  hand.updateWorldMatrix(true, false);
+  hand.matrixWorld.decompose(gripLocalPosTmp, gripLocalQuatTmp, gripWorldScaleTmp);
+  const rawLength = 79.03;
+  const scale = (GUN_TARGET_LENGTH / rawLength) / (gripWorldScaleTmp.x || 1);
+  gripLocalQuatTmp.setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
+  gripLocalPosTmp.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gripLocalQuatTmp).multiplyScalar(-1);
+  gripLocalPosTmp.add(gunGripOffset);
+  gripLocalQuatTmp.multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
+  out.compose(gripLocalPosTmp, gripLocalQuatTmp, new THREE.Vector3(scale, scale, scale));
+  out.premultiply(hand.matrixWorld);
+}
+
 // Rotates `bone` (in place, preserving its parent's current orientation)
 // so the ray from `bone` to `child` points at `targetWorld` instead of
 // wherever the baked animation clip currently has it — a single-joint
@@ -2664,10 +2694,14 @@ function solveTwoBoneIK(shoulder: THREE.Object3D, elbow: THREE.Object3D, hand: T
 // immediately undo a one-time snap.
 const offHandForward = new THREE.Vector3();
 const offHandPoleWorld = new THREE.Vector3();
+const offHandGripMatrix = new THREE.Matrix4();
 function updateOffHandReach(rig: FighterRig) {
-  if (!rig.gun || !rig.leftArm || !rig.leftForeArm || !rig.leftHand) return;
-  rig.gun.updateWorldMatrix(true, false);
-  const foregripWorld = GUN_OFFHAND_TARGET_LOCAL.clone().applyMatrix4(rig.gun.matrixWorld);
+  // Gated on rig.gun's mere existence (armed vs not yet equipped), not
+  // its current transform — see calibratedGripWorldMatrix above for why
+  // the target itself no longer comes from the gun object at all.
+  if (!rig.gun || !rig.rightHand || !rig.leftArm || !rig.leftForeArm || !rig.leftHand) return;
+  calibratedGripWorldMatrix(rig.rightHand, offHandGripMatrix);
+  const foregripWorld = GUN_OFFHAND_TARGET_LOCAL.clone().applyMatrix4(offHandGripMatrix);
   rig.leftArm.updateWorldMatrix(true, false);
   rig.leftArm.getWorldPosition(offHandPoleWorld);
   offHandForward.set(Math.sin(rig.root.rotation.y), 0, Math.cos(rig.root.rotation.y));
@@ -3563,11 +3597,6 @@ function CombatArena({
   // tick below is a stable closure set up once on mount.
   const [topDownView, setTopDownView] = useState(false);
   const topDownViewRef = useRef(false);
-  // GUN CAM toggle's own React-state mirror of gunCamOnRef (see that ref's
-  // comment above) — same split as topDownView/topDownViewRef, state
-  // drives the button's own highlight, the ref is what the tick loop
-  // closure actually reads.
-  const [gunCamOn, setGunCamOn] = useState(false);
   // Populated once by the scene-building effect below with every ceiling
   // slab in the level, so toggling Map View can hide them — otherwise
   // looking straight down just shows the solid (double-sided) roof instead
@@ -3597,6 +3626,8 @@ function CombatArena({
     resetHand: (side: ArmSide) => void;
     toggleGunDetach: () => void;
     restorePose: (bundle: PoseBundle) => void;
+    triggerFirePreview: () => void;
+    rotatePlayer: (deltaY: number) => void;
   } | null>(null);
   // The piece(s) currently staged by SELECT (world position + orientation)
   // and their translucent preview meshes, cleared once PLACE commits them
@@ -3627,6 +3658,13 @@ function CombatArena({
   // render at a time — the GUN ON/OFF button next to these tabs is the
   // one exception, always visible regardless of which tab is selected.
   const [buildTopTab, setBuildTopTab] = useState<"map" | "right" | "left" | "gun">("map");
+  // GUN CAM (see gunCamYaw/gunCamPitch/gunCamDist/gunCamOnRef above) is
+  // tied directly to the GUN tab now, the same way Map View's own camera
+  // switch is tied to its own button — selecting GUN switches straight
+  // into the close-up orbit view, selecting MAP/RIGHT/LEFT switches back
+  // to the normal chase camera. Derived, not its own state: there's
+  // nothing to get out of sync since the tab IS the on/off switch.
+  const gunCamOn = buildTopTab === "gun";
   // Mirrors the imperative gunDetached flag inside the scene effect
   // (buildModeRef.current.toggleGunDetach) purely so the GUN ON/OFF
   // button's own label re-renders — same non-reactive-state pattern as
@@ -3819,7 +3857,6 @@ function CombatArena({
     topDownViewRef.current = topDownView;
     for (const ceiling of ceilingMeshesRef.current) ceiling.visible = !topDownView;
     if (topDownView) setBirdFlying(true);
-    if (topDownView) setGunCamOn(false);
   }, [topDownView]);
 
   useEffect(() => {
@@ -5109,6 +5146,28 @@ function CombatArena({
               gunDetached = false;
             }
           },
+          // GUN tab's FIRE button: previews the recoil pose (applyFirePose,
+          // driven by playerFireT below) without any of the actual combat
+          // side effects a real shot has — no cooldown gate, no tracer, no
+          // damage, no camera-snap-to-facing, no vibration. Map 4/5 have
+          // no bots to hit anyway; this exists purely so a calibrated grip
+          // can be checked against what it looks like mid-recoil, not just
+          // standing still.
+          triggerFirePreview: () => {
+            if (!player) return;
+            playerFireT = 0;
+            player.fireAction?.reset().play();
+          },
+          // GUN tab's LEFT/RIGHT buttons: spins the character itself
+          // around its own vertical axis, independent of GUN CAM's own
+          // orbit — GUN CAM moves the camera around a stationary character,
+          // this instead turns the character so the SAME camera angle
+          // catches light/silhouette from a different side, the two are
+          // complementary rather than redundant.
+          rotatePlayer: (deltaY) => {
+            if (!player) return;
+            player.root.rotation.y += deltaY;
+          },
         };
       });
     } else {
@@ -5591,17 +5650,12 @@ function CombatArena({
       // drives the arm bones for the collapse, and re-bending the off-hand
       // onto the gun every frame would fight that pose (and just looks
       // wrong — a dropped body shouldn't still be gripping the gun).
-      // Also skipped while the PLAYER tab has pulled the gun off the hand
-      // (gunDetached) — toggleGunDetach relocates the gun out in front of
-      // the camera for free positioning, and without this guard the
-      // off-hand IK kept chasing that relocated position every frame
-      // instead of the real in-hand grip, solving toward a target that
-      // has nothing to do with the calibrated pose. Freezing the
-      // off-hand's last good solve while the gun sits somewhere else
-      // (rather than re-aiming at a target that isn't the gun at all) is
-      // the correct behavior regardless of how visible the drift happens
-      // to be for any one pose.
-      if (player && playerDeathT < 0 && !gunDetached) updateOffHandReach(player);
+      // Runs regardless of gunDetached — see calibratedGripWorldMatrix,
+      // the off-hand's target no longer comes from the actual gun
+      // object's position, so there's nothing for it to chase out to the
+      // detached parking spot in front of the camera anymore, and no
+      // reason to skip a tick while it's parked there.
+      if (player && playerDeathT < 0) updateOffHandReach(player);
       for (let i = 0; i < bots.length; i++) {
         const rig = bots[i];
         if (rig && botStates[i].deathT < 0) updateOffHandReach(rig);
@@ -7330,37 +7384,6 @@ function CombatArena({
         🗺
       </button>
 
-      {/* GUN CAM (Build Mode only): the entry point — turns on the close-up
-          orbit camera described above gunCamYaw/gunCamPitch/gunCamDist.
-          Placed as its own standalone button (not inside the MAP/RIGHT/
-          LEFT/GUN tab row, which already wraps on a narrow phone) so it's
-          always reachable no matter which tab is open. Disappears once
-          it's on — turning it back off is the D-pad's own centre button
-          (see below), since the joystick's corner (where that D-pad
-          lives) is the one screen region guaranteed not to already be
-          full of tab content. */}
-      {(mapId === 4 || mapId === 5) && !gunCamOn && (
-        <button
-          onClick={() => setGunCamOn(true)}
-          aria-label="Toggle gun camera"
-          style={{
-            position: "absolute",
-            left: "6%",
-            bottom: "26%",
-            width: 40,
-            height: 40,
-            borderRadius: "50%",
-            background: "rgba(255,255,255,0.08)",
-            border: "1px solid rgba(200,220,240,0.4)",
-            color: "#dce8f5",
-            fontSize: 17,
-            cursor: "pointer",
-          }}
-        >
-          🎥
-        </button>
-      )}
-
       {/* GUN CAM's own D-pad — takes over the joystick's usual corner
           (hidden while gunCamOn, see the movement-controls block above)
           since there's nothing to walk toward while using a stationary
@@ -7369,9 +7392,9 @@ function CombatArena({
           control" reason — left/right orbit all the way around (yaw is
           unclamped), up/down orbit over the top within the pitch limit,
           forward/back dolly the camera closer/further. The centre cell,
-          empty on the grip D-pad, is this one's OFF button — the only way
-          back to the entry button above, since that button itself hides
-          while GUN CAM is on. */}
+          empty on the grip D-pad, switches back to the MAP tab — GUN CAM
+          itself is just a reflection of the GUN tab being open (see
+          gunCamOn above), so leaving it means leaving that tab. */}
       {(mapId === 4 || mapId === 5) && gunCamOn && (
         <div
           style={{
@@ -7438,7 +7461,7 @@ function CombatArena({
                 dir === "off" ? (
                   <button
                     key="off"
-                    onClick={() => setGunCamOn(false)}
+                    onClick={() => setBuildTopTab("map")}
                     aria-label="Turn off gun camera"
                     style={{
                       gridColumn: colIdx + 1,
@@ -7575,14 +7598,22 @@ function CombatArena({
 
       {/* Movement/combat controls — hidden in Map View, which is purely a
           look-around mode (drag anywhere to orbit/tilt), not a way to keep
-          playing without them on screen. Also hidden while GUN CAM is
-          active (Build Mode only) — that's a stationary close-up view for
-          judging the grip/pose, not something you'd walk around in, and
-          the joystick's own corner is exactly where GUN CAM's D-pad goes
-          instead (see below). */}
-      {!topDownView && !gunCamOn && (
+          playing without them on screen. NOTE: everything else Build Mode
+          renders (the MAP/RIGHT/LEFT/GUN tab row, GUN ON/OFF, every tab's
+          own panel) lives inside this SAME fragment further down — do not
+          gate this outer condition on gunCamOn too, that would hide the
+          tab row itself the moment GUN CAM turns on and strand the player
+          on the GUN tab with no way back. Only the joystick itself (right
+          below) is individually skipped while GUN CAM is active — that's
+          a stationary close-up view for judging the grip/pose, not
+          something you'd walk around in, and its corner is exactly where
+          GUN CAM's own D-pad goes instead (see that D-pad further down). */}
+      {!topDownView && (
         <>
-          {/* Virtual joystick */}
+          {/* Virtual joystick — skipped specifically (not the whole
+              fragment, see the note above) while GUN CAM has taken over
+              this corner for its own D-pad. */}
+          {!gunCamOn && (
           <div
             ref={joystickBaseRef}
             onPointerDown={(e) => {
@@ -7627,6 +7658,7 @@ function CombatArena({
               }}
             />
           </div>
+          )}
 
           {!isNoCombatMap && (
             <>
@@ -8888,6 +8920,80 @@ function CombatArena({
                 }}
               >
                 📥 RESTORE
+              </button>
+            </div>
+            {/* FIRE previews the recoil pose (see triggerFirePreview) and
+                the LEFT/RIGHT pair spins the character itself — both
+                purely for checking the calibrated grip from angles/poses
+                the D-pad's own camera orbit can't get to by itself, since
+                that only moves the camera around a character that never
+                moves. */}
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  buildModeRef.current?.rotatePlayer(-Math.PI / 12);
+                }}
+                aria-label="Rotate character left"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                ↺ LEFT
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  buildModeRef.current?.triggerFirePreview();
+                }}
+                aria-label="Preview fire pose"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(255,140,90,0.22)",
+                  border: "1px solid rgba(255,170,130,0.6)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                🔥 FIRE
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  buildModeRef.current?.rotatePlayer(Math.PI / 12);
+                }}
+                aria-label="Rotate character right"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                RIGHT ↻
               </button>
             </div>
             {/* PITCH/YAW/ROLL (see gunGripRotation) — same native <input
