@@ -2166,6 +2166,10 @@ function saveGunGripOffset() {
 // (RightHand-local, already scaled) — tuned by eye against the actual
 // rig, not derived from a real-world unit.
 const GUN_GRIP_NUDGE_STEP = 0.5;
+// One tap of the GUN tab's LEFT/RIGHT buttons (gun yaw, not the
+// character) — bigger than the GUN YAW slider's own 1° nudge, since a
+// dedicated button is for a quick, coarse turn rather than fine-tuning.
+const GUN_ROTATE_BUTTON_STEP = (2 * Math.PI) / 180;
 
 // Extra rotation on top of the base grip orientation (see
 // GUN_MUZZLE_TARGET_LOCAL), in the gun's OWN local frame at the moment
@@ -3627,7 +3631,6 @@ function CombatArena({
     toggleGunDetach: () => void;
     restorePose: (bundle: PoseBundle) => void;
     triggerFirePreview: () => void;
-    rotatePlayer: (deltaY: number) => void;
   } | null>(null);
   // The piece(s) currently staged by SELECT (world position + orientation)
   // and their translucent preview meshes, cleared once PLACE commits them
@@ -5158,16 +5161,6 @@ function CombatArena({
             playerFireT = 0;
             player.fireAction?.reset().play();
           },
-          // GUN tab's LEFT/RIGHT buttons: spins the character itself
-          // around its own vertical axis, independent of GUN CAM's own
-          // orbit — GUN CAM moves the camera around a stationary character,
-          // this instead turns the character so the SAME camera angle
-          // catches light/silhouette from a different side, the two are
-          // complementary rather than redundant.
-          rotatePlayer: (deltaY) => {
-            if (!player) return;
-            player.root.rotation.y += deltaY;
-          },
         };
       });
     } else {
@@ -6318,6 +6311,17 @@ function CombatArena({
       // doesn't climb/dive it.
       birdYawRef.current -= dx * BIRD_STEER_SENSITIVITY;
       birdPitchRef.current = clamp(birdPitchRef.current - dy * BIRD_STEER_SENSITIVITY, -1.5, 1.4);
+      return;
+    }
+    if (gunCamOnRef.current) {
+      // GUN CAM: same drag-to-look gesture as the normal chase camera,
+      // just steering gunCamYaw/gunCamPitch instead of cameraYaw/
+      // cameraPitch — dragging left/right orbits all the way around
+      // (unclamped, same as the D-pad's own left/right), dragging up/
+      // down orbits over the top within the same pitch limit the D-pad's
+      // up/down buttons already respect.
+      gunCamYaw.current -= dx * LOOK_SENSITIVITY_BASE * lookSensitivity;
+      gunCamPitch.current = clamp(gunCamPitch.current - dy * LOOK_SENSITIVITY_BASE * lookSensitivity, -GUN_CAM_PITCH_LIMIT, GUN_CAM_PITCH_LIMIT);
       return;
     }
     cameraYaw.current -= dx * LOOK_SENSITIVITY_BASE * lookSensitivity;
@@ -8956,19 +8960,21 @@ function CombatArena({
                 touchAction: "pan-y",
               }}
             >
-            {/* FIRE previews the recoil pose (see triggerFirePreview) and
-                the LEFT/RIGHT pair spins the character itself — both
-                purely for checking the calibrated grip from angles/poses
-                the D-pad's own camera orbit can't get to by itself, since
-                that only moves the camera around a character that never
-                moves. */}
+            {/* LEFT/RIGHT rotate the GUN itself (yaw — same value as the
+                GUN YAW slider below, this is just a coarse one-tap way to
+                turn it instead of dragging the slider), not the
+                character — a button labeled LEFT/RIGHT next to a gun
+                calibration panel reads as "turn the gun", so that's what
+                it does now. FIRE stays in the middle, previewing the
+                recoil pose (see triggerFirePreview) with no cooldown/
+                tracer/damage, just the animation. */}
             <div style={{ display: "flex", gap: 6 }}>
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  buildModeRef.current?.rotatePlayer(-Math.PI / 12);
+                  handleGunRotationNudge("yaw", -GUN_ROTATE_BUTTON_STEP);
                 }}
-                aria-label="Rotate character left"
+                aria-label="Rotate gun left"
                 style={{
                   flex: 1,
                   padding: "8px 0",
@@ -9010,9 +9016,9 @@ function CombatArena({
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  buildModeRef.current?.rotatePlayer(Math.PI / 12);
+                  handleGunRotationNudge("yaw", GUN_ROTATE_BUTTON_STEP);
                 }}
-                aria-label="Rotate character right"
+                aria-label="Rotate gun right"
                 style={{
                   flex: 1,
                   padding: "8px 0",
