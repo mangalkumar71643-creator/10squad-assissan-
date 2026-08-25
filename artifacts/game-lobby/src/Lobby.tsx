@@ -8922,6 +8922,36 @@ function CombatArena({
                 📥 RESTORE
               </button>
             </div>
+            {/* FIRE/LEFT/RIGHT + PITCH/YAW/ROLL + the gun grip D-pad share
+                one scrollable section below, same pattern as RIGHT/LEFT's
+                own shoulder/elbow/wrist/finger panel (see renderHandTab)
+                — a plain block div with its own maxHeight/overflowY, NOT
+                stacked directly in the outer flex column. A flex column
+                with maxHeight+overflow on itself lets its children shrink
+                to fit instead of actually overflowing and scrolling,
+                which is what visibly squeezed FIRE/LEFT/RIGHT and the
+                sliders on top of each other the first time this was
+                tried — RESET/BACKUP/RESTORE above stay fixed since
+                they're few enough to never need it. maxHeight is a fixed
+                px reservation, not RIGHT/LEFT's plain 62vh, because this
+                tab ALSO has GUN CAM's own D-pad permanently docked at the
+                bottom of the screen (gunCamOn is always true here) — on
+                a short phone, 62vh's bottom edge lands inside that
+                D-pad's own footprint. Reserving a fixed amount of space
+                for the header above and the D-pad below, whatever's left
+                over, keeps this column's bottom edge above it on any
+                screen height instead of just the tall ones it was tested
+                on. */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                maxHeight: "calc(100vh - 380px)",
+                overflowY: "auto",
+                touchAction: "pan-y",
+              }}
+            >
             {/* FIRE previews the recoil pose (see triggerFirePreview) and
                 the LEFT/RIGHT pair spins the character itself — both
                 purely for checking the calibrated grip from angles/poses
@@ -9022,99 +9052,107 @@ function CombatArena({
                 );
               })}
             </div>
-          </div>
-          <div
-            style={{
-              position: "absolute",
-              right: "7%",
-              bottom: "7%",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              opacity: buildLockedUI ? settings.buttonOpacity * 0.5 : settings.buttonOpacity,
-              pointerEvents: buildLockedUI ? "none" : "auto",
-            }}
-          >
+            {/* Gun grip nudge D-pad — used to float fixed at right:7%/
+                bottom:7%, which on a narrow phone sat directly on top of
+                GUN CAM's own camera-orbit D-pad in the opposite corner
+                (GUN CAM is on unconditionally for this tab now, see
+                gunCamOn — the two floating D-pads used to only coexist if
+                you'd manually turned GUN CAM on yourself, which hid the
+                collision). Moved in here, inline in the same scrollable
+                column as everything else, so there's only ever ONE
+                floating D-pad on screen at a time regardless of phone
+                width. */}
             <div
               style={{
                 display: "flex",
-                flexDirection: "column",
-                gap: 6,
-                width: "clamp(46px, 9vw, 60px)",
-                height: "clamp(150px, 28vw, 210px)",
+                alignItems: "center",
+                gap: 8,
+                opacity: buildLockedUI ? settings.buttonOpacity * 0.5 : settings.buttonOpacity,
+                pointerEvents: buildLockedUI ? "none" : "auto",
               }}
             >
-              {(["up", "down"] as const).map((dir) => (
-                <button
-                  key={dir}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    handleGunGripNudge(dir);
-                  }}
-                  aria-label={`Gun grip ${dir}`}
-                  style={{
-                    flex: 1,
-                    borderRadius: 8,
-                    background: "rgba(255,190,90,0.3)",
-                    border: "1px solid rgba(255,215,150,0.8)",
-                    color: "#dce8f5",
-                    fontFamily: "'Rajdhani', sans-serif",
-                    fontWeight: 700,
-                    fontSize: 13,
-                    letterSpacing: "0.05em",
-                    cursor: "pointer",
-                  }}
-                >
-                  {dir === "up" ? "▲ UP" : "▼ DOWN"}
-                </button>
-              ))}
-            </div>
-            <div
-              style={{
-                width: "clamp(150px, 28vw, 210px)",
-                height: "clamp(150px, 28vw, 210px)",
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
-                gridTemplateRows: "1fr 1fr 1fr",
-                gap: 6,
-              }}
-            >
-              {(
-                [
-                  [null, "forward", null],
-                  ["left", null, "right"],
-                  [null, "back", null],
-                ] as const
-              ).map((row, rowIdx) =>
-                row.map((dir, colIdx) =>
-                  dir ? (
-                    <button
-                      key={dir}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        handleGunGripNudge(dir);
-                      }}
-                      aria-label={`Gun grip ${dir}`}
-                      style={{
-                        gridColumn: colIdx + 1,
-                        gridRow: rowIdx + 1,
-                        borderRadius: 8,
-                        background: "rgba(107,216,255,0.3)",
-                        border: "1px solid rgba(190,235,255,0.8)",
-                        color: "#dce8f5",
-                        fontFamily: "'Rajdhani', sans-serif",
-                        fontWeight: 700,
-                        fontSize: 20,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
-                    </button>
-                  ) : (
-                    <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 5,
+                  width: 40,
+                  height: 140,
+                }}
+              >
+                {(["up", "down"] as const).map((dir) => (
+                  <button
+                    key={dir}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      handleGunGripNudge(dir);
+                    }}
+                    aria-label={`Gun grip ${dir}`}
+                    style={{
+                      flex: 1,
+                      borderRadius: 8,
+                      background: "rgba(255,190,90,0.3)",
+                      border: "1px solid rgba(255,215,150,0.8)",
+                      color: "#dce8f5",
+                      fontFamily: "'Rajdhani', sans-serif",
+                      fontWeight: 700,
+                      fontSize: 11,
+                      letterSpacing: "0.03em",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {dir === "up" ? "▲" : "▼"}
+                  </button>
+                ))}
+              </div>
+              <div
+                style={{
+                  width: 140,
+                  height: 140,
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gridTemplateRows: "1fr 1fr 1fr",
+                  gap: 5,
+                }}
+              >
+                {(
+                  [
+                    [null, "forward", null],
+                    ["left", null, "right"],
+                    [null, "back", null],
+                  ] as const
+                ).map((row, rowIdx) =>
+                  row.map((dir, colIdx) =>
+                    dir ? (
+                      <button
+                        key={dir}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          handleGunGripNudge(dir);
+                        }}
+                        aria-label={`Gun grip ${dir}`}
+                        style={{
+                          gridColumn: colIdx + 1,
+                          gridRow: rowIdx + 1,
+                          borderRadius: 8,
+                          background: "rgba(107,216,255,0.3)",
+                          border: "1px solid rgba(190,235,255,0.8)",
+                          color: "#dce8f5",
+                          fontFamily: "'Rajdhani', sans-serif",
+                          fontWeight: 700,
+                          fontSize: 18,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
+                      </button>
+                    ) : (
+                      <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
+                    ),
                   ),
-                ),
-              )}
+                )}
+              </div>
+            </div>
             </div>
           </div>
         </>
