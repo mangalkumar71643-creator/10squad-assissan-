@@ -2981,6 +2981,16 @@ function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
 }
 
+// Wraps an angle (radians) into [-PI, PI) instead of clamping it there —
+// used for the GUN tab's LEFT/RIGHT gun-rotate buttons (see
+// GUN_ROTATE_BUTTON_STEP), so repeatedly tapping one direction keeps the
+// gun spinning all the way around instead of stopping dead at +/-180°
+// the way gunGripRotation's other axes (nudged via clamp, not this) do.
+function wrapAngle(a: number) {
+  const twoPi = Math.PI * 2;
+  return ((a + Math.PI) % twoPi + twoPi) % twoPi - Math.PI;
+}
+
 // Frame-rate-independent exponential smoothing: eases `current` toward
 // `target` at `rate` per second regardless of dt, instead of a per-frame
 // lerp factor that speeds up or slows down with the frame rate.
@@ -3534,14 +3544,20 @@ function CombatArena({
   // on the gun/hand instead of the player's whole body, for actually
   // seeing the grip up close while calibrating it — the normal chase
   // camera's CAM_DISTANCE is far too wide to judge finger/wrist detail.
-  // yaw/pitch/dist are plain refs (not React state) so the D-pad's nudge
-  // buttons can mutate them directly and have the tick loop below pick up
-  // the change next frame, same as cameraYaw/cameraPitch above — no
-  // render round-trip needed since nothing on screen reflects their exact
-  // numeric value.
+  // yaw/pitch/dist are plain refs (not React state) — drag-to-look
+  // (handleLookMove's gunCamOnRef branch) mutates them directly and has
+  // the tick loop below pick up the change next frame, same as
+  // cameraYaw/cameraPitch above — no render round-trip needed since
+  // nothing on screen reflects their exact numeric value. No on-screen
+  // D-pad for this anymore — orbiting is drag-only, the same gesture as
+  // the normal chase camera's own free-look.
   const gunCamYaw = useRef(0);
   const gunCamPitch = useRef(0.15);
   const gunCamDist = useRef(0.4);
+  // Pitch clamp shared between the drag gesture and the camera's own
+  // orbit-position math below, so dragging can't spin past the lookAt
+  // gimbal singularity straight up/down.
+  const GUN_CAM_PITCH_LIMIT = 1.5;
   const gunCamOnRef = useRef(false);
   const lookTouchId = useRef<number | null>(null);
   const lookLastX = useRef(0);
@@ -6174,13 +6190,14 @@ function CombatArena({
           // body — the normal chase camera's CAM_DISTANCE is metres away,
           // nowhere near close enough to actually judge a finger curl or
           // wrist twist while calibrating. yaw has no clamp at all (full
-          // 360° orbit, exactly what the D-pad's left/right buttons are
-          // for); pitch is clamped shy of straight up/down to avoid the
-          // lookAt gimbal singularity, same margin as the chase camera's
-          // own CAM_PITCH_MAX.
+          // 360° orbit — drag left/right, same gesture as the chase
+          // camera's own free-look, see handleLookMove); pitch is
+          // clamped shy of straight up/down to avoid the lookAt gimbal
+          // singularity, same GUN_CAM_PITCH_LIMIT that gesture itself
+          // clamps to.
           (player.gun ?? player.rightHand)!.getWorldPosition(gunCamWorldPos);
           const yaw = gunCamYaw.current;
-          const pitch = clamp(gunCamPitch.current, -1.5, 1.5);
+          const pitch = clamp(gunCamPitch.current, -GUN_CAM_PITCH_LIMIT, GUN_CAM_PITCH_LIMIT);
           const horiz = gunCamDist.current * Math.cos(pitch);
           const vert = gunCamDist.current * Math.sin(pitch);
           camTargetPos.set(gunCamWorldPos.x - Math.sin(yaw) * horiz, gunCamWorldPos.y + vert, gunCamWorldPos.z - Math.cos(yaw) * horiz);
@@ -6510,28 +6527,6 @@ function CombatArena({
     else if (dir === "right") api.nudgeGunGrip(s, 0, 0);
     else api.nudgeGunGrip(-s, 0, 0);
   };
-  // GUN CAM's own D-pad — mutates the plain refs the tick loop reads
-  // directly (see gunCamYaw/gunCamPitch/gunCamDist above), no buildModeRef
-  // round-trip needed since this doesn't touch the scene graph at all,
-  // just where the camera itself sits. Yaw is unclamped (wraps freely,
-  // giving the full 360° orbit) — pitch and distance are clamped so
-  // left/right can't be spun past the lookAt gimbal singularity and
-  // forward/back can't push the camera through the gun or so far out the
-  // close-up view stops being the point.
-  const GUN_CAM_YAW_STEP = Math.PI / 18; // 10° per tap
-  const GUN_CAM_PITCH_STEP = Math.PI / 18;
-  const GUN_CAM_DIST_STEP = 0.04;
-  const GUN_CAM_PITCH_LIMIT = 1.5;
-  const GUN_CAM_DIST_MIN = 0.12;
-  const GUN_CAM_DIST_MAX = 1.1;
-  const handleGunCamNudge = (dir: "forward" | "back" | "left" | "right" | "up" | "down") => {
-    if (dir === "left") gunCamYaw.current -= GUN_CAM_YAW_STEP;
-    else if (dir === "right") gunCamYaw.current += GUN_CAM_YAW_STEP;
-    else if (dir === "up") gunCamPitch.current = clamp(gunCamPitch.current + GUN_CAM_PITCH_STEP, -GUN_CAM_PITCH_LIMIT, GUN_CAM_PITCH_LIMIT);
-    else if (dir === "down") gunCamPitch.current = clamp(gunCamPitch.current - GUN_CAM_PITCH_STEP, -GUN_CAM_PITCH_LIMIT, GUN_CAM_PITCH_LIMIT);
-    else if (dir === "forward") gunCamDist.current = clamp(gunCamDist.current - GUN_CAM_DIST_STEP, GUN_CAM_DIST_MIN, GUN_CAM_DIST_MAX);
-    else gunCamDist.current = clamp(gunCamDist.current + GUN_CAM_DIST_STEP, GUN_CAM_DIST_MIN, GUN_CAM_DIST_MAX);
-  };
   const handleGunRotationSlider = (axis: "pitch" | "yaw" | "roll", value: number) => {
     buildModeRef.current?.setGunGripRotation(axis, value);
     setGunRotationUI((prev) => ({ ...prev, [axis]: value }));
@@ -6554,6 +6549,17 @@ function CombatArena({
   const handleGunRotationNudge = (axis: "pitch" | "yaw" | "roll", delta: number) => {
     const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
     handleGunRotationSlider(axis, clamp(gunGripRotation[key] + delta, GUN_GRIP_ROTATION_MIN, GUN_GRIP_ROTATION_MAX));
+  };
+  // GUN tab's LEFT/RIGHT buttons — wraps instead of clamping (see
+  // wrapAngle), so holding/repeatedly tapping one direction spins the
+  // gun all the way around instead of jamming at +/-180° the way the
+  // GUN YAW slider's own +/- nudge (handleGunRotationNudge above) does.
+  // Reads gunGripRotation.y directly rather than the gunRotationUI state
+  // mirror — same reasoning as every other nudge handler in this file:
+  // several taps dispatched in one burst can all read the same stale
+  // React state before a re-render lands, silently dropping increments.
+  const handleGunYawSpin = (delta: number) => {
+    handleGunRotationSlider("yaw", wrapAngle(gunGripRotation.y + delta));
   };
   const handleGunCurlNudge = (side: "left" | "right", finger: FingerName, delta: number) => {
     handleGunCurlSlider(side, finger, clamp(fingerCurlExtras[side][finger] + delta, GUN_FINGER_CURL_MIN, GUN_FINGER_CURL_MAX));
@@ -7388,133 +7394,16 @@ function CombatArena({
         🗺
       </button>
 
-      {/* GUN CAM's own D-pad — takes over the joystick's usual corner
-          (hidden while gunCamOn, see the movement-controls block above)
-          since there's nothing to walk toward while using a stationary
-          close-up view. Same up/down column + 3x3 cross layout as the
-          PLAYER tab's gun-grip D-pad, for the same "reads as one kind of
-          control" reason — left/right orbit all the way around (yaw is
-          unclamped), up/down orbit over the top within the pitch limit,
-          forward/back dolly the camera closer/further. The centre cell,
-          empty on the grip D-pad, switches back to the MAP tab — GUN CAM
-          itself is just a reflection of the GUN tab being open (see
-          gunCamOn above), so leaving it means leaving that tab. Sized to
-          match the grip D-pad's own compact fixed dimensions (not the
-          old clamp() range, which could grow up to 223px wide) — the
-          grip D-pad lives in the opposite corner on the GUN tab, and the
-          two need to both fit without their footprints meeting in the
-          middle even on a 320px-wide phone. */}
-      {(mapId === 4 || mapId === 5) && gunCamOn && (
-        <div
-          style={{
-            position: "absolute",
-            left: "4%",
-            bottom: "6%",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 4,
-              width: 32,
-              height: 110,
-            }}
-          >
-            {(["up", "down"] as const).map((dir) => (
-              <button
-                key={dir}
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleGunCamNudge(dir);
-                }}
-                aria-label={`Gun cam ${dir}`}
-                style={{
-                  flex: 1,
-                  borderRadius: 7,
-                  background: "rgba(255,190,90,0.3)",
-                  border: "1px solid rgba(255,215,150,0.8)",
-                  color: "#dce8f5",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  fontSize: 10,
-                  cursor: "pointer",
-                }}
-              >
-                {dir === "up" ? "▲" : "▼"}
-              </button>
-            ))}
-          </div>
-          <div
-            style={{
-              width: 110,
-              height: 110,
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
-              gridTemplateRows: "1fr 1fr 1fr",
-              gap: 4,
-            }}
-          >
-            {(
-              [
-                [null, "forward", null],
-                ["left", "off", "right"],
-                [null, "back", null],
-              ] as const
-            ).map((row, rowIdx) =>
-              row.map((dir, colIdx) =>
-                dir === "off" ? (
-                  <button
-                    key="off"
-                    onClick={() => setBuildTopTab("map")}
-                    aria-label="Turn off gun camera"
-                    style={{
-                      gridColumn: colIdx + 1,
-                      gridRow: rowIdx + 1,
-                      borderRadius: 7,
-                      background: "rgba(255,110,90,0.3)",
-                      border: "1px solid rgba(255,150,130,0.9)",
-                      color: "#dce8f5",
-                      fontSize: 16,
-                      cursor: "pointer",
-                    }}
-                  >
-                    ✕
-                  </button>
-                ) : dir ? (
-                  <button
-                    key={dir}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      handleGunCamNudge(dir);
-                    }}
-                    aria-label={`Gun cam ${dir}`}
-                    style={{
-                      gridColumn: colIdx + 1,
-                      gridRow: rowIdx + 1,
-                      borderRadius: 7,
-                      background: "rgba(107,216,255,0.3)",
-                      border: "1px solid rgba(190,235,255,0.8)",
-                      color: "#dce8f5",
-                      fontFamily: "'Rajdhani', sans-serif",
-                      fontWeight: 700,
-                      fontSize: 18,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
-                  </button>
-                ) : (
-                  <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
-                ),
-              ),
-            )}
-          </div>
-        </div>
-      )}
+      {/* GUN CAM no longer has its own D-pad — orbiting/tilting it is
+          drag-only now (see handleLookMove's gunCamOnRef branch), the
+          exact same click-and-drag gesture as the normal chase camera's
+          own free-look, just steering gunCamYaw/gunCamPitch instead of
+          cameraYaw/cameraPitch. A D-pad duplicating a gesture that
+          already works, and eating into the one screen corner not
+          already claimed by the grip D-pad or the tab panel, wasn't
+          adding anything the drag doesn't already do. Leaving/entering
+          GUN CAM is just switching tabs (see gunCamOn above), same as
+          before. */}
 
       {/* Bird Stop/Start — freezes the bird in place (still steerable/
           lookable) so the player can study a spot instead of always
@@ -7611,17 +7500,10 @@ function CombatArena({
           own panel) lives inside this SAME fragment further down — do not
           gate this outer condition on gunCamOn too, that would hide the
           tab row itself the moment GUN CAM turns on and strand the player
-          on the GUN tab with no way back. Only the joystick itself (right
-          below) is individually skipped while GUN CAM is active — that's
-          a stationary close-up view for judging the grip/pose, not
-          something you'd walk around in, and its corner is exactly where
-          GUN CAM's own D-pad goes instead (see that D-pad further down). */}
+          on the GUN tab with no way back. */}
       {!topDownView && (
         <>
-          {/* Virtual joystick — skipped specifically (not the whole
-              fragment, see the note above) while GUN CAM has taken over
-              this corner for its own D-pad. */}
-          {!gunCamOn && (
+          {/* Virtual joystick */}
           <div
             ref={joystickBaseRef}
             onPointerDown={(e) => {
@@ -7666,7 +7548,6 @@ function CombatArena({
               }}
             />
           </div>
-          )}
 
           {!isNoCombatMap && (
             <>
@@ -8960,19 +8841,18 @@ function CombatArena({
                 touchAction: "pan-y",
               }}
             >
-            {/* LEFT/RIGHT rotate the GUN itself (yaw — same value as the
-                GUN YAW slider below, this is just a coarse one-tap way to
-                turn it instead of dragging the slider), not the
-                character — a button labeled LEFT/RIGHT next to a gun
-                calibration panel reads as "turn the gun", so that's what
-                it does now. FIRE stays in the middle, previewing the
+            {/* LEFT/RIGHT spin the GUN itself all the way around (yaw,
+                wrapping past +/-180° instead of jamming there — see
+                handleGunYawSpin/wrapAngle) — a full continuous 360°
+                turn with repeated taps, not just the slider's own
+                bounded range. FIRE stays in the middle, previewing the
                 recoil pose (see triggerFirePreview) with no cooldown/
                 tracer/damage, just the animation. */}
             <div style={{ display: "flex", gap: 6 }}>
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  handleGunRotationNudge("yaw", -GUN_ROTATE_BUTTON_STEP);
+                  handleGunYawSpin(-GUN_ROTATE_BUTTON_STEP);
                 }}
                 aria-label="Rotate gun left"
                 style={{
@@ -9016,7 +8896,7 @@ function CombatArena({
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  handleGunRotationNudge("yaw", GUN_ROTATE_BUTTON_STEP);
+                  handleGunYawSpin(GUN_ROTATE_BUTTON_STEP);
                 }}
                 aria-label="Rotate gun right"
                 style={{
