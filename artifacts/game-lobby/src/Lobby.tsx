@@ -2166,11 +2166,6 @@ function saveGunGripOffset() {
 // (RightHand-local, already scaled) — tuned by eye against the actual
 // rig, not derived from a real-world unit.
 const GUN_GRIP_NUDGE_STEP = 0.5;
-// One tap of the GUN tab's ROTATE D-pad (see its own comment), in
-// radians — a bigger step than the PITCH/YAW/ROLL sliders' own 1°
-// nudge buttons, since the D-pad is for coarse "point it this way"
-// adjustment rather than fine-tuning.
-const GUN_ROTATE_DPAD_STEP = (2 * Math.PI) / 180;
 
 // Extra rotation on top of the base grip orientation (see
 // GUN_MUZZLE_TARGET_LOCAL), in the gun's OWN local frame at the moment
@@ -7399,7 +7394,12 @@ function CombatArena({
           forward/back dolly the camera closer/further. The centre cell,
           empty on the grip D-pad, switches back to the MAP tab — GUN CAM
           itself is just a reflection of the GUN tab being open (see
-          gunCamOn above), so leaving it means leaving that tab. */}
+          gunCamOn above), so leaving it means leaving that tab. Sized to
+          match the grip D-pad's own compact fixed dimensions (not the
+          old clamp() range, which could grow up to 223px wide) — the
+          grip D-pad lives in the opposite corner on the GUN tab, and the
+          two need to both fit without their footprints meeting in the
+          middle even on a 320px-wide phone. */}
       {(mapId === 4 || mapId === 5) && gunCamOn && (
         <div
           style={{
@@ -7408,16 +7408,16 @@ function CombatArena({
             bottom: "6%",
             display: "flex",
             alignItems: "center",
-            gap: 8,
+            gap: 6,
           }}
         >
           <div
             style={{
               display: "flex",
               flexDirection: "column",
-              gap: 5,
-              width: "clamp(38px, 7vw, 50px)",
-              height: "clamp(120px, 22vw, 165px)",
+              gap: 4,
+              width: 32,
+              height: 110,
             }}
           >
             {(["up", "down"] as const).map((dir) => (
@@ -7436,8 +7436,7 @@ function CombatArena({
                   color: "#dce8f5",
                   fontFamily: "'Rajdhani', sans-serif",
                   fontWeight: 700,
-                  fontSize: 11,
-                  letterSpacing: "0.04em",
+                  fontSize: 10,
                   cursor: "pointer",
                 }}
               >
@@ -7447,12 +7446,12 @@ function CombatArena({
           </div>
           <div
             style={{
-              width: "clamp(120px, 22vw, 165px)",
-              height: "clamp(120px, 22vw, 165px)",
+              width: 110,
+              height: 110,
               display: "grid",
               gridTemplateColumns: "1fr 1fr 1fr",
               gridTemplateRows: "1fr 1fr 1fr",
-              gap: 5,
+              gap: 4,
             }}
           >
             {(
@@ -9031,118 +9030,15 @@ function CombatArena({
                 RIGHT ↻
               </button>
             </div>
-            {/* ROTATE — a proper directional D-pad for gunGripRotation,
-                alongside (not instead of) the exact-degree PITCH/YAW/ROLL
-                sliders just below. The sliders' own +/- nudges do the
-                same underlying rotation, but as a tiny button next to a
-                number they don't read as "point the gun this way" the
-                way a real cross-shaped D-pad does — UP/DOWN visibly tilt
-                the muzzle, LEFT/RIGHT visibly turn it, same tactile
-                cross-plus-side-column shape as the grip position D-pad
-                below so it reads as the same kind of control. ROLL
-                (barrel spin) sits in its own side column since it isn't
-                a "direction" the same way pitch/yaw are. */}
-            {renderSectionHeader("ROTATE")}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                opacity: buildLockedUI ? settings.buttonOpacity * 0.5 : settings.buttonOpacity,
-                pointerEvents: buildLockedUI ? "none" : "auto",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 5,
-                  width: 40,
-                  height: 140,
-                }}
-              >
-                {([
-                  ["roll-", -GUN_ROTATE_DPAD_STEP],
-                  ["roll+", GUN_ROTATE_DPAD_STEP],
-                ] as const).map(([key, delta]) => (
-                  <button
-                    key={key}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      handleGunRotationNudge("roll", delta);
-                    }}
-                    aria-label={key === "roll-" ? "Gun roll left" : "Gun roll right"}
-                    style={{
-                      flex: 1,
-                      borderRadius: 8,
-                      background: "rgba(180,140,255,0.3)",
-                      border: "1px solid rgba(210,180,255,0.8)",
-                      color: "#dce8f5",
-                      fontFamily: "'Rajdhani', sans-serif",
-                      fontWeight: 700,
-                      fontSize: 16,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {key === "roll-" ? "⟲" : "⟳"}
-                  </button>
-                ))}
-              </div>
-              <div
-                style={{
-                  width: 140,
-                  height: 140,
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr 1fr",
-                  gridTemplateRows: "1fr 1fr 1fr",
-                  gap: 5,
-                }}
-              >
-                {(
-                  [
-                    [null, "up", null],
-                    ["left", null, "right"],
-                    [null, "down", null],
-                  ] as const
-                ).map((row, rowIdx) =>
-                  row.map((dir, colIdx) =>
-                    dir ? (
-                      <button
-                        key={dir}
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          if (dir === "up") handleGunRotationNudge("pitch", -GUN_ROTATE_DPAD_STEP);
-                          else if (dir === "down") handleGunRotationNudge("pitch", GUN_ROTATE_DPAD_STEP);
-                          else if (dir === "left") handleGunRotationNudge("yaw", -GUN_ROTATE_DPAD_STEP);
-                          else handleGunRotationNudge("yaw", GUN_ROTATE_DPAD_STEP);
-                        }}
-                        aria-label={`Gun rotate ${dir}`}
-                        style={{
-                          gridColumn: colIdx + 1,
-                          gridRow: rowIdx + 1,
-                          borderRadius: 8,
-                          background: "rgba(107,216,255,0.3)",
-                          border: "1px solid rgba(190,235,255,0.8)",
-                          color: "#dce8f5",
-                          fontFamily: "'Rajdhani', sans-serif",
-                          fontWeight: 700,
-                          fontSize: 18,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {dir === "up" ? "↑" : dir === "down" ? "↓" : dir === "left" ? "←" : "→"}
-                      </button>
-                    ) : (
-                      <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
-                    ),
-                  ),
-                )}
-              </div>
-            </div>
-            {/* PITCH/YAW/ROLL (see gunGripRotation) — same native <input
-                type="range"> + label-row shape as the LOOK SENSITIVITY
-                slider in the settings panel. Exact-degree readout/entry to
-                go with the D-pad just above. */}
+            {/* PITCH/YAW/ROLL (see gunGripRotation) — plain sliders, on
+                purpose not a D-pad. This tab used to have both a slider
+                AND an arrow-button D-pad for the same three values,
+                which is what pushed this scrollable section tall enough
+                to start crowding GUN CAM's own D-pad on short screens.
+                Sliders alone here; the grip POSITION D-pad (an actually
+                different control — where the gun sits, not how it's
+                turned) goes back to floating on the right side, see
+                below. */}
             <div
               style={{
                 display: "flex",
@@ -9166,107 +9062,107 @@ function CombatArena({
                 );
               })}
             </div>
-            {/* Gun grip nudge D-pad — used to float fixed at right:7%/
-                bottom:7%, which on a narrow phone sat directly on top of
-                GUN CAM's own camera-orbit D-pad in the opposite corner
-                (GUN CAM is on unconditionally for this tab now, see
-                gunCamOn — the two floating D-pads used to only coexist if
-                you'd manually turned GUN CAM on yourself, which hid the
-                collision). Moved in here, inline in the same scrollable
-                column as everything else, so there's only ever ONE
-                floating D-pad on screen at a time regardless of phone
-                width. */}
+            </div>
+          </div>
+          {/* Gun grip nudge D-pad — position (where the gun sits in the
+              hand), not rotation, so it stays a separate control on the
+              opposite side of the screen from the LEFT-side panel above,
+              not folded into that panel's own scroll. Sized compact
+              (110px grid, 32px side column) and kept well clear of GUN
+              CAM's own D-pad in the bottom-left corner (see that D-pad's
+              own matching compact size) — verified no overlap at
+              320-420px screen widths. */}
+          <div
+            style={{
+              position: "absolute",
+              right: "4%",
+              bottom: "6%",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              opacity: buildLockedUI ? settings.buttonOpacity * 0.5 : settings.buttonOpacity,
+              pointerEvents: buildLockedUI ? "none" : "auto",
+            }}
+          >
             <div
               style={{
                 display: "flex",
-                alignItems: "center",
-                gap: 8,
-                opacity: buildLockedUI ? settings.buttonOpacity * 0.5 : settings.buttonOpacity,
-                pointerEvents: buildLockedUI ? "none" : "auto",
+                flexDirection: "column",
+                gap: 4,
+                width: 32,
+                height: 110,
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 5,
-                  width: 40,
-                  height: 140,
-                }}
-              >
-                {(["up", "down"] as const).map((dir) => (
-                  <button
-                    key={dir}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      handleGunGripNudge(dir);
-                    }}
-                    aria-label={`Gun grip ${dir}`}
-                    style={{
-                      flex: 1,
-                      borderRadius: 8,
-                      background: "rgba(255,190,90,0.3)",
-                      border: "1px solid rgba(255,215,150,0.8)",
-                      color: "#dce8f5",
-                      fontFamily: "'Rajdhani', sans-serif",
-                      fontWeight: 700,
-                      fontSize: 11,
-                      letterSpacing: "0.03em",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {dir === "up" ? "▲" : "▼"}
-                  </button>
-                ))}
-              </div>
-              <div
-                style={{
-                  width: 140,
-                  height: 140,
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr 1fr",
-                  gridTemplateRows: "1fr 1fr 1fr",
-                  gap: 5,
-                }}
-              >
-                {(
-                  [
-                    [null, "forward", null],
-                    ["left", null, "right"],
-                    [null, "back", null],
-                  ] as const
-                ).map((row, rowIdx) =>
-                  row.map((dir, colIdx) =>
-                    dir ? (
-                      <button
-                        key={dir}
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          handleGunGripNudge(dir);
-                        }}
-                        aria-label={`Gun grip ${dir}`}
-                        style={{
-                          gridColumn: colIdx + 1,
-                          gridRow: rowIdx + 1,
-                          borderRadius: 8,
-                          background: "rgba(107,216,255,0.3)",
-                          border: "1px solid rgba(190,235,255,0.8)",
-                          color: "#dce8f5",
-                          fontFamily: "'Rajdhani', sans-serif",
-                          fontWeight: 700,
-                          fontSize: 18,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
-                      </button>
-                    ) : (
-                      <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
-                    ),
-                  ),
-                )}
-              </div>
+              {(["up", "down"] as const).map((dir) => (
+                <button
+                  key={dir}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    handleGunGripNudge(dir);
+                  }}
+                  aria-label={`Gun grip ${dir}`}
+                  style={{
+                    flex: 1,
+                    borderRadius: 7,
+                    background: "rgba(255,190,90,0.3)",
+                    border: "1px solid rgba(255,215,150,0.8)",
+                    color: "#dce8f5",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 10,
+                    cursor: "pointer",
+                  }}
+                >
+                  {dir === "up" ? "▲" : "▼"}
+                </button>
+              ))}
             </div>
+            <div
+              style={{
+                width: 110,
+                height: 110,
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1fr",
+                gridTemplateRows: "1fr 1fr 1fr",
+                gap: 4,
+              }}
+            >
+              {(
+                [
+                  [null, "forward", null],
+                  ["left", null, "right"],
+                  [null, "back", null],
+                ] as const
+              ).map((row, rowIdx) =>
+                row.map((dir, colIdx) =>
+                  dir ? (
+                    <button
+                      key={dir}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        handleGunGripNudge(dir);
+                      }}
+                      aria-label={`Gun grip ${dir}`}
+                      style={{
+                        gridColumn: colIdx + 1,
+                        gridRow: rowIdx + 1,
+                        borderRadius: 7,
+                        background: "rgba(107,216,255,0.3)",
+                        border: "1px solid rgba(190,235,255,0.8)",
+                        color: "#dce8f5",
+                        fontFamily: "'Rajdhani', sans-serif",
+                        fontWeight: 700,
+                        fontSize: 15,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
+                    </button>
+                  ) : (
+                    <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
+                  ),
+                ),
+              )}
             </div>
           </div>
         </>
