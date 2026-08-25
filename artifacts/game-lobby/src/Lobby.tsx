@@ -2360,11 +2360,19 @@ function isValidPoseBundle(data: unknown): data is PoseBundle {
   if (!arms || !isArmSide(arms.right) || !isArmSide(arms.left)) return false;
   return true;
 }
-// The PLAYER tab's per-finger curl sliders — -1 (fully uncurled/loose)
-// to +1 (an extra full base-curl's worth on top of the already-curled
-// starting grip) either side of the base table's own fixed curl.
-const GUN_FINGER_CURL_MIN = -1;
-const GUN_FINGER_CURL_MAX = 1;
+// The RIGHT/LEFT tabs' per-finger curl sliders — total curl on a joint
+// works out to FINGER_CURL_ANGLES[joint] * (1 + extra), so extra = -1
+// only cancels the base table's own added curl, landing back on
+// whatever the raw skeleton's resting hand pose happens to be — which
+// on this rig isn't a fully flat open hand, so -1 alone still read as
+// slightly hooked fingers no matter how far it was dragged. Widened
+// past ±1 so the negative end can push through zero into genuinely
+// bending the joint the other way (past the rig's own rest pose, to a
+// properly flat/open hand) instead of stopping exactly at "no added
+// curl", and the positive end gets the matching extra room for a
+// tighter fist.
+const GUN_FINGER_CURL_MIN = -2;
+const GUN_FINGER_CURL_MAX = 2;
 
 // The gun model is a static (unskinned) mesh, so one glTF load is shared
 // and cloned for whichever fighter needs it.
@@ -2688,12 +2696,22 @@ function updateOffHandReach(rig: FighterRig) {
 // axis just add), so live incremental nudges and the persisted total
 // never drift apart.
 const FINGER_CURL_AXIS = new THREE.Vector3(0, 0, 1);
+// Each finger in this rig actually has FOUR joints (mixamorigRightHand
+// Index1/2/3/4, etc — confirmed by traversing the loaded model, not
+// guessed), not three. Only curling 1-3 left the 4th (outermost) joint
+// permanently stuck at whatever the base skeleton pose happens to leave
+// it at — a fist never fully closed all the way to the fingertip, and
+// (more noticeably) fully uncurling never straightened that last
+// segment either, so an "open" hand still read as having slightly
+// hooked fingertips no matter how negative the curl slider went. Joint
+// 4 is added here tapering down from joint 3, same shape the existing
+// 1→2→3 progression already has for each finger.
 const FINGER_CURL_ANGLES: Record<string, number> = {
-  Index1: 0.55, Index2: 0.7, Index3: 0.6,
-  Middle1: 0.6, Middle2: 0.75, Middle3: 0.65,
-  Ring1: 0.65, Ring2: 0.8, Ring3: 0.7,
-  Pinky1: 0.7, Pinky2: 0.85, Pinky3: 0.75,
-  Thumb1: 0.2, Thumb2: 0.4, Thumb3: 0.35,
+  Index1: 0.55, Index2: 0.7, Index3: 0.6, Index4: 0.4,
+  Middle1: 0.6, Middle2: 0.75, Middle3: 0.65, Middle4: 0.45,
+  Ring1: 0.65, Ring2: 0.8, Ring3: 0.7, Ring4: 0.5,
+  Pinky1: 0.7, Pinky2: 0.85, Pinky3: 0.75, Pinky4: 0.55,
+  Thumb1: 0.2, Thumb2: 0.4, Thumb3: 0.35, Thumb4: 0.25,
 };
 const fingerCurlQuat = new THREE.Quaternion();
 function curlGunGripFingers(fingers: Record<string, THREE.Object3D>, mirror: 1 | -1, scale: number | FingerCurlExtra = 1) {
