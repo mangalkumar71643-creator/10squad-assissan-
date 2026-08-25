@@ -3492,6 +3492,19 @@ function CombatArena({
   // default over-the-shoulder angle (see CAM_PITCH_MIN/MAX below).
   const cameraYaw = useRef(Math.PI);
   const cameraPitch = useRef(0);
+  // GUN CAM (Build Mode only): a second, independent orbit camera centered
+  // on the gun/hand instead of the player's whole body, for actually
+  // seeing the grip up close while calibrating it — the normal chase
+  // camera's CAM_DISTANCE is far too wide to judge finger/wrist detail.
+  // yaw/pitch/dist are plain refs (not React state) so the D-pad's nudge
+  // buttons can mutate them directly and have the tick loop below pick up
+  // the change next frame, same as cameraYaw/cameraPitch above — no
+  // render round-trip needed since nothing on screen reflects their exact
+  // numeric value.
+  const gunCamYaw = useRef(0);
+  const gunCamPitch = useRef(0.15);
+  const gunCamDist = useRef(0.4);
+  const gunCamOnRef = useRef(false);
   const lookTouchId = useRef<number | null>(null);
   const lookLastX = useRef(0);
   const lookLastY = useRef(0);
@@ -3550,6 +3563,11 @@ function CombatArena({
   // tick below is a stable closure set up once on mount.
   const [topDownView, setTopDownView] = useState(false);
   const topDownViewRef = useRef(false);
+  // GUN CAM toggle's own React-state mirror of gunCamOnRef (see that ref's
+  // comment above) — same split as topDownView/topDownViewRef, state
+  // drives the button's own highlight, the ref is what the tick loop
+  // closure actually reads.
+  const [gunCamOn, setGunCamOn] = useState(false);
   // Populated once by the scene-building effect below with every ceiling
   // slab in the level, so toggling Map View can hide them — otherwise
   // looking straight down just shows the solid (double-sided) roof instead
@@ -3801,7 +3819,13 @@ function CombatArena({
     topDownViewRef.current = topDownView;
     for (const ceiling of ceilingMeshesRef.current) ceiling.visible = !topDownView;
     if (topDownView) setBirdFlying(true);
+    if (topDownView) setGunCamOn(false);
   }, [topDownView]);
+
+  useEffect(() => {
+    gunCamOnRef.current = gunCamOn;
+    if (gunCamOn) setTopDownView(false);
+  }, [gunCamOn]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -5492,6 +5516,7 @@ function CombatArena({
     let resultRevealT = 0;
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
+    const gunCamWorldPos = new THREE.Vector3();
 
     // Map View: a bird flying itself over the level on autopilot — the
     // player only steers left/right (dragged into birdYawRef via
@@ -5566,7 +5591,17 @@ function CombatArena({
       // drives the arm bones for the collapse, and re-bending the off-hand
       // onto the gun every frame would fight that pose (and just looks
       // wrong — a dropped body shouldn't still be gripping the gun).
-      if (player && playerDeathT < 0) updateOffHandReach(player);
+      // Also skipped while the PLAYER tab has pulled the gun off the hand
+      // (gunDetached) — toggleGunDetach relocates the gun out in front of
+      // the camera for free positioning, and without this guard the
+      // off-hand IK kept chasing that relocated position every frame
+      // instead of the real in-hand grip, solving toward a target that
+      // has nothing to do with the calibrated pose. Freezing the
+      // off-hand's last good solve while the gun sits somewhere else
+      // (rather than re-aiming at a target that isn't the gun at all) is
+      // the correct behavior regardless of how visible the drift happens
+      // to be for any one pose.
+      if (player && playerDeathT < 0 && !gunDetached) updateOffHandReach(player);
       for (let i = 0; i < bots.length; i++) {
         const rig = bots[i];
         if (rig && botStates[i].deathT < 0) updateOffHandReach(rig);
@@ -6085,7 +6120,26 @@ function CombatArena({
         // it eases a little slower while the player's speed is changing
         // quickly — accelerating off the mark or braking to a stop — which
         // reads as a slight, natural lag instead of a rigid, glued-on rig.
-        if (topDownViewRef.current) {
+        if (gunCamOnRef.current && (player.gun || player.rightHand)) {
+          // GUN CAM (Build Mode): orbits gunCamYaw/gunCamPitch/gunCamDist
+          // around the gun's current world position (falling back to the
+          // hand if the gun is mid-detach) instead of the player's whole
+          // body — the normal chase camera's CAM_DISTANCE is metres away,
+          // nowhere near close enough to actually judge a finger curl or
+          // wrist twist while calibrating. yaw has no clamp at all (full
+          // 360° orbit, exactly what the D-pad's left/right buttons are
+          // for); pitch is clamped shy of straight up/down to avoid the
+          // lookAt gimbal singularity, same margin as the chase camera's
+          // own CAM_PITCH_MAX.
+          (player.gun ?? player.rightHand)!.getWorldPosition(gunCamWorldPos);
+          const yaw = gunCamYaw.current;
+          const pitch = clamp(gunCamPitch.current, -1.5, 1.5);
+          const horiz = gunCamDist.current * Math.cos(pitch);
+          const vert = gunCamDist.current * Math.sin(pitch);
+          camTargetPos.set(gunCamWorldPos.x - Math.sin(yaw) * horiz, gunCamWorldPos.y + vert, gunCamWorldPos.z - Math.cos(yaw) * horiz);
+          camera.position.lerp(camTargetPos, 1 - Math.exp(-CAM_DAMP_RATE * dt));
+          camera.lookAt(gunCamWorldPos);
+        } else if (topDownViewRef.current) {
           // Map View: the bird's own autopilot flight — on the frame Map
           // View is (re-)opened, it launches from directly above the
           // player, flying (Stop/Start: birdFlyingRef) along birdYaw,
@@ -6397,6 +6451,28 @@ function CombatArena({
     else if (dir === "back") api.nudgeGunGrip(0, 0, -s);
     else if (dir === "right") api.nudgeGunGrip(s, 0, 0);
     else api.nudgeGunGrip(-s, 0, 0);
+  };
+  // GUN CAM's own D-pad — mutates the plain refs the tick loop reads
+  // directly (see gunCamYaw/gunCamPitch/gunCamDist above), no buildModeRef
+  // round-trip needed since this doesn't touch the scene graph at all,
+  // just where the camera itself sits. Yaw is unclamped (wraps freely,
+  // giving the full 360° orbit) — pitch and distance are clamped so
+  // left/right can't be spun past the lookAt gimbal singularity and
+  // forward/back can't push the camera through the gun or so far out the
+  // close-up view stops being the point.
+  const GUN_CAM_YAW_STEP = Math.PI / 18; // 10° per tap
+  const GUN_CAM_PITCH_STEP = Math.PI / 18;
+  const GUN_CAM_DIST_STEP = 0.04;
+  const GUN_CAM_PITCH_LIMIT = 1.5;
+  const GUN_CAM_DIST_MIN = 0.12;
+  const GUN_CAM_DIST_MAX = 1.1;
+  const handleGunCamNudge = (dir: "forward" | "back" | "left" | "right" | "up" | "down") => {
+    if (dir === "left") gunCamYaw.current -= GUN_CAM_YAW_STEP;
+    else if (dir === "right") gunCamYaw.current += GUN_CAM_YAW_STEP;
+    else if (dir === "up") gunCamPitch.current = clamp(gunCamPitch.current + GUN_CAM_PITCH_STEP, -GUN_CAM_PITCH_LIMIT, GUN_CAM_PITCH_LIMIT);
+    else if (dir === "down") gunCamPitch.current = clamp(gunCamPitch.current - GUN_CAM_PITCH_STEP, -GUN_CAM_PITCH_LIMIT, GUN_CAM_PITCH_LIMIT);
+    else if (dir === "forward") gunCamDist.current = clamp(gunCamDist.current - GUN_CAM_DIST_STEP, GUN_CAM_DIST_MIN, GUN_CAM_DIST_MAX);
+    else gunCamDist.current = clamp(gunCamDist.current + GUN_CAM_DIST_STEP, GUN_CAM_DIST_MIN, GUN_CAM_DIST_MAX);
   };
   const handleGunRotationSlider = (axis: "pitch" | "yaw" | "roll", value: number) => {
     buildModeRef.current?.setGunGripRotation(axis, value);
@@ -7254,6 +7330,161 @@ function CombatArena({
         🗺
       </button>
 
+      {/* GUN CAM (Build Mode only): the entry point — turns on the close-up
+          orbit camera described above gunCamYaw/gunCamPitch/gunCamDist.
+          Placed as its own standalone button (not inside the MAP/RIGHT/
+          LEFT/GUN tab row, which already wraps on a narrow phone) so it's
+          always reachable no matter which tab is open. Disappears once
+          it's on — turning it back off is the D-pad's own centre button
+          (see below), since the joystick's corner (where that D-pad
+          lives) is the one screen region guaranteed not to already be
+          full of tab content. */}
+      {(mapId === 4 || mapId === 5) && !gunCamOn && (
+        <button
+          onClick={() => setGunCamOn(true)}
+          aria-label="Toggle gun camera"
+          style={{
+            position: "absolute",
+            left: "6%",
+            bottom: "26%",
+            width: 40,
+            height: 40,
+            borderRadius: "50%",
+            background: "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(200,220,240,0.4)",
+            color: "#dce8f5",
+            fontSize: 17,
+            cursor: "pointer",
+          }}
+        >
+          🎥
+        </button>
+      )}
+
+      {/* GUN CAM's own D-pad — takes over the joystick's usual corner
+          (hidden while gunCamOn, see the movement-controls block above)
+          since there's nothing to walk toward while using a stationary
+          close-up view. Same up/down column + 3x3 cross layout as the
+          PLAYER tab's gun-grip D-pad, for the same "reads as one kind of
+          control" reason — left/right orbit all the way around (yaw is
+          unclamped), up/down orbit over the top within the pitch limit,
+          forward/back dolly the camera closer/further. The centre cell,
+          empty on the grip D-pad, is this one's OFF button — the only way
+          back to the entry button above, since that button itself hides
+          while GUN CAM is on. */}
+      {(mapId === 4 || mapId === 5) && gunCamOn && (
+        <div
+          style={{
+            position: "absolute",
+            left: "4%",
+            bottom: "6%",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 5,
+              width: "clamp(38px, 7vw, 50px)",
+              height: "clamp(120px, 22vw, 165px)",
+            }}
+          >
+            {(["up", "down"] as const).map((dir) => (
+              <button
+                key={dir}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleGunCamNudge(dir);
+                }}
+                aria-label={`Gun cam ${dir}`}
+                style={{
+                  flex: 1,
+                  borderRadius: 7,
+                  background: "rgba(255,190,90,0.3)",
+                  border: "1px solid rgba(255,215,150,0.8)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 11,
+                  letterSpacing: "0.04em",
+                  cursor: "pointer",
+                }}
+              >
+                {dir === "up" ? "▲" : "▼"}
+              </button>
+            ))}
+          </div>
+          <div
+            style={{
+              width: "clamp(120px, 22vw, 165px)",
+              height: "clamp(120px, 22vw, 165px)",
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gridTemplateRows: "1fr 1fr 1fr",
+              gap: 5,
+            }}
+          >
+            {(
+              [
+                [null, "forward", null],
+                ["left", "off", "right"],
+                [null, "back", null],
+              ] as const
+            ).map((row, rowIdx) =>
+              row.map((dir, colIdx) =>
+                dir === "off" ? (
+                  <button
+                    key="off"
+                    onClick={() => setGunCamOn(false)}
+                    aria-label="Turn off gun camera"
+                    style={{
+                      gridColumn: colIdx + 1,
+                      gridRow: rowIdx + 1,
+                      borderRadius: 7,
+                      background: "rgba(255,110,90,0.3)",
+                      border: "1px solid rgba(255,150,130,0.9)",
+                      color: "#dce8f5",
+                      fontSize: 16,
+                      cursor: "pointer",
+                    }}
+                  >
+                    ✕
+                  </button>
+                ) : dir ? (
+                  <button
+                    key={dir}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      handleGunCamNudge(dir);
+                    }}
+                    aria-label={`Gun cam ${dir}`}
+                    style={{
+                      gridColumn: colIdx + 1,
+                      gridRow: rowIdx + 1,
+                      borderRadius: 7,
+                      background: "rgba(107,216,255,0.3)",
+                      border: "1px solid rgba(190,235,255,0.8)",
+                      color: "#dce8f5",
+                      fontFamily: "'Rajdhani', sans-serif",
+                      fontWeight: 700,
+                      fontSize: 18,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
+                  </button>
+                ) : (
+                  <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
+                ),
+              ),
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Bird Stop/Start — freezes the bird in place (still steerable/
           lookable) so the player can study a spot instead of always
           drifting past it, then sends it flying again. */}
@@ -7344,8 +7575,12 @@ function CombatArena({
 
       {/* Movement/combat controls — hidden in Map View, which is purely a
           look-around mode (drag anywhere to orbit/tilt), not a way to keep
-          playing without them on screen. */}
-      {!topDownView && (
+          playing without them on screen. Also hidden while GUN CAM is
+          active (Build Mode only) — that's a stationary close-up view for
+          judging the grip/pose, not something you'd walk around in, and
+          the joystick's own corner is exactly where GUN CAM's D-pad goes
+          instead (see below). */}
+      {!topDownView && !gunCamOn && (
         <>
           {/* Virtual joystick */}
           <div
