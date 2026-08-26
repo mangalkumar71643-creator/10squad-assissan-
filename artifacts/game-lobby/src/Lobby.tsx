@@ -5028,15 +5028,27 @@ function CombatArena({
           // which is what moves the trigger/fire-button side up or down,
           // yaw swings the muzzle left/right) and re-derives the player's
           // own already-equipped gun from scratch, same as nudgeGunGrip.
-          // Only touches the live gun while attached — detached, the
-          // slider still updates (and persists) the calibration, it just
-          // has nothing on the hand to visibly apply to right now.
+          // While detached, applyCalibratedGunTransform has no hand to
+          // derive a transform from, so instead of leaving the floating
+          // gun completely unresponsive to every rotation control (GUN
+          // YAW/L-R SWEEP/LEFT-RIGHT all funnel through here — none of
+          // them did anything visible while GUN was OFF, which is
+          // exactly the "button doesn't work" report this fixes), just
+          // spin the live detached gun object directly by this call's
+          // own delta — same "act directly on the live object while
+          // detached" precedent nudgeGunGrip already set for position.
           setGunGripRotation: (axis, value) => {
-            if (axis === "pitch") gunGripRotation.x = value;
-            else if (axis === "yaw") gunGripRotation.y = value;
-            else gunGripRotation.z = value;
+            const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
+            const delta = value - gunGripRotation[key];
+            gunGripRotation[key] = value;
             saveGunGripRotation();
-            if (!gunDetached && player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
+            if (!gunDetached && player?.gun && player.rightHand) {
+              applyCalibratedGunTransform(player.gun, player.rightHand);
+            } else if (gunDetached && player?.gun) {
+              const axisVec =
+                axis === "pitch" ? new THREE.Vector3(1, 0, 0) : axis === "yaw" ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+              player.gun.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axisVec, delta));
+            }
           },
           // Same idea for one finger's curl (see curlGunGripFingers'
           // `scale` param) — `side` picks which hand's copy of
