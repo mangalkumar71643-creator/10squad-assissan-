@@ -1962,14 +1962,13 @@ const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
-// GUN tab's own adjustable nudge size — how many degrees one tap of
-// LEFT/RIGHT (see handleGunYawSpin) or one of the PITCH/YAW/ROLL
-// sliders' own +/- buttons moves the gun by. 0.01 granularity down to a
-// 0.10° floor (any finer and a single tap stops doing anything visible
-// at all against GUN CAM's close zoom).
-const GUN_ROTATE_STEP_MIN = 0.1;
-const GUN_ROTATE_STEP_MAX = 1;
-const GUN_ROTATE_STEP_STORAGE_KEY = "10sa-gun-rotate-step-deg";
+// GUN tab's fixed nudge size — how many degrees one tap of LEFT/RIGHT
+// (see handleGunYawSpin) or one of the PITCH/YAW/ROLL/L-R SWEEP/UD
+// SWEEP sliders' own +/- buttons moves the gun by. Was briefly a user-
+// adjustable STEP slider (0.10-1.00°); reverted to a single fixed value
+// per request — no selectable option, always exactly 0.10°.
+const GUN_ROTATE_STEP_DEG = 0.1;
+const GUN_ROTATE_STEP_RAD = (GUN_ROTATE_STEP_DEG * Math.PI) / 180;
 // Map View: radians of bird heading turned per dragged screen pixel.
 const BIRD_STEER_SENSITIVITY = 0.006;
 
@@ -2987,7 +2986,7 @@ function clamp(v: number, lo: number, hi: number) {
 
 // Wraps an angle (radians) into [-PI, PI) instead of clamping it there —
 // used for the GUN tab's LEFT/RIGHT gun-rotate buttons (see
-// handleGunYawSpin/gunRotateStepDeg), so repeatedly tapping one direction
+// handleGunYawSpin/GUN_ROTATE_STEP_DEG), so repeatedly tapping one direction
 // keeps the gun spinning all the way around instead of stopping dead at
 // +/-180° the way gunGripRotation's other axes (nudged via clamp, not
 // this) do.
@@ -3606,15 +3605,6 @@ function CombatArena({
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
     return saved >= LOOK_SENSITIVITY_MIN && saved <= LOOK_SENSITIVITY_MAX ? saved : 1;
   });
-  const [gunRotateStepDeg, setGunRotateStepDeg] = useState(() => {
-    const saved = Number(localStorage.getItem(GUN_ROTATE_STEP_STORAGE_KEY));
-    return saved >= GUN_ROTATE_STEP_MIN && saved <= GUN_ROTATE_STEP_MAX ? saved : 1;
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(GUN_ROTATE_STEP_STORAGE_KEY, String(gunRotateStepDeg));
-    } catch {}
-  }, [gunRotateStepDeg]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // EXIT confirmation — tapping EXIT no longer quits immediately (an
   // accidental tap mid-match used to cut straight out). It opens a
@@ -6249,16 +6239,7 @@ function CombatArena({
             gunCamAnchorRootPos.copy(player.root.position);
             gunCamAnchorInit = true;
           }
-          // gunGripRotation.y is the GUN YAW/L-R SWEEP/LEFT-RIGHT calibration
-          // value — a plain user-set number, never touched by idle animation
-          // sway, so reading it live here every frame adds zero jitter risk
-          // (unlike gunCamAnchorPos above, which freezes specifically
-          // because IT tracks the live swaying bone). Folding it into the
-          // orbit yaw keeps the camera orbiting together with the gun's own
-          // rotation instead of staying fixed while the gun spins out of
-          // frame — the same relationship the normal chase camera has with
-          // the player (facing = cameraYaw, so the two never drift apart).
-          const yaw = gunCamYaw.current + gunGripRotation.y;
+          const yaw = gunCamYaw.current;
           const pitch = clamp(gunCamPitch.current, -GUN_CAM_PITCH_LIMIT, GUN_CAM_PITCH_LIMIT);
           const horiz = gunCamDist.current * Math.cos(pitch);
           const vert = gunCamDist.current * Math.sin(pitch);
@@ -8887,24 +8868,6 @@ function CombatArena({
                 📥 RESTORE
               </button>
             </div>
-            {/* STEP — how many degrees one tap of LEFT/RIGHT (below) or
-                one of PITCH/YAW/ROLL's own +/- buttons moves the gun by.
-                0.10-1.00° in 0.01 steps (drag the slider for anything in
-                between, same as every other slider in this file) — a
-                single shared value so LEFT/RIGHT and the sliders' own
-                nudges always agree on what "one tap" means. */}
-            {renderSliderRow(
-              "gun-rotate-step",
-              "STEP",
-              gunRotateStepDeg,
-              GUN_ROTATE_STEP_MIN,
-              GUN_ROTATE_STEP_MAX,
-              0.01,
-              0.01,
-              `${gunRotateStepDeg.toFixed(2)}°`,
-              (v) => setGunRotateStepDeg(v),
-              (delta) => setGunRotateStepDeg((prev) => clamp(Math.round((prev + delta) * 100) / 100, GUN_ROTATE_STEP_MIN, GUN_ROTATE_STEP_MAX)),
-            )}
             {/* L-R SWEEP — a fixed -90°..+90° (180° total) shortcut range
                 for the exact same value GUN YAW controls (below, full
                 -180°..+180°) — same handlers, same gunRotationUI.yaw, so
@@ -8920,7 +8883,7 @@ function CombatArena({
               -Math.PI / 2,
               Math.PI / 2,
               0.01,
-              (gunRotateStepDeg * Math.PI) / 180,
+              GUN_ROTATE_STEP_RAD,
               `${((gunRotationUI.yaw * 180) / Math.PI).toFixed(2)}°`,
               (v) => handleGunRotationSlider("yaw", v),
               (delta) => handleGunRotationNudge("yaw", delta),
@@ -8937,7 +8900,7 @@ function CombatArena({
               -Math.PI / 2,
               Math.PI / 2,
               0.01,
-              (gunRotateStepDeg * Math.PI) / 180,
+              GUN_ROTATE_STEP_RAD,
               `${((gunRotationUI.pitch * 180) / Math.PI).toFixed(2)}°`,
               (v) => handleGunRotationSlider("pitch", v),
               (delta) => handleGunRotationNudge("pitch", delta),
@@ -8983,7 +8946,7 @@ function CombatArena({
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  handleGunYawSpin(-(gunRotateStepDeg * Math.PI) / 180);
+                  handleGunYawSpin(-GUN_ROTATE_STEP_RAD);
                 }}
                 aria-label="Rotate gun left"
                 style={{
@@ -9027,7 +8990,7 @@ function CombatArena({
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  handleGunYawSpin((gunRotateStepDeg * Math.PI) / 180);
+                  handleGunYawSpin(GUN_ROTATE_STEP_RAD);
                 }}
                 aria-label="Rotate gun right"
                 style={{
@@ -9072,7 +9035,7 @@ function CombatArena({
                   GUN_GRIP_ROTATION_MIN,
                   GUN_GRIP_ROTATION_MAX,
                   0.01,
-                  (gunRotateStepDeg * Math.PI) / 180,
+                  GUN_ROTATE_STEP_RAD,
                   `${((value * 180) / Math.PI).toFixed(2)}°`,
                   (v) => handleGunRotationSlider(axis, v),
                   (delta) => handleGunRotationNudge(axis, delta),
