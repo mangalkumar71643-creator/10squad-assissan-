@@ -3558,6 +3558,11 @@ function CombatArena({
   // orbit-position math below, so dragging can't spin past the lookAt
   // gimbal singularity straight up/down.
   const GUN_CAM_PITCH_LIMIT = 1.5;
+  // How far the player's root has to actually move before GUN CAM's
+  // frozen anchor (see gunCamAnchorPos below) re-snaps to the gun's
+  // current position — small enough to notice real walking, large
+  // enough that it's never crossed by idle-animation sway alone.
+  const GUN_CAM_ANCHOR_ROOT_MOVE = 0.05;
   const gunCamOnRef = useRef(false);
   const lookTouchId = useRef<number | null>(null);
   const lookLastX = useRef(0);
@@ -5584,7 +5589,25 @@ function CombatArena({
     let resultRevealT = 0;
     const camTargetPos = new THREE.Vector3();
     const camLookAt = new THREE.Vector3();
-    const gunCamWorldPos = new THREE.Vector3();
+    // GUN CAM's actual look-at/orbit-centre point is this FROZEN anchor,
+    // not the raw gun/hand position read fresh every tick — the idle
+    // animation sways the whole rig slightly every frame even standing
+    // completely still (breathing, subtle weight shifts), and orbiting
+    // tight around a point that moves by a few millimetres every single
+    // frame reads as the camera itself trembling, independent of
+    // anything the player touched (a damped lerp toward that jittery
+    // point still transmits some of the jitter through, just delayed —
+    // tried that first, wasn't a firm enough guarantee of stillness).
+    // This anchor instead only RE-SNAPS to the current gun/hand position
+    // when the player's ROOT has moved more than GUN_CAM_ANCHOR_ROOT_MOVE
+    // since the last snap — idle sway moves the hand/arm bones, not the
+    // root, so standing still never re-snaps at all and the camera is
+    // provably 100% static frame to frame. Actually walking somewhere
+    // (still possible with the joystick, even on the GUN tab) re-snaps
+    // it the moment the root has moved enough to notice.
+    const gunCamAnchorPos = new THREE.Vector3();
+    const gunCamAnchorRootPos = new THREE.Vector3();
+    let gunCamAnchorInit = false;
 
     // Map View: a bird flying itself over the level on autopilot — the
     // player only steers left/right (dragged into birdYawRef via
@@ -6195,14 +6218,18 @@ function CombatArena({
           // clamped shy of straight up/down to avoid the lookAt gimbal
           // singularity, same GUN_CAM_PITCH_LIMIT that gesture itself
           // clamps to.
-          (player.gun ?? player.rightHand)!.getWorldPosition(gunCamWorldPos);
+          if (!gunCamAnchorInit || player.root.position.distanceTo(gunCamAnchorRootPos) > GUN_CAM_ANCHOR_ROOT_MOVE) {
+            (player.gun ?? player.rightHand)!.getWorldPosition(gunCamAnchorPos);
+            gunCamAnchorRootPos.copy(player.root.position);
+            gunCamAnchorInit = true;
+          }
           const yaw = gunCamYaw.current;
           const pitch = clamp(gunCamPitch.current, -GUN_CAM_PITCH_LIMIT, GUN_CAM_PITCH_LIMIT);
           const horiz = gunCamDist.current * Math.cos(pitch);
           const vert = gunCamDist.current * Math.sin(pitch);
-          camTargetPos.set(gunCamWorldPos.x - Math.sin(yaw) * horiz, gunCamWorldPos.y + vert, gunCamWorldPos.z - Math.cos(yaw) * horiz);
+          camTargetPos.set(gunCamAnchorPos.x - Math.sin(yaw) * horiz, gunCamAnchorPos.y + vert, gunCamAnchorPos.z - Math.cos(yaw) * horiz);
           camera.position.lerp(camTargetPos, 1 - Math.exp(-CAM_DAMP_RATE * dt));
-          camera.lookAt(gunCamWorldPos);
+          camera.lookAt(gunCamAnchorPos);
         } else if (topDownViewRef.current) {
           // Map View: the bird's own autopilot flight — on the frame Map
           // View is (re-)opened, it launches from directly above the
