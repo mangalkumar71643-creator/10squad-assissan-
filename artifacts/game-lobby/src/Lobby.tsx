@@ -8912,7 +8912,7 @@ function CombatArena({
               Math.PI / 2,
               0.01,
               (gunRotateStepDeg * Math.PI) / 180,
-              `${Math.round((gunRotationUI.yaw * 180) / Math.PI)}°`,
+              `${((gunRotationUI.yaw * 180) / Math.PI).toFixed(2)}°`,
               (v) => handleGunRotationSlider("yaw", v),
               (delta) => handleGunRotationNudge("yaw", delta),
             )}
@@ -9047,7 +9047,7 @@ function CombatArena({
                   GUN_GRIP_ROTATION_MAX,
                   0.01,
                   (gunRotateStepDeg * Math.PI) / 180,
-                  `${Math.round((value * 180) / Math.PI)}°`,
+                  `${((value * 180) / Math.PI).toFixed(2)}°`,
                   (v) => handleGunRotationSlider(axis, v),
                   (delta) => handleGunRotationNudge(axis, delta),
                 );
