@@ -6310,6 +6310,20 @@ function CombatArena({
   };
 
   const handleLookDown = (e: React.PointerEvent) => {
+    // Every <button>/<input> in the UI sits inside this same container
+    // and (correctly) doesn't stopPropagation its own pointerdown — a
+    // real touchscreen tap almost never lands at the exact same pixel
+    // it lifts from, so that few-pixels-of-natural-jitter bubbling up
+    // here was being read as a genuine look-drag on every single button
+    // press, nudging cameraYaw/cameraPitch (or gunCamYaw/gunCamPitch —
+    // far more visible there, given how close GUN CAM sits) by a small,
+    // unpredictable amount each tap. Skipping taps that originate on a
+    // button or slider fixes that at the one shared source instead of
+    // adding stopPropagation to every button in the file individually —
+    // it doesn't affect the joystick or canvas drags at all, since
+    // neither is a BUTTON/INPUT element.
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === "BUTTON" || tag === "INPUT") return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     lookTouchId.current = e.pointerId;
     lookLastX.current = e.clientX;
