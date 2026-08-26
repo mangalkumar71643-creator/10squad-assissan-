@@ -8916,6 +8916,23 @@ function CombatArena({
               (v) => handleGunRotationSlider("yaw", v),
               (delta) => handleGunRotationNudge("yaw", delta),
             )}
+            {/* UD SWEEP — same pattern as L-R SWEEP directly above, just on
+                the pitch axis instead of yaw: a fixed -90°..+90° shortcut
+                range onto gunRotationUI.pitch (GUN PITCH slider below owns
+                the full -180°..+180° range) so tipping the trigger/grip
+                side up moves the muzzle down and vice versa, in place. */}
+            {renderSliderRow(
+              "gun-ud-sweep",
+              "UD SWEEP",
+              gunRotationUI.pitch,
+              -Math.PI / 2,
+              Math.PI / 2,
+              0.01,
+              (gunRotateStepDeg * Math.PI) / 180,
+              `${((gunRotationUI.pitch * 180) / Math.PI).toFixed(2)}°`,
+              (v) => handleGunRotationSlider("pitch", v),
+              (delta) => handleGunRotationNudge("pitch", delta),
+            )}
             {/* FIRE/LEFT/RIGHT + PITCH/YAW/ROLL + the gun grip D-pad share
                 one scrollable section below, same pattern as RIGHT/LEFT's
                 own shoulder/elbow/wrist/finger panel (see renderHandTab)
