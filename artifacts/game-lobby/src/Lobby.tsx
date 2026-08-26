@@ -8884,6 +8884,26 @@ function CombatArena({
               (v) => setGunRotateStepDeg(v),
               (delta) => setGunRotateStepDeg((prev) => clamp(Math.round((prev + delta) * 100) / 100, GUN_ROTATE_STEP_MIN, GUN_ROTATE_STEP_MAX)),
             )}
+            {/* L-R SWEEP — a fixed -90°..+90° (180° total) shortcut range
+                for the exact same value GUN YAW controls (below, full
+                -180°..+180°) — same handlers, same gunRotationUI.yaw, so
+                dragging either one keeps both in sync automatically.
+                Nothing new is stored; this is just a second, narrower
+                window onto gunGripRotation.y for the common case of only
+                needing to sweep left/right within a half-turn instead of
+                the full range. */}
+            {renderSliderRow(
+              "gun-lr-sweep",
+              "L-R SWEEP",
+              gunRotationUI.yaw,
+              -Math.PI / 2,
+              Math.PI / 2,
+              0.01,
+              (gunRotateStepDeg * Math.PI) / 180,
+              `${Math.round((gunRotationUI.yaw * 180) / Math.PI)}°`,
+              (v) => handleGunRotationSlider("yaw", v),
+              (delta) => handleGunRotationNudge("yaw", delta),
+            )}
             {/* FIRE/LEFT/RIGHT + PITCH/YAW/ROLL + the gun grip D-pad share
                 one scrollable section below, same pattern as RIGHT/LEFT's
                 own shoulder/elbow/wrist/finger panel (see renderHandTab)
