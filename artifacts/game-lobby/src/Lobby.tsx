@@ -2167,9 +2167,11 @@ function saveGunGripOffset() {
 // rig, not derived from a real-world unit.
 const GUN_GRIP_NUDGE_STEP = 0.5;
 // One tap of the GUN tab's LEFT/RIGHT buttons (gun yaw, not the
-// character) — bigger than the GUN YAW slider's own 1° nudge, since a
-// dedicated button is for a quick, coarse turn rather than fine-tuning.
-const GUN_ROTATE_BUTTON_STEP = (2 * Math.PI) / 180;
+// character) — same 1° as the GUN YAW slider's own nudge. Was 2°, but
+// GUN CAM sits close enough that even a small rotation sweeps the
+// muzzle across a lot of screen space, so 1° reads as a more
+// controllable single step.
+const GUN_ROTATE_BUTTON_STEP = (1 * Math.PI) / 180;
 
 // Extra rotation on top of the base grip orientation (see
 // GUN_MUZZLE_TARGET_LOCAL), in the gun's OWN local frame at the moment
