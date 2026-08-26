@@ -6249,7 +6249,16 @@ function CombatArena({
             gunCamAnchorRootPos.copy(player.root.position);
             gunCamAnchorInit = true;
           }
-          const yaw = gunCamYaw.current;
+          // gunGripRotation.y is the GUN YAW/L-R SWEEP/LEFT-RIGHT calibration
+          // value — a plain user-set number, never touched by idle animation
+          // sway, so reading it live here every frame adds zero jitter risk
+          // (unlike gunCamAnchorPos above, which freezes specifically
+          // because IT tracks the live swaying bone). Folding it into the
+          // orbit yaw keeps the camera orbiting together with the gun's own
+          // rotation instead of staying fixed while the gun spins out of
+          // frame — the same relationship the normal chase camera has with
+          // the player (facing = cameraYaw, so the two never drift apart).
+          const yaw = gunCamYaw.current + gunGripRotation.y;
           const pitch = clamp(gunCamPitch.current, -GUN_CAM_PITCH_LIMIT, GUN_CAM_PITCH_LIMIT);
           const horiz = gunCamDist.current * Math.cos(pitch);
           const vert = gunCamDist.current * Math.sin(pitch);
