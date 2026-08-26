@@ -1962,6 +1962,14 @@ const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
 const LOOK_SENSITIVITY_MAX = 2.5;
 const LOOK_SENSITIVITY_STORAGE_KEY = "10sa-look-sensitivity";
+// GUN tab's own adjustable nudge size — how many degrees one tap of
+// LEFT/RIGHT (see handleGunYawSpin) or one of the PITCH/YAW/ROLL
+// sliders' own +/- buttons moves the gun by. 0.01 granularity down to a
+// 0.10° floor (any finer and a single tap stops doing anything visible
+// at all against GUN CAM's close zoom).
+const GUN_ROTATE_STEP_MIN = 0.1;
+const GUN_ROTATE_STEP_MAX = 1;
+const GUN_ROTATE_STEP_STORAGE_KEY = "10sa-gun-rotate-step-deg";
 // Map View: radians of bird heading turned per dragged screen pixel.
 const BIRD_STEER_SENSITIVITY = 0.006;
 
@@ -2166,12 +2174,6 @@ function saveGunGripOffset() {
 // (RightHand-local, already scaled) — tuned by eye against the actual
 // rig, not derived from a real-world unit.
 const GUN_GRIP_NUDGE_STEP = 0.5;
-// One tap of the GUN tab's LEFT/RIGHT buttons (gun yaw, not the
-// character) — same 1° as the GUN YAW slider's own nudge. Was 2°, but
-// GUN CAM sits close enough that even a small rotation sweeps the
-// muzzle across a lot of screen space, so 1° reads as a more
-// controllable single step.
-const GUN_ROTATE_BUTTON_STEP = (1 * Math.PI) / 180;
 
 // Extra rotation on top of the base grip orientation (see
 // GUN_MUZZLE_TARGET_LOCAL), in the gun's OWN local frame at the moment
@@ -2985,9 +2987,10 @@ function clamp(v: number, lo: number, hi: number) {
 
 // Wraps an angle (radians) into [-PI, PI) instead of clamping it there —
 // used for the GUN tab's LEFT/RIGHT gun-rotate buttons (see
-// GUN_ROTATE_BUTTON_STEP), so repeatedly tapping one direction keeps the
-// gun spinning all the way around instead of stopping dead at +/-180°
-// the way gunGripRotation's other axes (nudged via clamp, not this) do.
+// handleGunYawSpin/gunRotateStepDeg), so repeatedly tapping one direction
+// keeps the gun spinning all the way around instead of stopping dead at
+// +/-180° the way gunGripRotation's other axes (nudged via clamp, not
+// this) do.
 function wrapAngle(a: number) {
   const twoPi = Math.PI * 2;
   return ((a + Math.PI) % twoPi + twoPi) % twoPi - Math.PI;
@@ -3603,6 +3606,15 @@ function CombatArena({
     const saved = Number(localStorage.getItem(LOOK_SENSITIVITY_STORAGE_KEY));
     return saved >= LOOK_SENSITIVITY_MIN && saved <= LOOK_SENSITIVITY_MAX ? saved : 1;
   });
+  const [gunRotateStepDeg, setGunRotateStepDeg] = useState(() => {
+    const saved = Number(localStorage.getItem(GUN_ROTATE_STEP_STORAGE_KEY));
+    return saved >= GUN_ROTATE_STEP_MIN && saved <= GUN_ROTATE_STEP_MAX ? saved : 1;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(GUN_ROTATE_STEP_STORAGE_KEY, String(gunRotateStepDeg));
+    } catch {}
+  }, [gunRotateStepDeg]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // EXIT confirmation — tapping EXIT no longer quits immediately (an
   // accidental tap mid-match used to cut straight out). It opens a
@@ -8854,6 +8866,24 @@ function CombatArena({
                 📥 RESTORE
               </button>
             </div>
+            {/* STEP — how many degrees one tap of LEFT/RIGHT (below) or
+                one of PITCH/YAW/ROLL's own +/- buttons moves the gun by.
+                0.10-1.00° in 0.01 steps (drag the slider for anything in
+                between, same as every other slider in this file) — a
+                single shared value so LEFT/RIGHT and the sliders' own
+                nudges always agree on what "one tap" means. */}
+            {renderSliderRow(
+              "gun-rotate-step",
+              "STEP",
+              gunRotateStepDeg,
+              GUN_ROTATE_STEP_MIN,
+              GUN_ROTATE_STEP_MAX,
+              0.01,
+              0.01,
+              `${gunRotateStepDeg.toFixed(2)}°`,
+              (v) => setGunRotateStepDeg(v),
+              (delta) => setGunRotateStepDeg((prev) => clamp(Math.round((prev + delta) * 100) / 100, GUN_ROTATE_STEP_MIN, GUN_ROTATE_STEP_MAX)),
+            )}
             {/* FIRE/LEFT/RIGHT + PITCH/YAW/ROLL + the gun grip D-pad share
                 one scrollable section below, same pattern as RIGHT/LEFT's
                 own shoulder/elbow/wrist/finger panel (see renderHandTab)
@@ -8895,7 +8925,7 @@ function CombatArena({
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  handleGunYawSpin(-GUN_ROTATE_BUTTON_STEP);
+                  handleGunYawSpin(-(gunRotateStepDeg * Math.PI) / 180);
                 }}
                 aria-label="Rotate gun left"
                 style={{
@@ -8939,7 +8969,7 @@ function CombatArena({
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  handleGunYawSpin(GUN_ROTATE_BUTTON_STEP);
+                  handleGunYawSpin((gunRotateStepDeg * Math.PI) / 180);
                 }}
                 aria-label="Rotate gun right"
                 style={{
@@ -8984,7 +9014,7 @@ function CombatArena({
                   GUN_GRIP_ROTATION_MIN,
                   GUN_GRIP_ROTATION_MAX,
                   0.01,
-                  Math.PI / 180,
+                  (gunRotateStepDeg * Math.PI) / 180,
                   `${Math.round((value * 180) / Math.PI)}°`,
                   (v) => handleGunRotationSlider(axis, v),
                   (delta) => handleGunRotationNudge(axis, delta),
