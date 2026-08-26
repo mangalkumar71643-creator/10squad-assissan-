@@ -2171,8 +2171,12 @@ function saveGunGripOffset() {
 }
 // One PLAYER-tab nudge tap's size, in the same local units as gunGripOffset
 // (RightHand-local, already scaled) — tuned by eye against the actual
-// rig, not derived from a real-world unit.
-const GUN_GRIP_NUDGE_STEP = 0.5;
+// rig, not derived from a real-world unit. Was 0.5, which is nearly as
+// large as the entire hand-to-muzzle offset (see GUN_MUZZLE_TARGET_LOCAL
+// above, components ~0.2-0.83) — a single tap could swing the gun most
+// of the way across its own length, making it impossible to fine-tune
+// the grip into the hand. Cut down to a much finer step.
+const GUN_GRIP_NUDGE_STEP = 0.1;
 
 // Extra rotation on top of the base grip orientation (see
 // GUN_MUZZLE_TARGET_LOCAL), in the gun's OWN local frame at the moment
