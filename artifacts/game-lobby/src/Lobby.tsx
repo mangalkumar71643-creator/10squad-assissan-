@@ -9333,20 +9333,18 @@ function CombatArena({
                 📥 RESTORE
               </button>
             </div>
-            {/* L-R SWEEP — a fixed -90°..+90° (180° total) shortcut range
-                for the exact same value GUN YAW controls (below, full
-                -180°..+180°) — same handlers, same gunRotationUI.yaw, so
-                dragging either one keeps both in sync automatically.
-                Nothing new is stored; this is just a second, narrower
-                window onto gunGripRotation.y for the common case of only
-                needing to sweep left/right within a half-turn instead of
-                the full range. */}
+            {/* L-R SWEEP — the exact same value GUN YAW controls (below) —
+                same handlers, same gunRotationUI.yaw, so dragging either
+                one keeps both in sync automatically. Nothing new is
+                stored; this is just a second window onto gunGripRotation.y.
+                Full -180°..+180° range (was a narrower -90°..+90° shortcut,
+                widened to match GUN YAW's own full range per request). */}
             {renderSliderRow(
               "gun-lr-sweep",
               "L-R SWEEP",
               gunRotationUI.yaw,
-              -Math.PI / 2,
-              Math.PI / 2,
+              GUN_GRIP_ROTATION_MIN,
+              GUN_GRIP_ROTATION_MAX,
               0.01,
               GUN_ROTATE_STEP_RAD,
               `${((gunRotationUI.yaw * 180) / Math.PI).toFixed(2)}°`,
@@ -9354,16 +9352,14 @@ function CombatArena({
               (delta) => handleGunRotationNudge("yaw", delta),
             )}
             {/* UD SWEEP — same pattern as L-R SWEEP directly above, just on
-                the pitch axis instead of yaw: a fixed -90°..+90° shortcut
-                range onto gunRotationUI.pitch (GUN PITCH slider below owns
-                the full -180°..+180° range) so tipping the trigger/grip
-                side up moves the muzzle down and vice versa, in place. */}
+                the pitch axis instead of yaw, full -180°..+180° range (see
+                L-R SWEEP's own comment for why it's no longer narrower). */}
             {renderSliderRow(
               "gun-ud-sweep",
               "UD SWEEP",
               gunRotationUI.pitch,
-              -Math.PI / 2,
-              Math.PI / 2,
+              GUN_GRIP_ROTATION_MIN,
+              GUN_GRIP_ROTATION_MAX,
               0.01,
               GUN_ROTATE_STEP_RAD,
               `${((gunRotationUI.pitch * 180) / Math.PI).toFixed(2)}°`,
