@@ -2572,6 +2572,13 @@ const GUN_TARGET_LENGTH = 0.55;
 // sit out along the barrel the way it would on a real two-handed hold, so
 // using it for orientation pointed the gun sideways instead of forward.
 const GUN_MUZZLE_TARGET_LOCAL = new THREE.Vector3(0.20400064267090037, 0.5153436536777963, -0.8323488792936196);
+// The gun's fixed base orientation before gunGripRotation is layered on
+// top (see applyCalibratedGunTransform/calibratedGripWorldMatrix below,
+// and setGunGripRotation's detached branch) — computed once here so all
+// three places share the exact same quaternion instead of each calling
+// setFromUnitVectors separately, which is what let the detached-preview
+// branch drift out of sync with it (see that branch's own comment).
+const GUN_BASE_QUAT = new THREE.Quaternion().setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
 // A hand-tuned correction on top of GUN_GRIP_LOCAL, in the same
 // RightHand-local, already-scaled space createGunAttachment computes
 // gun.position in — persisted so Build Mode's PLAYER tab (see
@@ -3027,7 +3034,7 @@ function applyCalibratedGunTransform(gun: THREE.Object3D, hand: THREE.Object3D) 
   const rawLength = 79.03;
   const scale = (GUN_TARGET_LENGTH / rawLength) / (worldScale.x || 1);
   gun.scale.setScalar(scale);
-  gun.quaternion.setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
+  gun.quaternion.copy(GUN_BASE_QUAT);
   gun.position.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gun.quaternion).multiplyScalar(-1);
   gun.position.add(gunGripOffset);
   gun.quaternion.multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
@@ -3061,7 +3068,7 @@ function calibratedGripWorldMatrix(hand: THREE.Object3D, out: THREE.Matrix4) {
   hand.matrixWorld.decompose(gripLocalPosTmp, gripLocalQuatTmp, gripWorldScaleTmp);
   const rawLength = 79.03;
   const scale = (GUN_TARGET_LENGTH / rawLength) / (gripWorldScaleTmp.x || 1);
-  gripLocalQuatTmp.setFromUnitVectors(GUN_MUZZLE_AXIS, GUN_MUZZLE_TARGET_LOCAL.clone().normalize());
+  gripLocalQuatTmp.copy(GUN_BASE_QUAT);
   gripLocalPosTmp.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gripLocalQuatTmp).multiplyScalar(-1);
   gripLocalPosTmp.add(gunGripOffset);
   gripLocalQuatTmp.multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
@@ -5489,25 +5496,28 @@ function CombatArena({
           // yaw swings the muzzle left/right) and re-derives the player's
           // own already-equipped gun from scratch, same as nudgeGunGrip.
           // While detached, applyCalibratedGunTransform has no hand to
-          // derive a transform from, so instead of leaving the floating
-          // gun completely unresponsive to every rotation control (GUN
-          // YAW/L-R SWEEP/LEFT-RIGHT all funnel through here — none of
-          // them did anything visible while GUN was OFF, which is
-          // exactly the "button doesn't work" report this fixes), just
-          // spin the live detached gun object directly by this call's
-          // own delta — same "act directly on the live object while
-          // detached" precedent nudgeGunGrip already set for position.
+          // derive a transform from, so the live detached gun's quaternion
+          // is set directly here instead — to the exact SAME GUN_BASE_QUAT
+          // * eulerQuat(gunGripRotation) composition applyCalibratedGunTransform
+          // itself uses, not a delta multiplied onto whatever the previous
+          // rotation happened to be. An earlier version multiplied a
+          // per-axis delta straight onto the live quaternion (starting
+          // from identity() at detach) — fine for one axis alone, but
+          // composing separate pitch/yaw/roll deltas that way doesn't
+          // commute the same as one combined Euler rotation does, and
+          // it was missing GUN_BASE_QUAT entirely, so the detached PREVIEW
+          // could end up visibly different from — sometimes mirrored
+          // relative to — what re-attaching then actually applied (the
+          // reported bug: setting the gun up while off, then turning it
+          // back on, flips which side the trigger ends up on).
           setGunGripRotation: (axis, value) => {
             const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
-            const delta = value - gunGripRotation[key];
             gunGripRotation[key] = value;
             saveGunGripRotation();
             if (!gunDetached && player?.gun && player.rightHand) {
               applyCalibratedGunTransform(player.gun, player.rightHand);
             } else if (gunDetached && player?.gun) {
-              const axisVec =
-                axis === "pitch" ? new THREE.Vector3(1, 0, 0) : axis === "yaw" ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
-              player.gun.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axisVec, delta));
+              player.gun.quaternion.copy(GUN_BASE_QUAT).multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
             }
           },
           // Same idea for one finger's curl (see curlGunGripFingers'
@@ -5645,7 +5655,15 @@ function CombatArena({
                 player.root.position.y + 1.4,
                 player.root.position.z + forwardZ * 1.2,
               );
-              gun.quaternion.identity();
+              // Starts detached already showing the current calibration
+              // (same GUN_BASE_QUAT * eulerQuat(gunGripRotation) composition
+              // setGunGripRotation's own detached branch uses), not
+              // identity() — an identity start meant the floating gun
+              // looked wrong from the very first frame of detaching
+              // whenever no rotation control got touched before turning
+              // it back ON, and re-attaching would then visibly snap from
+              // that arbitrary identity look to the real calibrated one.
+              gun.quaternion.copy(GUN_BASE_QUAT).multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
               gunDetached = true;
             } else {
               if (player.rightHand) {
