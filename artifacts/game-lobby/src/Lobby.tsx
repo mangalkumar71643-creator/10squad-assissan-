@@ -2627,22 +2627,22 @@ const GUN_GRIP_NUDGE_STEP = 0.1;
 // the hand and the gun visibly pivots around it, the way tilting a
 // held gun pivots around the hand holding it rather than around the
 // muzzle or some arbitrary point.
-// v2: the pitch component was re-calibrated (see GUN_GRIP_ROTATION_DEFAULT
-// below) to fix the gun pointing too far up instead of a natural
-// forward-and-down two-handed carry angle — bumped so every device picks
-// up the new default fresh instead of keeping whatever pitch happened to
-// already be saved under the old key (including the earlier, too-steep
-// default itself, which had already been saved on real devices by the
-// time this was found).
-const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation-v2";
-// Default pitch/yaw when nothing's saved yet. Pitch (x) re-calibrated by
-// visually comparing the held gun against reference screenshots of a
-// natural two-handed carry (muzzle down and forward, not raised) across
-// several camera angles — the old -0.40 pointed the muzzle up at a steep,
-// unnatural angle; 0.3 lands it at a relaxed forward-down tilt instead.
-// Yaw/roll are unchanged from the player's own earlier BACKUP-derived
-// calibration.
-const GUN_GRIP_ROTATION_DEFAULT = { x: 0.3, y: 1.4492036732051, z: 0 };
+// v3: BOTH pitch and yaw re-calibrated this round (see
+// GUN_GRIP_ROTATION_DEFAULT below) — the v2 yaw (83°, inherited from the
+// player's own old BACKUP code) swung the gun almost flat across the
+// chest, hidden tight against the body from the front; only the pitch
+// had been fixed. Bumped again so every device picks up the new
+// default fresh, same reasoning as the v1->v2 bump.
+const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation-v3";
+// Default pitch/yaw when nothing's saved yet. Re-calibrated by setting
+// the gun tab's sliders directly and comparing screenshots — from a
+// fixed, precise front-on camera angle (forced via cameraYaw, not a
+// hand-eyeballed drag) — against a reference photo of a natural
+// two-handed rifle carry (muzzle down and forward, both hands visible on
+// the weapon, not tucked flat against the chest). Yaw 83° -> 0°, pitch
+// 0.30 -> ~0.61 (35°); together these land the gun held out in front at
+// a relaxed forward-down angle instead of pinned to the body.
+const GUN_GRIP_ROTATION_DEFAULT = { x: 0.6108652381980153, y: 0, z: 0 };
 function loadGunGripRotation(): THREE.Euler {
   try {
     const raw = localStorage.getItem(GUN_GRIP_ROTATION_STORAGE_KEY);
