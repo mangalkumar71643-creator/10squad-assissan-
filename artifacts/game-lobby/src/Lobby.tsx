@@ -5456,26 +5456,31 @@ function CombatArena({
               }
             }
           },
-          // While attached: moves the persisted grip offset (see
-          // gunGripOffset/applyCalibratedGunTransform) and re-derives the
-          // player's own already-equipped gun from scratch (not an
-          // incremental move) so it's always pixel-identical to what a
-          // fresh reload would compute — every OTHER fighter (bots, or
-          // the player next time they equip a gun) picks the new offset
-          // up the next time they attach. While detached: just shoves the
-          // free-floating gun itself, with nothing persisted, since it's
-          // not sitting in a hand-relative frame right now to persist a
-          // hand-relative number for.
+          // Always moves the persisted grip offset (see gunGripOffset/
+          // applyCalibratedGunTransform), same as setGunGripRotation
+          // below — while attached, that also re-derives the player's
+          // own already-equipped gun from scratch (not an incremental
+          // move) so it's always pixel-identical to what a fresh reload
+          // would compute; every OTHER fighter (bots, or the player next
+          // time they equip a gun) picks the new offset up the next time
+          // they attach. While detached, there's no hand to re-derive
+          // against, so on top of the persisted offset this also nudges
+          // the live floating gun directly, the same "act on the live
+          // object while detached" precedent setGunGripRotation already
+          // set — without it, re-attaching later would jump back to
+          // wherever the offset was BEFORE any of these detached nudges,
+          // discarding all of them instead of landing where they'd
+          // actually left it.
           nudgeGunGrip: (dx, dy, dz) => {
-            if (gunDetached) {
-              player?.gun?.position.add(new THREE.Vector3(dx, dy, dz));
-              return;
-            }
             gunGripOffset.x += dx;
             gunGripOffset.y += dy;
             gunGripOffset.z += dz;
             saveGunGripOffset();
-            if (player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
+            if (gunDetached) {
+              player?.gun?.position.add(new THREE.Vector3(dx, dy, dz));
+            } else if (player?.gun && player.rightHand) {
+              applyCalibratedGunTransform(player.gun, player.rightHand);
+            }
           },
           // A slider's onChange always hands over the new ABSOLUTE value,
           // not a delta — sets gunGripRotation's axis directly (pitch tips
@@ -5614,12 +5619,11 @@ function CombatArena({
           // gun disappeared" since it's visually buried in/behind the
           // player's own body from the normal chase-cam angle. From
           // there it can be freely repositioned/rotated with the D-pad
-          // and rotation buttons — see nudgeGunGrip/nudgeGunGripRotation's
-          // detached branch. Toggling back re-attaches to the hand and
-          // snaps to the calibrated pose fresh (see
-          // applyCalibratedGunTransform), discarding whatever free pose
-          // it had while detached — the persisted calibration itself is
-          // never touched by any of this.
+          // and rotation buttons — see nudgeGunGrip/setGunGripRotation's
+          // detached branch, both of which persist straight into
+          // gunGripOffset/gunGripRotation as they go (not just the live
+          // preview), so toggling back re-attaches using whatever was
+          // last nudged, not whatever was calibrated before detaching.
           toggleGunDetach: () => {
             if (!player?.gun) return;
             const gun = player.gun;
