@@ -3022,6 +3022,25 @@ function getDrumCapMaterial(): THREE.MeshStandardMaterial {
 // PLAYER tab's DETACH (see buildModeRef.current.toggleGunDetach) and by
 // every live position/rotation nudge, so there's no way for a live
 // preview to drift from what a fresh reload recomputes.
+// The ONE place "how does gunGripOffset/gunGripRotation turn into a
+// local position+quaternion under the hand" is computed — writes into
+// outPos/outQuat (both mutated in place) and returns the local scale.
+// Shared by applyCalibratedGunTransform (attached), calibratedGripWorldMatrix
+// (off-hand IK targeting), and updateDetachedGunPreview (the detached
+// floating preview) below, so none of the three can ever drift out of
+// sync with each other — a mismatch between two of these three is
+// exactly what caused both the trigger-flip and the position-jump bugs
+// (the detached preview used to compute this differently from the other
+// two).
+function computeGunLocalTransform(handWorldScaleX: number, outPos: THREE.Vector3, outQuat: THREE.Quaternion): number {
+  const rawLength = 79.03;
+  const scale = (GUN_TARGET_LENGTH / rawLength) / (handWorldScaleX || 1);
+  outQuat.copy(GUN_BASE_QUAT);
+  outPos.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(outQuat).multiplyScalar(-1);
+  outPos.add(gunGripOffset);
+  outQuat.multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
+  return scale;
+}
 function applyCalibratedGunTransform(gun: THREE.Object3D, hand: THREE.Object3D) {
   // hand.matrixWorld isn't guaranteed current here — this can run as
   // soon as the shared gun prototype resolves, before the scene has
@@ -3031,13 +3050,8 @@ function applyCalibratedGunTransform(gun: THREE.Object3D, hand: THREE.Object3D) 
   hand.updateWorldMatrix(true, false);
   const worldScale = new THREE.Vector3();
   hand.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
-  const rawLength = 79.03;
-  const scale = (GUN_TARGET_LENGTH / rawLength) / (worldScale.x || 1);
+  const scale = computeGunLocalTransform(worldScale.x, gun.position, gun.quaternion);
   gun.scale.setScalar(scale);
-  gun.quaternion.copy(GUN_BASE_QUAT);
-  gun.position.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gun.quaternion).multiplyScalar(-1);
-  gun.position.add(gunGripOffset);
-  gun.quaternion.multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
 }
 function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): THREE.Object3D {
   const gun = prototype.clone(true);
@@ -3066,14 +3080,40 @@ const gripLocalQuatTmp = new THREE.Quaternion();
 function calibratedGripWorldMatrix(hand: THREE.Object3D, out: THREE.Matrix4) {
   hand.updateWorldMatrix(true, false);
   hand.matrixWorld.decompose(gripLocalPosTmp, gripLocalQuatTmp, gripWorldScaleTmp);
-  const rawLength = 79.03;
-  const scale = (GUN_TARGET_LENGTH / rawLength) / (gripWorldScaleTmp.x || 1);
-  gripLocalQuatTmp.copy(GUN_BASE_QUAT);
-  gripLocalPosTmp.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(gripLocalQuatTmp).multiplyScalar(-1);
-  gripLocalPosTmp.add(gunGripOffset);
-  gripLocalQuatTmp.multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
+  const scale = computeGunLocalTransform(gripWorldScaleTmp.x, gripLocalPosTmp, gripLocalQuatTmp);
   out.compose(gripLocalPosTmp, gripLocalQuatTmp, new THREE.Vector3(scale, scale, scale));
   out.premultiply(hand.matrixWorld);
+}
+// The detached PLAYER-tab preview — instead of parking the gun at a
+// fixed spot out in front of the camera (the previous approach) or
+// applying nudges directly onto the live floating object in raw world
+// space (which is what let the detached preview drift out of sync with
+// the attached math — see computeGunLocalTransform's own comment),
+// this recomputes the EXACT same calibrated local transform
+// applyCalibratedGunTransform would, then composes it against a FROZEN
+// snapshot of the hand's world matrix (detachedHandMatrix, captured once
+// when DETACH is toggled on) instead of the hand's live matrixWorld —
+// frozen so idle-animation sway doesn't jitter the floating gun every
+// tick (same reasoning as GUN CAM's own anchor), but still landing on
+// exactly the calibrated pose the hand had at that instant rather than
+// an arbitrary parked spot. Since every nudge/rotation change re-runs
+// this from gunGripOffset/gunGripRotation directly (not by moving the
+// live object incrementally), and re-attaching later runs the exact
+// same math against the hand's (by-then very slightly different, from
+// ordinary idle sway) live matrix, toggling DETACH on, nudging, and
+// toggling it back off no longer causes any visible jump.
+const detachedHandMatrix = new THREE.Matrix4();
+const detachedLocalPos = new THREE.Vector3();
+const detachedLocalQuat = new THREE.Quaternion();
+const detachedWorldMatrix = new THREE.Matrix4();
+function updateDetachedGunPreview(gun: THREE.Object3D) {
+  const worldScale = new THREE.Vector3();
+  detachedHandMatrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
+  const scale = computeGunLocalTransform(worldScale.x, detachedLocalPos, detachedLocalQuat);
+  detachedWorldMatrix
+    .compose(detachedLocalPos, detachedLocalQuat, new THREE.Vector3(scale, scale, scale))
+    .premultiply(detachedHandMatrix);
+  detachedWorldMatrix.decompose(gun.position, gun.quaternion, gun.scale);
 }
 
 // Rotates `bone` (in place, preserving its parent's current orientation)
@@ -5465,26 +5505,21 @@ function CombatArena({
           },
           // Always moves the persisted grip offset (see gunGripOffset/
           // applyCalibratedGunTransform), same as setGunGripRotation
-          // below — while attached, that also re-derives the player's
-          // own already-equipped gun from scratch (not an incremental
-          // move) so it's always pixel-identical to what a fresh reload
-          // would compute; every OTHER fighter (bots, or the player next
-          // time they equip a gun) picks the new offset up the next time
-          // they attach. While detached, there's no hand to re-derive
-          // against, so on top of the persisted offset this also nudges
-          // the live floating gun directly, the same "act on the live
-          // object while detached" precedent setGunGripRotation already
-          // set — without it, re-attaching later would jump back to
-          // wherever the offset was BEFORE any of these detached nudges,
-          // discarding all of them instead of landing where they'd
-          // actually left it.
+          // below, then re-derives the gun from scratch either way —
+          // attached, straight from computeGunLocalTransform against the
+          // hand's live matrix; detached, the same math against the
+          // frozen detachedHandMatrix (updateDetachedGunPreview) — so the
+          // live preview is always pixel-identical to what re-attaching
+          // (or a fresh reload) would compute, never an incremental world-
+          // space shove of the floating object that could drift out of
+          // sync with the actual stored offset.
           nudgeGunGrip: (dx, dy, dz) => {
             gunGripOffset.x += dx;
             gunGripOffset.y += dy;
             gunGripOffset.z += dz;
             saveGunGripOffset();
-            if (gunDetached) {
-              player?.gun?.position.add(new THREE.Vector3(dx, dy, dz));
+            if (gunDetached && player?.gun) {
+              updateDetachedGunPreview(player.gun);
             } else if (player?.gun && player.rightHand) {
               applyCalibratedGunTransform(player.gun, player.rightHand);
             }
@@ -5493,23 +5528,12 @@ function CombatArena({
           // not a delta — sets gunGripRotation's axis directly (pitch tips
           // the muzzle up/down, roll spins the gun around its own barrel,
           // which is what moves the trigger/fire-button side up or down,
-          // yaw swings the muzzle left/right) and re-derives the player's
-          // own already-equipped gun from scratch, same as nudgeGunGrip.
-          // While detached, applyCalibratedGunTransform has no hand to
-          // derive a transform from, so the live detached gun's quaternion
-          // is set directly here instead — to the exact SAME GUN_BASE_QUAT
-          // * eulerQuat(gunGripRotation) composition applyCalibratedGunTransform
-          // itself uses, not a delta multiplied onto whatever the previous
-          // rotation happened to be. An earlier version multiplied a
-          // per-axis delta straight onto the live quaternion (starting
-          // from identity() at detach) — fine for one axis alone, but
-          // composing separate pitch/yaw/roll deltas that way doesn't
-          // commute the same as one combined Euler rotation does, and
-          // it was missing GUN_BASE_QUAT entirely, so the detached PREVIEW
-          // could end up visibly different from — sometimes mirrored
-          // relative to — what re-attaching then actually applied (the
-          // reported bug: setting the gun up while off, then turning it
-          // back on, flips which side the trigger ends up on).
+          // yaw swings the muzzle left/right) and re-derives the gun from
+          // scratch either way, same as nudgeGunGrip — attached via
+          // applyCalibratedGunTransform, detached via
+          // updateDetachedGunPreview (both funnel through the same
+          // computeGunLocalTransform underneath), never a delta multiplied
+          // onto whatever the live quaternion already happened to be.
           setGunGripRotation: (axis, value) => {
             const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
             gunGripRotation[key] = value;
@@ -5517,7 +5541,7 @@ function CombatArena({
             if (!gunDetached && player?.gun && player.rightHand) {
               applyCalibratedGunTransform(player.gun, player.rightHand);
             } else if (gunDetached && player?.gun) {
-              player.gun.quaternion.copy(GUN_BASE_QUAT).multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
+              updateDetachedGunPreview(player.gun);
             }
           },
           // Same idea for one finger's curl (see curlGunGripFingers'
@@ -5556,7 +5580,11 @@ function CombatArena({
             saveGunGripOffset();
             gunGripRotation.set(0, 0, 0);
             saveGunGripRotation();
-            if (!gunDetached && player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
+            if (!gunDetached && player?.gun && player.rightHand) {
+              applyCalibratedGunTransform(player.gun, player.rightHand);
+            } else if (gunDetached && player?.gun) {
+              updateDetachedGunPreview(player.gun);
+            }
           },
           // RIGHT HAND / LEFT HAND tab's own RESET — just that one side's
           // finger curl and shoulder/elbow/wrist pose, independent of the
@@ -5620,50 +5648,41 @@ function CombatArena({
               wrist: { ...bundle.armPoseExtras.left.wrist },
             };
             saveArmPoseExtras();
-            if (!gunDetached && player?.gun && player.rightHand) applyCalibratedGunTransform(player.gun, player.rightHand);
+            if (!gunDetached && player?.gun && player.rightHand) {
+              applyCalibratedGunTransform(player.gun, player.rightHand);
+            } else if (gunDetached && player?.gun) {
+              updateDetachedGunPreview(player.gun);
+            }
           },
-          // Pulls the gun off the hand entirely and pops it to a fixed,
-          // clearly-visible spot out in front of the player (reparented
-          // to the scene root) instead of leaving it exactly where it
-          // was in the hand — right at hip height, which reads as "the
-          // gun disappeared" since it's visually buried in/behind the
-          // player's own body from the normal chase-cam angle. From
-          // there it can be freely repositioned/rotated with the D-pad
-          // and rotation buttons — see nudgeGunGrip/setGunGripRotation's
+          // Pulls the gun off the hand (reparented to the scene root) so
+          // it stops tracking the hand's own subsequent animation/motion
+          // — freely repositioned/rotated from there with the D-pad and
+          // rotation buttons (see nudgeGunGrip/setGunGripRotation's
           // detached branch, both of which persist straight into
-          // gunGripOffset/gunGripRotation as they go (not just the live
-          // preview), so toggling back re-attaches using whatever was
-          // last nudged, not whatever was calibrated before detaching.
+          // gunGripOffset/gunGripRotation and re-run updateDetachedGunPreview,
+          // never just nudging the live object directly in raw world
+          // space). detachedHandMatrix freezes the hand's world matrix at
+          // this exact instant — the preview is computed against THIS,
+          // not the hand's live matrixWorld, so idle-animation sway
+          // doesn't jitter the floating gun every tick, but it still
+          // starts (and stays, until nudged) at exactly the calibrated
+          // pose the hand had right here, not an arbitrary "parked in
+          // front of the camera" spot. Toggling back re-attaches using
+          // whatever gunGripOffset/gunGripRotation ended up at (last
+          // nudged, not whatever was calibrated before detaching) against
+          // the hand's real LIVE matrix — differing from the frozen
+          // preview only by whatever idle sway happened while detached,
+          // so there's no visible jump either way anymore.
           toggleGunDetach: () => {
             if (!player?.gun) return;
             const gun = player.gun;
             if (!gunDetached) {
-              // Under `hand`, gun.scale is divided by the hand's own
-              // world scale so the two cancel out to the real target
-              // size once combined through the parent chain (see
-              // applyCalibratedGunTransform). scene has no scale of its
-              // own to cancel, so the SAME division here would leave the
-              // hand's tiny world scale (~0.009) uncancelled, inflating
-              // the gun to roughly 100x too big — this needs the target
-              // size applied directly instead.
-              gun.scale.setScalar(GUN_TARGET_LENGTH / 79.03);
               scene.add(gun);
-              const forwardX = Math.sin(cameraYaw.current);
-              const forwardZ = Math.cos(cameraYaw.current);
-              gun.position.set(
-                player.root.position.x + forwardX * 1.2,
-                player.root.position.y + 1.4,
-                player.root.position.z + forwardZ * 1.2,
-              );
-              // Starts detached already showing the current calibration
-              // (same GUN_BASE_QUAT * eulerQuat(gunGripRotation) composition
-              // setGunGripRotation's own detached branch uses), not
-              // identity() — an identity start meant the floating gun
-              // looked wrong from the very first frame of detaching
-              // whenever no rotation control got touched before turning
-              // it back ON, and re-attaching would then visibly snap from
-              // that arbitrary identity look to the real calibrated one.
-              gun.quaternion.copy(GUN_BASE_QUAT).multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
+              if (player.rightHand) {
+                player.rightHand.updateWorldMatrix(true, false);
+                detachedHandMatrix.copy(player.rightHand.matrixWorld);
+              }
+              updateDetachedGunPreview(gun);
               gunDetached = true;
             } else {
               if (player.rightHand) {
