@@ -2627,11 +2627,22 @@ const GUN_GRIP_NUDGE_STEP = 0.1;
 // the hand and the gun visibly pivots around it, the way tilting a
 // held gun pivots around the hand holding it rather than around the
 // muzzle or some arbitrary point.
-const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation";
-// Default pitch/yaw when nothing's saved yet — the player's own already-
-// calibrated pose (from a BACKUP code), baked in as the new starting
-// point instead of the raw straight-armed default.
-const GUN_GRIP_ROTATION_DEFAULT = { x: -0.400796326794897, y: 1.4492036732051, z: 0 };
+// v2: the pitch component was re-calibrated (see GUN_GRIP_ROTATION_DEFAULT
+// below) to fix the gun pointing too far up instead of a natural
+// forward-and-down two-handed carry angle — bumped so every device picks
+// up the new default fresh instead of keeping whatever pitch happened to
+// already be saved under the old key (including the earlier, too-steep
+// default itself, which had already been saved on real devices by the
+// time this was found).
+const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation-v2";
+// Default pitch/yaw when nothing's saved yet. Pitch (x) re-calibrated by
+// visually comparing the held gun against reference screenshots of a
+// natural two-handed carry (muzzle down and forward, not raised) across
+// several camera angles — the old -0.40 pointed the muzzle up at a steep,
+// unnatural angle; 0.3 lands it at a relaxed forward-down tilt instead.
+// Yaw/roll are unchanged from the player's own earlier BACKUP-derived
+// calibration.
+const GUN_GRIP_ROTATION_DEFAULT = { x: 0.3, y: 1.4492036732051, z: 0 };
 function loadGunGripRotation(): THREE.Euler {
   try {
     const raw = localStorage.getItem(GUN_GRIP_ROTATION_STORAGE_KEY);
