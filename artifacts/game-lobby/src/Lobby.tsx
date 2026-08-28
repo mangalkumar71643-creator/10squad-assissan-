@@ -6826,6 +6826,17 @@ function CombatArena({
         wasTopDownView = topDownViewRef.current;
       }
 
+      // The sky sphere is centered at the world origin, but the arena is
+      // 700x700 and the camera can end up hundreds of units away from that
+      // origin (e.g. out at a Build Mode house) — far enough that the sky's
+      // far side (origin distance + SKY_RADIUS) exceeds the camera's far
+      // clip plane and gets culled outright, showing up as a solid black
+      // hole (the canvas's own transparent background) in that direction.
+      // Recentering the sky on the camera every frame, like any normal
+      // skybox, keeps it always exactly SKY_RADIUS away regardless of where
+      // the camera actually is.
+      sky.position.copy(camera.position);
+
       composer.render();
     };
     tick();
