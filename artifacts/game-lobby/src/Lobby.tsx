@@ -4435,9 +4435,24 @@ function CombatArena({
     // just cutting off into a void, rather than standing outdoors under a
     // sky that wraps all the way around.
     const skyGeo = new THREE.SphereGeometry(SKY_RADIUS, 24, 16);
-    const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ map: createSkyTexture(), side: THREE.BackSide, fog: false }));
+    const skyTexture = createSkyTexture();
+    const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ map: skyTexture, side: THREE.BackSide, fog: false }));
     scene.add(sky);
     scene.fog = new THREE.Fog(0x9cc3e6, FOG_NEAR, FOG_FAR);
+    // Several baked character/prop materials (the player body, gun metal
+    // parts, drum caps, the door key, ...) carry real metalness (0.3-0.8)
+    // from their source assets. With no environment map, a metallic
+    // MeshStandardMaterial has nothing to put in that reflective half of
+    // its response — the diffuse contribution alone (roughly halved by the
+    // metalness split) renders it far darker than intended, to the point
+    // the player character reads as a near-black silhouette regardless of
+    // how bright the direct lights are. A sphere's default UVs are already
+    // an equirectangular projection, so the same sky texture doubles as a
+    // scene-wide environment map (with no PMREM prefiltering, which is
+    // fine — the gradient has no high-frequency detail to alias) — metal
+    // now reflects the sky instead of just going flat black.
+    skyTexture.mapping = THREE.EquirectangularReflectionMapping;
+    scene.environment = skyTexture;
     // Third-person chase camera (Free Fire / PUBG Mobile style): positioned
     // behind and above the player, following their facing direction, rather
     // than a fixed top-down view.
