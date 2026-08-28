@@ -380,11 +380,11 @@ function createSkyTexture(): THREE.CanvasTexture {
   // bottom of the gradient — the very bottom of the sphere is hidden below
   // the ground plane and never visible anyway.
   const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, "#050a14"); // zenith — near-black, matching the arena's night tone
-  gradient.addColorStop(0.38, "#0d1f34");
-  gradient.addColorStop(0.52, "#2f5678"); // lit horizon band, where the camera actually looks
-  gradient.addColorStop(0.62, "#5f8aa3");
-  gradient.addColorStop(1, "#5f8aa3");
+  gradient.addColorStop(0, "#3f7fc9"); // zenith — bright daytime blue
+  gradient.addColorStop(0.38, "#6ea3d8");
+  gradient.addColorStop(0.52, "#9cc3e6"); // lit horizon band, where the camera actually looks
+  gradient.addColorStop(0.62, "#bcd8ec");
+  gradient.addColorStop(1, "#bcd8ec");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
   const texture = new THREE.CanvasTexture(canvas);
@@ -4437,7 +4437,7 @@ function CombatArena({
     const skyGeo = new THREE.SphereGeometry(SKY_RADIUS, 24, 16);
     const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ map: createSkyTexture(), side: THREE.BackSide, fog: false }));
     scene.add(sky);
-    scene.fog = new THREE.Fog(0x2f5678, FOG_NEAR, FOG_FAR);
+    scene.fog = new THREE.Fog(0x9cc3e6, FOG_NEAR, FOG_FAR);
     // Third-person chase camera (Free Fire / PUBG Mobile style): positioned
     // behind and above the player, following their facing direction, rather
     // than a fixed top-down view.
@@ -4481,7 +4481,7 @@ function CombatArena({
     renderer.shadowMap.enabled = settings.shadowQuality === "high";
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1.15;
     container.appendChild(renderer.domElement);
 
     // Bloom on top of the render — the light strips/door glow/muzzle flash
@@ -4497,14 +4497,13 @@ function CombatArena({
     }
     composer.addPass(new OutputPass());
 
-    // Ground color raised from its original near-black (0x0a0e18) so
-    // downward-facing surfaces — chiefly the room/corridor ceiling slabs —
-    // pick up enough ambient fill to actually show their panel texture,
-    // instead of rendering as a flat black void overhead. Floor/wall
-    // brightness (driven mostly by the sky color and the key light below)
-    // is unaffected.
-    scene.add(new THREE.HemisphereLight(0xbfe0ff, 0x5a6478, 1.15));
-    const key = new THREE.DirectionalLight(0xffffff, 1.5);
+    // Bright daytime sky/ground fill so downward-facing surfaces — chiefly
+    // the room/corridor ceiling slabs — pick up enough ambient light to
+    // actually show their panel texture, instead of reading dim overhead.
+    // Floor/wall brightness (driven mostly by the sky color and the key
+    // light below) is unaffected by the ground term.
+    scene.add(new THREE.HemisphereLight(0xcfe4f5, 0x8a99a8, 1.35));
+    const key = new THREE.DirectionalLight(0xfff4e0, 1.75);
     key.position.set(3, 6, 4);
     // The arena is 700x700 — far too big for one shadow camera frustum to
     // cover at any usable resolution, so instead of lighting the whole
