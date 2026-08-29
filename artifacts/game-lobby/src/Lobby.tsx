@@ -4124,6 +4124,17 @@ function CombatArena({
   // of a walled level. mapId is fixed for this component's whole mount, so
   // deriving this once up front is safe.
   const isNoCombatMap = mapId === 4 || mapId === 5;
+  // Combat (guns, firing, bots, damage) removed from the whole game per
+  // request — the gun model was one of the largest single assets in the
+  // APK. Deliberately kept SEPARATE from isNoCombatMap above (which only
+  // ever meant "this is a Build Mode map, use its own empty layout"): map
+  // 1/2/3's actual level geometry (ACTIVE_OBSTACLES/doorsForLevel, both
+  // still keyed off isNoCombatMap alone) stays intact so those levels are
+  // still real places to walk around, they just no longer have anyone
+  // to fight in them. Every combat-specific system below (bot spawning,
+  // gun equipping, the FIRE button, HP bars, the GUN tab) is gated on
+  // this instead.
+  const combatDisabled = true;
   // Map 5 reuses Map 4's build-mode mechanics wholesale (same tools, same
   // origin/play-radius — see the mapId===4||5 scene-building branch below)
   // but gets its own save slot and starts as a genuinely blank canvas, with
@@ -4207,8 +4218,8 @@ function CombatArena({
   // fighters at all — it's a combat-free build/explore canvas (mapId is
   // fixed for this component's whole mount, so sizing the initial state
   // off it is safe).
-  const [botHps, setBotHps] = useState<number[]>(() => new Array(isNoCombatMap ? 0 : 6).fill(100));
-  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>(new Array(isNoCombatMap ? 0 : 6).fill(null));
+  const [botHps, setBotHps] = useState<number[]>(() => new Array(combatDisabled || isNoCombatMap ? 0 : 6).fill(100));
+  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>(new Array(combatDisabled || isNoCombatMap ? 0 : 6).fill(null));
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   // Counts bot deaths this match, for the profile progress system's XP
   // award — read once when `result` leaves "playing" (see the effect
@@ -6160,21 +6171,23 @@ function CombatArena({
     // inside the click handler.
     let offHandFreezeArmed = false;
 
-    // Preloaded here so it's very likely already resolved by the time each
-    // fighter's rig finishes loading — every fighter is armed on spawn now,
-    // it's the weapon every fighter actually shoots with (see the fire
-    // logic in the tick loop below).
-    const gunPrototype = loadGunPrototype();
-    const equipGun = (rig: FighterRig) => {
-      if (!rig.rightHand) return;
-      gunPrototype.then((proto) => {
-        rig.gun = createGunAttachment(rig.rightHand as THREE.Object3D, proto);
-        curlGunGripFingers(rig.rightFingers, 1);
-        curlGunGripFingers(rig.leftFingers, -1);
-        curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right);
-        curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left);
-      });
-    };
+    // Guns removed from the whole game (see combatDisabled) — the model
+    // asset itself is gone too, so this is never actually called anymore
+    // (nothing invokes equipGun below), but skipping the eager
+    // loadGunPrototype() call as well means no one ever tries to fetch a
+    // file that no longer exists in the first place.
+    const equipGun = combatDisabled
+      ? (_rig: FighterRig) => {}
+      : (rig: FighterRig) => {
+          if (!rig.rightHand) return;
+          loadGunPrototype().then((proto) => {
+            rig.gun = createGunAttachment(rig.rightHand as THREE.Object3D, proto);
+            curlGunGripFingers(rig.rightFingers, 1);
+            curlGunGripFingers(rig.leftFingers, -1);
+            curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right);
+            curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left);
+          });
+        };
 
     // The player spawns as whichever character was picked in Character
     // Selection (persisted under SELECTED_CARD_STORAGE_KEY) instead of
@@ -6193,7 +6206,9 @@ function CombatArena({
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
       rig.root.rotation.y = Math.PI; // face into the facility at the start
       player = rig;
-      equipGun(rig);
+      // No gun equipped anymore — combat/guns removed from the whole game
+      // (see combatDisabled). Hands stay empty; nothing else here reads
+      // rig.gun without also checking for it being null first.
     };
     const savedCard = Number(localStorage.getItem(SELECTED_CARD_STORAGE_KEY));
     const playerModel = CARD_MODELS[savedCard] && isCardUnlocked(savedCard) ? CARD_MODELS[savedCard] : CARD_MODELS[0];
@@ -6211,9 +6226,17 @@ function CombatArena({
     // (see tintBossFighter).
     // Map 4 spawns no fighters at all — it's a combat-free build/explore
     // canvas, not a level to fight through.
-    const botSpawns = mapId === 2 ? MAP2_BOT_SPAWNS : mapId === 3 ? MAP3_BOT_SPAWNS : isNoCombatMap ? [] : BOT_SPAWNS;
+    const botSpawns = combatDisabled
+      ? []
+      : mapId === 2
+        ? MAP2_BOT_SPAWNS
+        : mapId === 3
+          ? MAP3_BOT_SPAWNS
+          : isNoCombatMap
+            ? []
+            : BOT_SPAWNS;
     const bossSpawn = mapId === 2 ? MAP2_BOSS_SPAWN : mapId === 3 ? MAP3_BOSS_SPAWN : BOSS_SPAWN;
-    const bots: (FighterRig | null)[] = new Array(isNoCombatMap ? 0 : 6).fill(null);
+    const bots: (FighterRig | null)[] = new Array(combatDisabled || isNoCombatMap ? 0 : 6).fill(null);
     for (let i = 0; i < botSpawns.length; i++) {
       const spawn = botSpawns[i];
       loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
@@ -6223,7 +6246,7 @@ function CombatArena({
         equipGun(rig);
       });
     }
-    if (!isNoCombatMap) {
+    if (!combatDisabled && !isNoCombatMap) {
       loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
         if (disposed) return;
         rig.root.position.set(bossSpawn.x, 0, bossSpawn.z);
@@ -6300,7 +6323,7 @@ function CombatArena({
     // entry (see roomIndex); index 5 is the Boss — tougher, and isBoss
     // skips the patrol/chase behavior entirely in favor of holding its
     // ground. Map 4 has no fighters at all.
-    const botMaxHps = isNoCombatMap ? [] : [100, 100, 100, 100, 100, BOSS_HP];
+    const botMaxHps = combatDisabled || isNoCombatMap ? [] : [100, 100, 100, 100, 100, BOSS_HP];
     const botStates = botMaxHps.map((hp, i) => ({
       hp,
       cooldown: 0,
@@ -7975,9 +7998,10 @@ function CombatArena({
         style={{ position: "absolute", inset: 0, touchAction: "none" }}
       />
 
-      {/* Health bar — hidden in Map View (nothing but the level on screen).
-          Map 4 now has its own combat (20 armed bots), so it shows here too. */}
-      {!topDownView && (
+      {/* Health bar — hidden in Map View (nothing but the level on screen),
+          and hidden everywhere now that combat is gone (see
+          combatDisabled): HP never changes without anything to fight. */}
+      {!combatDisabled && !topDownView && (
         <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
           <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
             {t(settings.language, "you")}
@@ -8325,7 +8349,7 @@ function CombatArena({
             />
           </div>
 
-          {!isNoCombatMap && (
+          {!combatDisabled && !isNoCombatMap && (
             <>
               {/* Fire button — auto-fires for as long as it's held down (see the
                   attackRequested consumption in the tick loop), not just once per
@@ -8446,7 +8470,7 @@ function CombatArena({
                 maxWidth: "calc(100vw - 90px)",
               }}
             >
-              {(["map", "right", "left", "gun"] as const).map((tab) => (
+              {(["map", "right", "left"] as const).map((tab) => (
                 <button
                   key={tab}
                   onPointerDown={(e) => {
@@ -8467,42 +8491,9 @@ function CombatArena({
                     cursor: "pointer",
                   }}
                 >
-                  {tab === "map" ? "MAP" : tab === "right" ? "RIGHT" : tab === "left" ? "LEFT" : "GUN"}
+                  {tab === "map" ? "MAP" : tab === "right" ? "RIGHT" : "LEFT"}
                 </button>
               ))}
-              {/* GUN ON/OFF — ON means the gun is attached and follows the
-                  hand (see applyCalibratedGunTransform, re-run every nudge/
-                  slider so it always tracks); OFF means the gun is
-                  detached and stays exactly where it is while the hand/arm
-                  moves freely (see toggleGunDetach's scene-reparent
-                  branch). Physically it's the same ATTACH/DETACH toggle
-                  this always was, just standalone now instead of living
-                  inside one tab's own panel. */}
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  if (buildLockedUI) return;
-                  buildModeRef.current?.toggleGunDetach();
-                  setGunDetachedUI((d) => !d);
-                }}
-                disabled={buildLockedUI}
-                aria-label="Toggle gun detach"
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: 6,
-                  background: gunDetachedUI ? "rgba(255,110,90,0.3)" : "rgba(120,255,140,0.3)",
-                  border: gunDetachedUI ? "1px solid rgba(255,150,130,0.9)" : "1px solid rgba(150,255,170,0.9)",
-                  color: "#dce8f5",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  fontSize: 12,
-                  letterSpacing: "0.04em",
-                  cursor: buildLockedUI ? "not-allowed" : "pointer",
-                  opacity: buildLockedUI ? 0.5 : 1,
-                }}
-              >
-                {gunDetachedUI ? "○ GUN: OFF" : "● GUN: ON"}
-              </button>
             </div>
           )}
           {/* VALUES / LOCK — kept out of the tab row above (that row
@@ -9477,475 +9468,6 @@ function CombatArena({
         </>
       )}
 
-      {/* GUN tab — nudges how the gun sits in the hand (see
-          gunGripOffset/createGunAttachment), position D-pad plus PITCH/
-          YAW/ROLL sliders. The gun's ON/OFF state itself now lives in the
-          always-visible button next to the tab switcher (see
-          toggleGunDetach), not here. */}
-      {(mapId === 4 || mapId === 5) && buildTopTab === "gun" && (
-        <>
-          <div
-            style={{
-              position: "absolute",
-              top: 52,
-              left: 16,
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-              width: "min(70vw, 230px)",
-              // This whole panel is position:absolute over the canvas, not
-              // part of any normally-scrolling page — so on a short/
-              // landscape screen where its natural content height (banner
-              // + RESET + BACKUP/RESTORE + L-R SWEEP + UD SWEEP + the
-              // LEFT/FIRE/RIGHT/PITCH/YAW/ROLL/ROLL-spin section below)
-              // exceeds the viewport, anything past the bottom edge used
-              // to be genuinely unreachable: there was no scroll mechanism
-              // at this outer level at all, only on the inner sub-section
-              // further down, which just meant the CONTENT ABOVE it (the
-              // banner/RESET/BACKUP/RESTORE/sweeps) was already eating the
-              // entire short viewport before that inner section even got a
-              // chance to render — exactly what made GUN ROLL and its new
-              // spin buttons invisible on a landscape phone. Capping and
-              // scrolling the panel as a whole, instead of only one inner
-              // slice of it, means every control stays reachable by
-              // swiping the panel itself on any screen size.
-              maxHeight: "calc(100vh - 64px)",
-              overflowY: "auto",
-              touchAction: "pan-y",
-            }}
-          >
-            <div
-              style={{
-                background: "rgba(8,14,24,0.7)",
-                border: "1px solid rgba(200,220,240,0.3)",
-                borderRadius: 8,
-                padding: 10,
-                color: "#dce8f5",
-                fontFamily: "'Rajdhani', sans-serif",
-                fontSize: 12,
-                lineHeight: 1.4,
-              }}
-            >
-              Nudge the gun's grip in the hand with the D-pad. Saved automatically.
-            </div>
-            {/* How far one D-pad tap moves the gun (see gunGripNudgeStep/
-                handleGunGripNudge) — its own slider right under the D-pad's
-                own explanation banner, since it directly controls what
-                that D-pad does per tap: small for fine-tuning the last bit
-                of precision, large for fast coarse repositioning. */}
-            {renderSliderRow(
-              "gun-nudge-step",
-              "NUDGE STEP",
-              gunNudgeStepUI,
-              GUN_GRIP_NUDGE_STEP_MIN,
-              GUN_GRIP_NUDGE_STEP_MAX,
-              0.01,
-              0.1,
-              gunNudgeStepUI.toFixed(2),
-              (v) => handleGunNudgeStepSlider(v),
-              (delta) => handleGunNudgeStepSlider(gunGripNudgeStep + delta),
-            )}
-            <button
-              onPointerDown={(e) => {
-                e.preventDefault();
-                if (buildLockedUI) return;
-                buildModeRef.current?.resetGun();
-                setGunRotationUI({ pitch: 0, yaw: 0, roll: 0 });
-              }}
-              disabled={buildLockedUI}
-              aria-label="Reset gun grip"
-              style={{
-                padding: "8px 18px",
-                borderRadius: 6,
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(200,220,240,0.4)",
-                color: "#dce8f5",
-                fontFamily: "'Rajdhani', sans-serif",
-                fontWeight: 700,
-                letterSpacing: "0.06em",
-                fontSize: 13,
-                cursor: buildLockedUI ? "not-allowed" : "pointer",
-                opacity: buildLockedUI ? 0.5 : 1,
-              }}
-            >
-              RESET
-            </button>
-            {/* BACKUP/RESTORE POSE — same pair as RIGHT/LEFT's own tabs
-                (see renderHandTab), covers gun grip + both hands
-                together (PoseBundle) regardless of which tab it's
-                tapped from. */}
-            <div style={{ display: "flex", gap: 6 }}>
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handlePoseExport();
-                }}
-                aria-label="Backup pose"
-                style={{
-                  flex: 1,
-                  padding: "8px 0",
-                  borderRadius: 6,
-                  background: "rgba(107,216,255,0.18)",
-                  border: "1px solid rgba(107,216,255,0.5)",
-                  color: "#dce8f5",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                💾 BACKUP
-              </button>
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  if (buildLockedUI) return;
-                  setPoseImportOpen(true);
-                }}
-                disabled={buildLockedUI}
-                aria-label="Restore pose"
-                style={{
-                  flex: 1,
-                  padding: "8px 0",
-                  borderRadius: 6,
-                  background: "rgba(255,255,255,0.1)",
-                  border: "1px solid rgba(200,220,240,0.4)",
-                  color: "#dce8f5",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  fontSize: 12,
-                  cursor: buildLockedUI ? "not-allowed" : "pointer",
-                  opacity: buildLockedUI ? 0.5 : 1,
-                }}
-              >
-                📥 RESTORE
-              </button>
-            </div>
-            {/* L-R SWEEP — the exact same value GUN YAW controls (below) —
-                same handlers, same gunRotationUI.yaw, so dragging either
-                one keeps both in sync automatically. Nothing new is
-                stored; this is just a second window onto gunGripRotation.y.
-                Full -180°..+180° range (was a narrower -90°..+90° shortcut,
-                widened to match GUN YAW's own full range per request). */}
-            {renderSliderRow(
-              "gun-lr-sweep",
-              "L-R SWEEP",
-              gunRotationUI.yaw,
-              GUN_GRIP_ROTATION_MIN,
-              GUN_GRIP_ROTATION_MAX,
-              0.01,
-              GUN_ROTATE_STEP_RAD,
-              `${((gunRotationUI.yaw * 180) / Math.PI).toFixed(2)}°`,
-              (v) => handleGunRotationSlider("yaw", v),
-              (delta) => handleGunRotationNudge("yaw", delta),
-            )}
-            {/* UD SWEEP — same pattern as L-R SWEEP directly above, just on
-                the pitch axis instead of yaw, full -180°..+180° range (see
-                L-R SWEEP's own comment for why it's no longer narrower). */}
-            {renderSliderRow(
-              "gun-ud-sweep",
-              "UD SWEEP",
-              gunRotationUI.pitch,
-              GUN_GRIP_ROTATION_MIN,
-              GUN_GRIP_ROTATION_MAX,
-              0.01,
-              GUN_ROTATE_STEP_RAD,
-              `${((gunRotationUI.pitch * 180) / Math.PI).toFixed(2)}°`,
-              (v) => handleGunRotationSlider("pitch", v),
-              (delta) => handleGunRotationNudge("pitch", delta),
-            )}
-            {/* FIRE/LEFT/RIGHT + PITCH/YAW/ROLL + the gun grip D-pad — used
-                to be its own separately-scrolling block (a fixed maxHeight
-                reservation, distinct from the panel it sits in) so that a
-                flex column with overflow on itself wouldn't just shrink
-                its children to fit instead of actually scrolling. That
-                approach broke down on a short/landscape screen: the fixed
-                px budget it reserved for "everything above" (banner +
-                RESET + BACKUP/RESTORE + L-R SWEEP + UD SWEEP) assumed a
-                tall portrait phone, so on a real short screen those alone
-                already ate the whole viewport, collapsing THIS section to
-                a sliver a couple px tall — visible in principle, never
-                actually reachable by a real thumb swipe (that's what made
-                GUN ROLL and the ROLL spin buttons "never came" on a
-                landscape phone). The panel wrapping this whole tab (see
-                its own maxHeight/overflowY a bit further up) now scrolls
-                as ONE unit instead, so every control here just needs to
-                not get squeezed by that panel's own flex-shrink — hence
-                flexShrink: 0, no maxHeight/overflow of its own anymore. */}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-                flexShrink: 0,
-              }}
-            >
-            {/* LEFT/RIGHT spin the GUN itself all the way around (yaw,
-                wrapping past +/-180° instead of jamming there — see
-                handleGunYawSpin/wrapAngle) — a full continuous 360°
-                turn with repeated taps, not just the slider's own
-                bounded range. FIRE stays in the middle, previewing the
-                recoil pose (see triggerFirePreview) with no cooldown/
-                tracer/damage, just the animation. */}
-            <div style={{ display: "flex", gap: 6 }}>
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleGunYawSpin(-GUN_ROTATE_STEP_RAD);
-                }}
-                aria-label="Rotate gun left"
-                style={{
-                  flex: 1,
-                  padding: "8px 0",
-                  borderRadius: 6,
-                  background: "rgba(107,216,255,0.18)",
-                  border: "1px solid rgba(107,216,255,0.5)",
-                  color: "#dce8f5",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                ↺ LEFT
-              </button>
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  buildModeRef.current?.triggerFirePreview();
-                }}
-                aria-label="Preview fire pose"
-                style={{
-                  flex: 1,
-                  padding: "8px 0",
-                  borderRadius: 6,
-                  background: "rgba(255,140,90,0.22)",
-                  border: "1px solid rgba(255,170,130,0.6)",
-                  color: "#dce8f5",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                🔥 FIRE
-              </button>
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleGunYawSpin(GUN_ROTATE_STEP_RAD);
-                }}
-                aria-label="Rotate gun right"
-                style={{
-                  flex: 1,
-                  padding: "8px 0",
-                  borderRadius: 6,
-                  background: "rgba(107,216,255,0.18)",
-                  border: "1px solid rgba(107,216,255,0.5)",
-                  color: "#dce8f5",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                RIGHT ↻
-              </button>
-            </div>
-            {/* PITCH/YAW/ROLL (see gunGripRotation) — plain sliders, on
-                purpose not a D-pad. This tab used to have both a slider
-                AND an arrow-button D-pad for the same three values,
-                which is what pushed this scrollable section tall enough
-                to start crowding GUN CAM's own D-pad on short screens.
-                Sliders alone here; the grip POSITION D-pad (an actually
-                different control — where the gun sits, not how it's
-                turned) goes back to floating on the right side, see
-                below. */}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-              }}
-            >
-              {(["pitch", "yaw", "roll"] as const).map((axis) => {
-                const value = gunRotationUI[axis];
-                return renderSliderRow(
-                  `gun-${axis}`,
-                  `GUN ${axis.toUpperCase()}`,
-                  value,
-                  GUN_GRIP_ROTATION_MIN,
-                  GUN_GRIP_ROTATION_MAX,
-                  0.01,
-                  GUN_ROTATE_STEP_RAD,
-                  `${((value * 180) / Math.PI).toFixed(2)}°`,
-                  (v) => handleGunRotationSlider(axis, v),
-                  (delta) => handleGunRotationNudge(axis, delta),
-                );
-              })}
-            </div>
-            {/* Spins the gun all the way around its own barrel axis, like a
-                drill bit — same wrap-past-the-slider's-own-limit trick as
-                the LEFT/RIGHT yaw-spin buttons above (see handleGunRollSpin/
-                wrapAngle), just on GUN ROLL instead of GUN YAW, and placed
-                right under that slider instead of duplicating the top
-                FIRE row (there's nothing roll-specific to preview there). */}
-            <div style={{ display: "flex", gap: 6 }}>
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleGunRollSpin(-GUN_ROTATE_STEP_RAD);
-                }}
-                aria-label="Spin gun roll left"
-                style={{
-                  flex: 1,
-                  padding: "8px 0",
-                  borderRadius: 6,
-                  background: "rgba(107,216,255,0.18)",
-                  border: "1px solid rgba(107,216,255,0.5)",
-                  color: "#dce8f5",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                ↺ ROLL
-              </button>
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleGunRollSpin(GUN_ROTATE_STEP_RAD);
-                }}
-                aria-label="Spin gun roll right"
-                style={{
-                  flex: 1,
-                  padding: "8px 0",
-                  borderRadius: 6,
-                  background: "rgba(107,216,255,0.18)",
-                  border: "1px solid rgba(107,216,255,0.5)",
-                  color: "#dce8f5",
-                  fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                ROLL ↻
-              </button>
-            </div>
-            </div>
-          </div>
-          {/* Gun grip nudge D-pad — position (where the gun sits in the
-              hand), not rotation, so it stays a separate control on the
-              opposite side of the screen from the LEFT-side panel above,
-              not folded into that panel's own scroll. Sized compact
-              (110px grid, 32px side column) and kept well clear of GUN
-              CAM's own D-pad in the bottom-left corner (see that D-pad's
-              own matching compact size) — verified no overlap at
-              320-420px screen widths. */}
-          <div
-            style={{
-              position: "absolute",
-              right: "4%",
-              bottom: "6%",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              opacity: buildLockedUI ? settings.buttonOpacity * 0.5 : settings.buttonOpacity,
-              pointerEvents: buildLockedUI ? "none" : "auto",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 4,
-                width: 32,
-                height: 110,
-              }}
-            >
-              {(["up", "down"] as const).map((dir) => (
-                <button
-                  key={dir}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    handleGunGripNudge(dir);
-                  }}
-                  aria-label={`Gun grip ${dir}`}
-                  style={{
-                    flex: 1,
-                    borderRadius: 7,
-                    background: "rgba(255,190,90,0.3)",
-                    border: "1px solid rgba(255,215,150,0.8)",
-                    color: "#dce8f5",
-                    fontFamily: "'Rajdhani', sans-serif",
-                    fontWeight: 700,
-                    fontSize: 10,
-                    cursor: "pointer",
-                  }}
-                >
-                  {dir === "up" ? "▲" : "▼"}
-                </button>
-              ))}
-            </div>
-            <div
-              style={{
-                width: 110,
-                height: 110,
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
-                gridTemplateRows: "1fr 1fr 1fr",
-                gap: 4,
-              }}
-            >
-              {(
-                [
-                  [null, "forward", null],
-                  ["left", null, "right"],
-                  [null, "back", null],
-                ] as const
-              ).map((row, rowIdx) =>
-                row.map((dir, colIdx) =>
-                  dir ? (
-                    <button
-                      key={dir}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        handleGunGripNudge(dir);
-                      }}
-                      aria-label={`Gun grip ${dir}`}
-                      style={{
-                        gridColumn: colIdx + 1,
-                        gridRow: rowIdx + 1,
-                        borderRadius: 7,
-                        background: "rgba(107,216,255,0.3)",
-                        border: "1px solid rgba(190,235,255,0.8)",
-                        color: "#dce8f5",
-                        fontFamily: "'Rajdhani', sans-serif",
-                        fontWeight: 700,
-                        fontSize: 15,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
-                    </button>
-                  ) : (
-                    <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
-                  ),
-                ),
-              )}
-            </div>
-          </div>
-        </>
-      )}
 
       {/* RIGHT HAND / LEFT HAND tabs — each side's own shoulder/elbow/
           wrist pose plus its 5 fingers (see renderHandTab). */}
