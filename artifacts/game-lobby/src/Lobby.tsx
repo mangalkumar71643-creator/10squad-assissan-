@@ -413,6 +413,18 @@ const FOG_NEAR = ARENA_HALF - 5;
 const FOG_FAR = ARENA_HALF * 2.5;
 const SKY_RADIUS = Math.max(350, ARENA_HALF * 4); // stays comfortably beyond the fog and the arena's own far corners
 const CAMERA_FAR = SKY_RADIUS + 50;
+// Third-person chase camera framing (Free Fire / PUBG Mobile style) — hoisted
+// to module scope (not just local to the scene effect that actually builds
+// the chase camera) so GUN CAM's own orbit distance (gunCamDist) can share
+// the exact same real distance instead of a separately-tuned magic number —
+// see gunCamDist's own comment for why.
+const CAM_DISTANCE = 2.1;
+const CAM_HEIGHT = 1.55;
+const CAM_LOOK_HEIGHT = 1.25;
+// The camera orbits its look-at point on a sphere of this radius — derived
+// from CAM_DISTANCE/CAM_HEIGHT so pitch 0 (no vertical drag) reproduces the
+// exact same default view as the fixed camera this replaced.
+const CAM_ORBIT_RADIUS = Math.hypot(CAM_DISTANCE, CAM_HEIGHT - CAM_LOOK_HEIGHT);
 // The player's target ground speed is a continuous function of how far the
 // joystick is pushed (see PLAYER_MAX_SPEED below) rather than a fixed
 // constant — full tilt sustained past SPRINT_ENGAGE_MAG additionally ramps
@@ -4107,10 +4119,12 @@ function CombatArena({
   const cameraYaw = useRef(Math.PI);
   const cameraPitch = useRef(0);
   // GUN CAM (Build Mode only): a second, independent orbit camera centered
-  // on the gun/hand instead of the player's whole body, for actually
-  // seeing the grip up close while calibrating it — the normal chase
-  // camera's CAM_DISTANCE is far too wide to judge finger/wrist detail.
-  // yaw/pitch/dist are plain refs (not React state) — drag-to-look
+  // on the gun/hand instead of the player's whole body — orbits at the
+  // exact same distance as the normal chase camera (CAM_ORBIT_RADIUS) so
+  // switching to the GUN tab reframes what you're orbiting around, not how
+  // far away or zoomed the view itself is; a close, zoomed-in view here
+  // used to make the same drag gesture feel completely different between
+  // tabs. yaw/pitch/dist are plain refs (not React state) — drag-to-look
   // (handleLookMove's gunCamOnRef branch) mutates them directly and has
   // the tick loop below pick up the change next frame, same as
   // cameraYaw/cameraPitch above — no render round-trip needed since
@@ -4119,7 +4133,7 @@ function CombatArena({
   // the normal chase camera's own free-look.
   const gunCamYaw = useRef(0);
   const gunCamPitch = useRef(0.15);
-  const gunCamDist = useRef(0.4);
+  const gunCamDist = useRef(CAM_ORBIT_RADIUS);
   // Pitch clamp shared between the drag gesture and the camera's own
   // orbit-position math below, so dragging can't spin past the lookAt
   // gimbal singularity straight up/down.
@@ -4500,15 +4514,10 @@ function CombatArena({
     // a narrower FOV keeps the character filling most of the screen
     // height rather than looking small and far away.
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, CAMERA_FAR);
-    const CAM_DISTANCE = 2.1;
-    const CAM_HEIGHT = 1.55;
-    const CAM_LOOK_HEIGHT = 1.25;
+    // CAM_DISTANCE/CAM_HEIGHT/CAM_LOOK_HEIGHT/CAM_ORBIT_RADIUS are module-
+    // level now (see their own comment up there) so GUN CAM's orbit
+    // distance can share the exact same value.
     const CAM_DAMP_RATE = 7; // per-second follow damping, frame-rate independent
-    // The camera orbits the look-at point on a sphere of this radius —
-    // derived from the original fixed CAM_DISTANCE/CAM_HEIGHT so pitch 0
-    // (no vertical drag yet) reproduces the exact same default view as
-    // before, with up/down drag then orbiting away from that angle.
-    const CAM_ORBIT_RADIUS = Math.hypot(CAM_DISTANCE, CAM_HEIGHT - CAM_LOOK_HEIGHT);
     const CAM_BASE_PITCH = Math.atan2(CAM_HEIGHT - CAM_LOOK_HEIGHT, CAM_DISTANCE);
     const CAM_PITCH_MIN = -0.15; // near-level, looking slightly down at most
     const CAM_PITCH_MAX = 1.3; // steep overhead angle, short of straight down
@@ -6837,10 +6846,10 @@ function CombatArena({
           // GUN CAM (Build Mode): orbits gunCamYaw/gunCamPitch/gunCamDist
           // around the gun's current world position (falling back to the
           // hand if the gun is mid-detach) instead of the player's whole
-          // body — the normal chase camera's CAM_DISTANCE is metres away,
-          // nowhere near close enough to actually judge a finger curl or
-          // wrist twist while calibrating. yaw has no clamp at all (full
-          // 360° orbit — drag left/right, same gesture as the chase
+          // body — same distance as the normal chase camera (gunCamDist
+          // defaults to CAM_ORBIT_RADIUS), just recentred on the gun/hand
+          // instead of the player's whole body. yaw has no clamp at all
+          // (full 360° orbit — drag left/right, same gesture as the chase
           // camera's own free-look, see handleLookMove); pitch is
           // clamped shy of straight up/down to avoid the lookAt gimbal
           // singularity, same GUN_CAM_PITCH_LIMIT that gesture itself
