@@ -2622,11 +2622,36 @@ function saveGunGripOffset() {
 }
 // One PLAYER-tab nudge tap's size, in the same local units as gunGripOffset
 // (RightHand-local, already scaled) — tuned by eye against the actual
-// rig, not derived from a real-world unit. Set back to 0.5 (a single tap
-// moves the gun nearly as far as the entire hand-to-muzzle offset, see
-// GUN_MUZZLE_TARGET_LOCAL above, components ~0.2-0.83) per request, for
-// faster coarse repositioning over fine-tuning precision.
-const GUN_GRIP_NUDGE_STEP = 0.5;
+// rig, not derived from a real-world unit. GUN_MUZZLE_TARGET_LOCAL's
+// components (~0.2-0.83) are the natural reference point: at the MAX end
+// (3) a single tap swings the gun several times its own hand-to-muzzle
+// length, for fast coarse repositioning; at the MIN end (0.1) it's a
+// small fraction of that, for fine-tuning the last bit of precision.
+// Adjustable now (a GUN-tab slider — see gunNudgeStepUI/
+// handleGunNudgeStepSlider) instead of a single fixed value, since a
+// step that's comfortable for coarse placement is far too coarse once
+// you're just fine-tuning, and vice versa.
+const GUN_GRIP_NUDGE_STEP_MIN = 0.1;
+const GUN_GRIP_NUDGE_STEP_MAX = 3;
+const GUN_GRIP_NUDGE_STEP_DEFAULT = 0.5;
+const GUN_GRIP_NUDGE_STEP_STORAGE_KEY = "10sa-gun-grip-nudge-step";
+function loadGunGripNudgeStep(): number {
+  try {
+    const raw = localStorage.getItem(GUN_GRIP_NUDGE_STEP_STORAGE_KEY);
+    if (!raw) return GUN_GRIP_NUDGE_STEP_DEFAULT;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? clamp(parsed, GUN_GRIP_NUDGE_STEP_MIN, GUN_GRIP_NUDGE_STEP_MAX) : GUN_GRIP_NUDGE_STEP_DEFAULT;
+  } catch {
+    return GUN_GRIP_NUDGE_STEP_DEFAULT;
+  }
+}
+// Read once at module load and mutated in place by the GUN tab's own
+// nudge-step slider — every subsequent PLAYER-tab D-pad tap (see
+// handleGunGripNudge) reads whatever's currently here.
+let gunGripNudgeStep = loadGunGripNudgeStep();
+function saveGunGripNudgeStep() {
+  localStorage.setItem(GUN_GRIP_NUDGE_STEP_STORAGE_KEY, String(gunGripNudgeStep));
+}
 
 // Extra rotation on top of the base grip orientation (see
 // GUN_MUZZLE_TARGET_LOCAL), in the gun's OWN local frame at the moment
@@ -4357,6 +4382,10 @@ function CombatArena({
   // state via setGunGripRotation/setFingerCurl AND this mirror together
   // (see handleGunRotationSlider/handleGunCurlSlider).
   const [gunRotationUI, setGunRotationUI] = useState(() => ({ pitch: gunGripRotation.x, yaw: gunGripRotation.y, roll: gunGripRotation.z }));
+  // Same mirroring idea, for the GUN tab's own nudge-step slider (see
+  // gunGripNudgeStep/handleGunGripNudge) — how far one D-pad tap moves
+  // the gun, itself adjustable now instead of a single fixed value.
+  const [gunNudgeStepUI, setGunNudgeStepUI] = useState(() => gunGripNudgeStep);
   const [gunCurlUI, setGunCurlUI] = useState(() => ({ right: { ...fingerCurlExtras.right }, left: { ...fingerCurlExtras.left } }));
   // Same mirroring idea, for armPoseExtras' shoulder/elbow/wrist sliders —
   // one copy per side now, shown on the RIGHT HAND / LEFT HAND tabs.
@@ -7207,7 +7236,7 @@ function CombatArena({
     if (buildLockedUI) return;
     const api = buildModeRef.current;
     if (!api) return;
-    const s = GUN_GRIP_NUDGE_STEP;
+    const s = gunGripNudgeStep;
     if (dir === "up") api.nudgeGunGrip(0, s, 0);
     else if (dir === "down") api.nudgeGunGrip(0, -s, 0);
     else if (dir === "forward") api.nudgeGunGrip(0, 0, s);
@@ -7218,6 +7247,15 @@ function CombatArena({
   const handleGunRotationSlider = (axis: "pitch" | "yaw" | "roll", value: number) => {
     buildModeRef.current?.setGunGripRotation(axis, value);
     setGunRotationUI((prev) => ({ ...prev, [axis]: value }));
+  };
+  // No scene-side effect to run (unlike the sliders above, this doesn't
+  // move the gun itself) — just updates the live module-level value every
+  // future handleGunGripNudge tap reads, persists it, and mirrors it into
+  // the slider's own displayed value.
+  const handleGunNudgeStepSlider = (value: number) => {
+    gunGripNudgeStep = clamp(value, GUN_GRIP_NUDGE_STEP_MIN, GUN_GRIP_NUDGE_STEP_MAX);
+    saveGunGripNudgeStep();
+    setGunNudgeStepUI(gunGripNudgeStep);
   };
   const handleGunCurlSlider = (side: "left" | "right", finger: FingerName, value: number) => {
     buildModeRef.current?.setFingerCurl(side, finger, value);
@@ -9447,6 +9485,23 @@ function CombatArena({
             >
               Nudge the gun's grip in the hand with the D-pad. Saved automatically.
             </div>
+            {/* How far one D-pad tap moves the gun (see gunGripNudgeStep/
+                handleGunGripNudge) — its own slider right under the D-pad's
+                own explanation banner, since it directly controls what
+                that D-pad does per tap: small for fine-tuning the last bit
+                of precision, large for fast coarse repositioning. */}
+            {renderSliderRow(
+              "gun-nudge-step",
+              "NUDGE STEP",
+              gunNudgeStepUI,
+              GUN_GRIP_NUDGE_STEP_MIN,
+              GUN_GRIP_NUDGE_STEP_MAX,
+              0.01,
+              0.1,
+              gunNudgeStepUI.toFixed(2),
+              (v) => handleGunNudgeStepSlider(v),
+              (delta) => handleGunNudgeStepSlider(gunGripNudgeStep + delta),
+            )}
             <button
               onPointerDown={(e) => {
                 e.preventDefault();
