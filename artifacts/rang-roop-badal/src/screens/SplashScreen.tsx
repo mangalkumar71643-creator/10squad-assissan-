@@ -1,7 +1,10 @@
 import React, { useRef } from "react";
 import { Animated, Dimensions, Image, Pressable, StyleSheet, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { CurrencyDisplay } from "@/components/CurrencyDisplay";
+import { useProfileStore } from "@/store/profileStore";
 import { RootStackParamList } from "@/types";
 import { vibrate } from "@/utils/haptics";
 
@@ -87,6 +90,10 @@ function IconButton({ source, onPress }: { source: number; onPress: () => void }
 }
 
 export function SplashScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
+  const coins = useProfileStore((s) => s.coins);
+  const stars = useProfileStore((s) => s.stars);
+
   const menuButtons: { key: string; source: number; onPress?: () => void }[] = [
     {
       key: "play",
@@ -138,6 +145,11 @@ export function SplashScreen({ navigation }: Props) {
         resizeMode="cover"
       />
 
+      <View style={[styles.topBar, { top: insets.top + 10 }]}>
+        <CurrencyDisplay icon="🪙" amount={coins} />
+        <CurrencyDisplay icon="⭐" amount={stars} />
+      </View>
+
       <View style={styles.menuStack}>
         {menuButtons.map((btn) => (
           <MenuButtonImage key={btn.key} source={btn.source} onPress={btn.onPress} />
@@ -163,6 +175,13 @@ export function SplashScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: "#160B2E" },
+  topBar: {
+    position: "absolute",
+    right: 16,
+    flexDirection: "row",
+    gap: 8,
+    zIndex: 10,
+  },
   menuStack: {
     position: "absolute",
     left: 0,
