@@ -9404,6 +9404,25 @@ function CombatArena({
               flexDirection: "column",
               gap: 6,
               width: "min(70vw, 230px)",
+              // This whole panel is position:absolute over the canvas, not
+              // part of any normally-scrolling page — so on a short/
+              // landscape screen where its natural content height (banner
+              // + RESET + BACKUP/RESTORE + L-R SWEEP + UD SWEEP + the
+              // LEFT/FIRE/RIGHT/PITCH/YAW/ROLL/ROLL-spin section below)
+              // exceeds the viewport, anything past the bottom edge used
+              // to be genuinely unreachable: there was no scroll mechanism
+              // at this outer level at all, only on the inner sub-section
+              // further down, which just meant the CONTENT ABOVE it (the
+              // banner/RESET/BACKUP/RESTORE/sweeps) was already eating the
+              // entire short viewport before that inner section even got a
+              // chance to render — exactly what made GUN ROLL and its new
+              // spin buttons invisible on a landscape phone. Capping and
+              // scrolling the panel as a whole, instead of only one inner
+              // slice of it, means every control stays reachable by
+              // swiping the panel itself on any screen size.
+              maxHeight: "calc(100vh - 64px)",
+              overflowY: "auto",
+              touchAction: "pan-y",
             }}
           >
             <div
@@ -9531,34 +9550,30 @@ function CombatArena({
               (v) => handleGunRotationSlider("pitch", v),
               (delta) => handleGunRotationNudge("pitch", delta),
             )}
-            {/* FIRE/LEFT/RIGHT + PITCH/YAW/ROLL + the gun grip D-pad share
-                one scrollable section below, same pattern as RIGHT/LEFT's
-                own shoulder/elbow/wrist/finger panel (see renderHandTab)
-                — a plain block div with its own maxHeight/overflowY, NOT
-                stacked directly in the outer flex column. A flex column
-                with maxHeight+overflow on itself lets its children shrink
-                to fit instead of actually overflowing and scrolling,
-                which is what visibly squeezed FIRE/LEFT/RIGHT and the
-                sliders on top of each other the first time this was
-                tried — RESET/BACKUP/RESTORE above stay fixed since
-                they're few enough to never need it. maxHeight is a fixed
-                px reservation, not RIGHT/LEFT's plain 62vh, because this
-                tab ALSO has GUN CAM's own D-pad permanently docked at the
-                bottom of the screen (gunCamOn is always true here) — on
-                a short phone, 62vh's bottom edge lands inside that
-                D-pad's own footprint. Reserving a fixed amount of space
-                for the header above and the D-pad below, whatever's left
-                over, keeps this column's bottom edge above it on any
-                screen height instead of just the tall ones it was tested
-                on. */}
+            {/* FIRE/LEFT/RIGHT + PITCH/YAW/ROLL + the gun grip D-pad — used
+                to be its own separately-scrolling block (a fixed maxHeight
+                reservation, distinct from the panel it sits in) so that a
+                flex column with overflow on itself wouldn't just shrink
+                its children to fit instead of actually scrolling. That
+                approach broke down on a short/landscape screen: the fixed
+                px budget it reserved for "everything above" (banner +
+                RESET + BACKUP/RESTORE + L-R SWEEP + UD SWEEP) assumed a
+                tall portrait phone, so on a real short screen those alone
+                already ate the whole viewport, collapsing THIS section to
+                a sliver a couple px tall — visible in principle, never
+                actually reachable by a real thumb swipe (that's what made
+                GUN ROLL and the ROLL spin buttons "never came" on a
+                landscape phone). The panel wrapping this whole tab (see
+                its own maxHeight/overflowY a bit further up) now scrolls
+                as ONE unit instead, so every control here just needs to
+                not get squeezed by that panel's own flex-shrink — hence
+                flexShrink: 0, no maxHeight/overflow of its own anymore. */}
             <div
               style={{
                 display: "flex",
                 flexDirection: "column",
                 gap: 6,
-                maxHeight: "calc(100vh - 380px)",
-                overflowY: "auto",
-                touchAction: "pan-y",
+                flexShrink: 0,
               }}
             >
             {/* LEFT/RIGHT spin the GUN itself all the way around (yaw,
