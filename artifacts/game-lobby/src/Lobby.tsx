@@ -7241,6 +7241,13 @@ function CombatArena({
   const handleGunYawSpin = (delta: number) => {
     handleGunRotationSlider("yaw", wrapAngle(gunGripRotation.y + delta));
   };
+  // Same wrap-instead-of-clamp spin as handleGunYawSpin above, on the roll
+  // axis instead — the gun spins around its own barrel/forward axis like a
+  // drill bit rather than jamming at +/-180° the way the GUN ROLL slider's
+  // own +/- nudge does.
+  const handleGunRollSpin = (delta: number) => {
+    handleGunRotationSlider("roll", wrapAngle(gunGripRotation.z + delta));
+  };
   const handleGunCurlNudge = (side: "left" | "right", finger: FingerName, delta: number) => {
     handleGunCurlSlider(side, finger, clamp(fingerCurlExtras[side][finger] + delta, GUN_FINGER_CURL_MIN, GUN_FINGER_CURL_MAX));
   };
@@ -9660,6 +9667,58 @@ function CombatArena({
                   (delta) => handleGunRotationNudge(axis, delta),
                 );
               })}
+            </div>
+            {/* Spins the gun all the way around its own barrel axis, like a
+                drill bit — same wrap-past-the-slider's-own-limit trick as
+                the LEFT/RIGHT yaw-spin buttons above (see handleGunRollSpin/
+                wrapAngle), just on GUN ROLL instead of GUN YAW, and placed
+                right under that slider instead of duplicating the top
+                FIRE row (there's nothing roll-specific to preview there). */}
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleGunRollSpin(-GUN_ROTATE_STEP_RAD);
+                }}
+                aria-label="Spin gun roll left"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                ↺ ROLL
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleGunRollSpin(GUN_ROTATE_STEP_RAD);
+                }}
+                aria-label="Spin gun roll right"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                ROLL ↻
+              </button>
             </div>
             </div>
           </div>
