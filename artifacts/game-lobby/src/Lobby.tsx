@@ -3242,6 +3242,33 @@ function updateOffHandReach(rig: FighterRig) {
   solveTwoBoneIK(rig.leftArm, rig.leftForeArm, rig.leftHand, foregripWorld, offHandPoleWorld);
 }
 
+// The player's own off-hand pose (shoulder + elbow + wrist local
+// quaternions) captured the instant the gun is detached, and re-applied
+// every tick for as long as it stays detached — see toggleGunDetach and
+// its call site in the tick loop. Just skipping updateOffHandReach isn't
+// enough on its own: the idle/run mocap clip keeps re-driving these same
+// bones every mixer.update (that's the whole reason updateOffHandReach
+// has to re-run every tick to begin with), so one tick without it and the
+// off-hand would visibly snap to the animation's own relaxed arm pose
+// instead of staying put. Re-applying this frozen snapshot overrides that
+// every frame, so the off-hand actually holds still while nothing is
+// attached to it, exactly the pose it was calibrated to a moment ago.
+const offHandFrozenQuat = {
+  leftArm: new THREE.Quaternion(),
+  leftForeArm: new THREE.Quaternion(),
+  leftHand: new THREE.Quaternion(),
+};
+function captureOffHandFreeze(rig: FighterRig) {
+  if (rig.leftArm) offHandFrozenQuat.leftArm.copy(rig.leftArm.quaternion);
+  if (rig.leftForeArm) offHandFrozenQuat.leftForeArm.copy(rig.leftForeArm.quaternion);
+  if (rig.leftHand) offHandFrozenQuat.leftHand.copy(rig.leftHand.quaternion);
+}
+function applyOffHandFreeze(rig: FighterRig) {
+  if (rig.leftArm) rig.leftArm.quaternion.copy(offHandFrozenQuat.leftArm);
+  if (rig.leftForeArm) rig.leftForeArm.quaternion.copy(offHandFrozenQuat.leftForeArm);
+  if (rig.leftHand) rig.leftHand.quaternion.copy(offHandFrozenQuat.leftHand);
+}
+
 // Curls a hand's finger joints in around the gun grip/foregrip — each
 // joint gets a fixed rotation about its local Z axis, applied once at
 // gun-attach time. This only needs to run once (not every tick): the
@@ -5708,6 +5735,7 @@ function CombatArena({
                 detachedHandMatrix.copy(player.rightHand.matrixWorld);
               }
               updateDetachedGunPreview(gun);
+              captureOffHandFreeze(player);
               gunDetached = true;
             } else {
               if (player.rightHand) {
@@ -6229,12 +6257,20 @@ function CombatArena({
       // drives the arm bones for the collapse, and re-bending the off-hand
       // onto the gun every frame would fight that pose (and just looks
       // wrong — a dropped body shouldn't still be gripping the gun).
-      // Runs regardless of gunDetached — see calibratedGripWorldMatrix,
-      // the off-hand's target no longer comes from the actual gun
-      // object's position, so there's nothing for it to chase out to the
-      // detached parking spot in front of the camera anymore, and no
-      // reason to skip a tick while it's parked there.
-      if (player && playerDeathT < 0) updateOffHandReach(player);
+      // Held frozen (applyOffHandFreeze) for the player while the gun is
+      // detached, instead of re-solved (updateOffHandReach) as normal: the
+      // off-hand's target comes from calibratedGripWorldMatrix, which is
+      // built straight from gunGripOffset/gunGripRotation (not the gun
+      // object's own position — see that function's comment), so it isn't
+      // fooled by the gun's old parked-in-front-of-camera spot any more,
+      // but it's still very much driven by those two values — nudging the
+      // grip while detached (to reposition the floating gun) visibly
+      // yanked the off-hand along with it, even though nothing is even
+      // attached to that hand right now.
+      if (player && playerDeathT < 0) {
+        if (gunDetached) applyOffHandFreeze(player);
+        else updateOffHandReach(player);
+      }
       for (let i = 0; i < bots.length; i++) {
         const rig = bots[i];
         if (rig && botStates[i].deathT < 0) updateOffHandReach(rig);
