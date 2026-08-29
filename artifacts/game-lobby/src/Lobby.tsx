@@ -3258,6 +3258,19 @@ const offHandFrozenQuat = {
   leftForeArm: new THREE.Quaternion(),
   leftHand: new THREE.Quaternion(),
 };
+// Must be called from inside the tick loop, right after that frame's own
+// mixer.update and a FRESH updateOffHandReach(rig) — see offHandFreezeArmed's
+// call site — never synchronously from a click handler. solveTwoBoneIK (the
+// core of updateOffHandReach) uses the bones' CURRENT orientation as its own
+// starting point for the solve, not just the target it's reaching for; the
+// only moment that orientation is the correct fresh baseline is right after
+// mixer.update has (re-)driven it from the baked animation clip, before
+// applyArmPoseCorrection's own per-tick correction gets multiplied on top.
+// Capturing from a click handler instead — outside the tick loop entirely —
+// meant solving from whatever the PREVIOUS tick had already left the bones
+// at (fully mixer-driven AND corrected), which isn't a valid IK starting
+// pose at all and produced a wildly wrong, twisted result: exactly what made
+// the off-hand look broken/"cut off" the moment GUN went OFF.
 function captureOffHandFreeze(rig: FighterRig) {
   if (rig.leftArm) offHandFrozenQuat.leftArm.copy(rig.leftArm.quaternion);
   if (rig.leftForeArm) offHandFrozenQuat.leftForeArm.copy(rig.leftForeArm.quaternion);
@@ -5735,7 +5748,20 @@ function CombatArena({
                 detachedHandMatrix.copy(player.rightHand.matrixWorld);
               }
               updateDetachedGunPreview(gun);
-              captureOffHandFreeze(player);
+              // The freeze snapshot itself is captured on the tick loop's
+              // side (see offHandFreezeArmed below) instead of right here —
+              // solveTwoBoneIK uses the bones' CURRENT orientation as its
+              // own starting point, and at this exact instant (a React
+              // click handler, not mid-tick) they're still holding LAST
+              // tick's fully-corrected pose, not the fresh mixer-driven
+              // baseline updateOffHandReach expects to solve from. Calling
+              // it right here solved from that already-corrected state and
+              // produced a completely different (and broken-looking)
+              // result. Flagging it instead and doing the real solve+
+              // capture on the next tick, in between that tick's own
+              // mixer.update and applyArmPoseCorrection calls, is the only
+              // place the bones are actually at the right baseline.
+              offHandFreezeArmed = true;
               gunDetached = true;
             } else {
               if (player.rightHand) {
@@ -6056,6 +6082,11 @@ function CombatArena({
     // this-session UI state, never persisted, since a detached gun is
     // only ever meant as a temporary "step back and look at it" view.
     let gunDetached = false;
+    // Set by toggleGunDetach's detach branch, consumed by the tick loop on
+    // the very next tick — see its own comment there and captureOffHandFreeze's
+    // for why the freeze snapshot can't just be captured synchronously
+    // inside the click handler.
+    let offHandFreezeArmed = false;
 
     // Preloaded here so it's very likely already resolved by the time each
     // fighter's rig finishes loading — every fighter is armed on spawn now,
@@ -6268,8 +6299,22 @@ function CombatArena({
       // yanked the off-hand along with it, even though nothing is even
       // attached to that hand right now.
       if (player && playerDeathT < 0) {
-        if (gunDetached) applyOffHandFreeze(player);
-        else updateOffHandReach(player);
+        if (gunDetached) {
+          // First tick after detaching: solve fresh (right here, right
+          // after this frame's own mixer.update — the one moment the
+          // bones sit at the correct pre-correction baseline) and capture
+          // that as the frozen pose, then hold it. See toggleGunDetach's
+          // comment and captureOffHandFreeze's for why this can't happen
+          // synchronously in the click handler instead.
+          if (offHandFreezeArmed) {
+            updateOffHandReach(player);
+            captureOffHandFreeze(player);
+            offHandFreezeArmed = false;
+          }
+          applyOffHandFreeze(player);
+        } else {
+          updateOffHandReach(player);
+        }
       }
       for (let i = 0; i < bots.length; i++) {
         const rig = bots[i];
