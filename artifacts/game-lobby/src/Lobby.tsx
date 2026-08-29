@@ -3137,19 +3137,33 @@ function calibratedGripWorldMatrix(hand: THREE.Object3D, out: THREE.Matrix4) {
 // space (which is what let the detached preview drift out of sync with
 // the attached math — see computeGunLocalTransform's own comment),
 // this recomputes the EXACT same calibrated local transform
-// applyCalibratedGunTransform would, then composes it against a FROZEN
-// snapshot of the hand's world matrix (detachedHandMatrix, captured once
-// when DETACH is toggled on) instead of the hand's live matrixWorld —
-// frozen so idle-animation sway doesn't jitter the floating gun every
-// tick (same reasoning as GUN CAM's own anchor), but still landing on
-// exactly the calibrated pose the hand had at that instant rather than
-// an arbitrary parked spot. Since every nudge/rotation change re-runs
-// this from gunGripOffset/gunGripRotation directly (not by moving the
-// live object incrementally), and re-attaching later runs the exact
-// same math against the hand's (by-then very slightly different, from
-// ordinary idle sway) live matrix, toggling DETACH on, nudging, and
-// toggling it back off no longer causes any visible jump.
+// applyCalibratedGunTransform would, then composes it against
+// detachedHandMatrix (see updateDetachedGunAnchor for how that's kept
+// up to date) instead of the hand's live matrixWorld — frozen relative
+// to the player's ROOT so idle-animation sway doesn't jitter the
+// floating gun every tick (same reasoning as GUN CAM's own anchor), but
+// still landing on exactly the calibrated pose the hand had at detach
+// time rather than an arbitrary parked spot. Since every nudge/rotation
+// change re-runs this from gunGripOffset/gunGripRotation directly (not
+// by moving the live object incrementally), and re-attaching later runs
+// the exact same math against the hand's (by-then very slightly
+// different, from ordinary idle sway) live matrix, toggling DETACH on,
+// nudging, and toggling it back off no longer causes any visible jump —
+// PROVIDED the player hasn't actually moved in the meantime. Frozen
+// purely to the hand's own old world position (the original approach)
+// meant walking anywhere while detached left the floating gun behind at
+// the old spot entirely, so re-attaching snapped it (and the off-hand
+// chasing it) instantly across however far the player had walked —
+// see detachedRootRelative below for the fix.
 const detachedHandMatrix = new THREE.Matrix4();
+// The hand's transform relative to the player's ROOT, captured once at
+// detach time (see toggleGunDetach) — this is what's actually frozen
+// (absorbing idle-animation sway, same as before), while
+// updateDetachedGunAnchor recomposes detachedHandMatrix against the
+// root's LIVE matrixWorld every tick, so walking around with the gun
+// detached carries the floating preview along for the ride instead of
+// leaving it behind.
+const detachedRootRelative = new THREE.Matrix4();
 const detachedLocalPos = new THREE.Vector3();
 const detachedLocalQuat = new THREE.Quaternion();
 const detachedWorldMatrix = new THREE.Matrix4();
@@ -3161,6 +3175,20 @@ function updateDetachedGunPreview(gun: THREE.Object3D) {
     .compose(detachedLocalPos, detachedLocalQuat, new THREE.Vector3(scale, scale, scale))
     .premultiply(detachedHandMatrix);
   detachedWorldMatrix.decompose(gun.position, gun.quaternion, gun.scale);
+}
+// Called every tick while the gun is detached (see its call site in the
+// tick loop) — recomposes detachedHandMatrix from the player's root's
+// LIVE matrixWorld and the frozen detachedRootRelative offset captured at
+// detach time, then re-runs updateDetachedGunPreview against that. Idle
+// sway (which moves the hand relative to the root) stays exactly as
+// frozen as before; actual player movement (which moves the root itself)
+// now carries the anchor along with it instead of leaving the floating
+// gun behind at the old spot for reattaching to snap back across.
+function updateDetachedGunAnchor(rig: FighterRig) {
+  if (!rig.gun) return;
+  rig.root.updateWorldMatrix(true, false);
+  detachedHandMatrix.multiplyMatrices(rig.root.matrixWorld, detachedRootRelative);
+  updateDetachedGunPreview(rig.gun);
 }
 
 // Rotates `bone` (in place, preserving its parent's current orientation)
@@ -5763,25 +5791,32 @@ function CombatArena({
           // detached branch, both of which persist straight into
           // gunGripOffset/gunGripRotation and re-run updateDetachedGunPreview,
           // never just nudging the live object directly in raw world
-          // space). detachedHandMatrix freezes the hand's world matrix at
-          // this exact instant — the preview is computed against THIS,
-          // not the hand's live matrixWorld, so idle-animation sway
-          // doesn't jitter the floating gun every tick, but it still
-          // starts (and stays, until nudged) at exactly the calibrated
-          // pose the hand had right here, not an arbitrary "parked in
-          // front of the camera" spot. Toggling back re-attaches using
-          // whatever gunGripOffset/gunGripRotation ended up at (last
-          // nudged, not whatever was calibrated before detaching) against
-          // the hand's real LIVE matrix — differing from the frozen
-          // preview only by whatever idle sway happened while detached,
-          // so there's no visible jump either way anymore.
+          // space). detachedRootRelative freezes the hand's transform
+          // RELATIVE TO THE PLAYER'S ROOT at this exact instant (not the
+          // hand's absolute world matrix — see updateDetachedGunAnchor,
+          // which re-derives detachedHandMatrix from this every tick
+          // against the root's LIVE matrixWorld) — the preview is computed
+          // against that, so idle-animation sway (which moves the hand
+          // relative to the root) doesn't jitter the floating gun every
+          // tick, but actually walking anywhere while detached (which
+          // moves the root) carries the whole floating gun along for the
+          // ride instead of leaving it behind at wherever the player
+          // happened to be standing at detach time. Toggling back
+          // re-attaches using whatever gunGripOffset/gunGripRotation ended
+          // up at (last nudged, not whatever was calibrated before
+          // detaching) against the hand's real LIVE matrix — differing
+          // from the (now root-following) preview only by ordinary idle
+          // sway, so there's no visible jump either way, walked somewhere
+          // else or not.
           toggleGunDetach: () => {
             if (!player?.gun) return;
             const gun = player.gun;
             if (!gunDetached) {
               scene.add(gun);
               if (player.rightHand) {
+                player.root.updateWorldMatrix(true, false);
                 player.rightHand.updateWorldMatrix(true, false);
+                detachedRootRelative.copy(player.root.matrixWorld).invert().multiply(player.rightHand.matrixWorld);
                 detachedHandMatrix.copy(player.rightHand.matrixWorld);
               }
               updateDetachedGunPreview(gun);
@@ -6349,6 +6384,14 @@ function CombatArena({
             offHandFreezeArmed = false;
           }
           applyOffHandFreeze(player);
+          // Keeps the floating detached gun's anchor following the
+          // player's root every tick (see updateDetachedGunAnchor's own
+          // comment) instead of leaving it frozen at wherever the player
+          // happened to be standing at detach time — otherwise walking
+          // anywhere while detached, then re-attaching, snapped the gun
+          // (and the off-hand chasing it) instantly across however far
+          // the player had walked.
+          updateDetachedGunAnchor(player);
         } else {
           updateOffHandReach(player);
         }
