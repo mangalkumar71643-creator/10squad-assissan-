@@ -2732,20 +2732,32 @@ function zeroArmPoseExtra(): ArmPoseExtra {
 // the same way fingerCurlExtras already is. A stale v1 (flat, right-arm
 // only) value under the old key is simply ignored — starts back at zero
 // for everyone rather than trying to migrate it into .right.
-const ARM_POSE_STORAGE_KEY = "10sa-arm-pose-v2";
-// Default shoulder/elbow/wrist correction when nothing's saved yet — same
-// already-calibrated pose baked in as GUN_GRIP_ROTATION_DEFAULT above,
-// from the same BACKUP code.
+// v3: all corrections reset to zero (see ARM_POSE_EXTRAS_DEFAULT below) —
+// the old v2 defaults were specifically calibrated to hold a two-handed
+// rifle grip, huge corrections on some axes (the left shoulder's y alone
+// was ~180°). With the gun gone entirely, that correction had nothing left
+// to justify it: it was bending both arms into a "holding a rifle" shape
+// with no rifle there, plus (until combatDisabled properly stopped it)
+// fighting against updateOffHandReach's own IK still trying to reach for
+// a phantom gun position, which is what made the wrist look like it
+// landed in a different pose for the same slider value from one run to
+// the next. Bumped so every device picks up zero fresh, same reasoning as
+// the v1->v2 bump.
+const ARM_POSE_STORAGE_KEY = "10sa-arm-pose-v3";
+// Default shoulder/elbow/wrist correction when nothing's saved yet — all
+// zero now (see the v3 migration note above), so with nothing saved the
+// character just shows its own baked idle animation pose untouched,
+// instead of a rifle-holding correction with no rifle to hold.
 const ARM_POSE_EXTRAS_DEFAULT: { right: ArmPoseExtra; left: ArmPoseExtra } = {
   right: {
-    shoulder: { x: 0.338407346410207, y: 0.468407346410207, z: 0.238407346410207 },
-    elbow: { x: 0.418407346410207, y: 0, z: 0 },
+    shoulder: { x: 0, y: 0, z: 0 },
+    elbow: { x: 0, y: 0, z: 0 },
     wrist: { x: 0, y: 0, z: 0 },
   },
   left: {
-    shoulder: { x: -1.41159265358979, y: 3.13840734641021, z: 1.62840734641021 },
-    elbow: { x: -1.46159265358979, y: -0.041592653589793, z: 0.008407346410207 },
-    wrist: { x: 0.438407346410207, y: -0.421592653589793, z: -0.261592653589793 },
+    shoulder: { x: 0, y: 0, z: 0 },
+    elbow: { x: 0, y: 0, z: 0 },
+    wrist: { x: 0, y: 0, z: 0 },
   },
 };
 function cloneArmPoseExtra(extra: ArmPoseExtra): ArmPoseExtra {
@@ -6377,52 +6389,14 @@ function CombatArena({
       if (keyPropRef.current) keyPropRef.current.rotation.y += dt * 1.2;
       player?.mixer?.update(dt);
       for (const rig of bots) rig?.mixer?.update(dt);
-      // Re-bend the off-hand toward the gun's foregrip after the mixer has
-      // (re)applied this frame's idle/run/fire pose — see
-      // updateOffHandReach. Skipped once dead: the death clip already
-      // drives the arm bones for the collapse, and re-bending the off-hand
-      // onto the gun every frame would fight that pose (and just looks
-      // wrong — a dropped body shouldn't still be gripping the gun).
-      // Held frozen (applyOffHandFreeze) for the player while the gun is
-      // detached, instead of re-solved (updateOffHandReach) as normal: the
-      // off-hand's target comes from calibratedGripWorldMatrix, which is
-      // built straight from gunGripOffset/gunGripRotation (not the gun
-      // object's own position — see that function's comment), so it isn't
-      // fooled by the gun's old parked-in-front-of-camera spot any more,
-      // but it's still very much driven by those two values — nudging the
-      // grip while detached (to reposition the floating gun) visibly
-      // yanked the off-hand along with it, even though nothing is even
-      // attached to that hand right now.
-      if (player && playerDeathT < 0) {
-        if (gunDetached) {
-          // First tick after detaching: solve fresh (right here, right
-          // after this frame's own mixer.update — the one moment the
-          // bones sit at the correct pre-correction baseline) and capture
-          // that as the frozen pose, then hold it. See toggleGunDetach's
-          // comment and captureOffHandFreeze's for why this can't happen
-          // synchronously in the click handler instead.
-          if (offHandFreezeArmed) {
-            updateOffHandReach(player);
-            captureOffHandFreeze(player);
-            offHandFreezeArmed = false;
-          }
-          applyOffHandFreeze(player);
-          // Keeps the floating detached gun's anchor following the
-          // player's root every tick (see updateDetachedGunAnchor's own
-          // comment) instead of leaving it frozen at wherever the player
-          // happened to be standing at detach time — otherwise walking
-          // anywhere while detached, then re-attaching, snapped the gun
-          // (and the off-hand chasing it) instantly across however far
-          // the player had walked.
-          updateDetachedGunAnchor(player);
-        } else {
-          updateOffHandReach(player);
-        }
-      }
-      for (let i = 0; i < bots.length; i++) {
-        const rig = bots[i];
-        if (rig && botStates[i].deathT < 0) updateOffHandReach(rig);
-      }
+      // The off-hand used to be bent every tick toward wherever the gun's
+      // foregrip would be (updateOffHandReach/applyOffHandFreeze/
+      // updateDetachedGunAnchor — the whole gun-detach/freeze/anchor
+      // system) — with the gun gone entirely (see combatDisabled), that
+      // no longer runs at all: there's nothing left for either hand to
+      // reach for, so both arms just show whatever applyArmPoseCorrection
+      // (below) leaves them at on top of the base animation clip, same as
+      // the rest of the body.
       // PLAYER tab's shoulder/elbow/wrist correction (see armPoseExtra) —
       // same every-tick reasoning as updateOffHandReach just above, and
       // the same "skip once dead" guard.
