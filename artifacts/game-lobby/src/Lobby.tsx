@@ -3685,6 +3685,39 @@ interface FighterRig {
   materials: THREE.MeshStandardMaterial[];
 }
 
+// The old character models (char-1.glb, bot-2.glb) are gone — removed
+// pending a new character + its own animations to be integrated later.
+// Everything that still depends on a FighterRig existing (movement,
+// camera-follow, Build Mode's own item placement, all keyed off
+// player.root.position) only ever needed the ROOT transform, never the
+// mesh/skeleton/animation fields specifically — those are all already
+// nullable on FighterRig (see above) for exactly this reason. This is
+// just an empty, invisible anchor: no mesh, no bones, no mixer, nothing
+// to retarget an animation onto yet. Swap in a real loader (same shape
+// as loadFighter/loadBotFighter below) once there's a new model to load.
+function createPlaceholderRig(scene: THREE.Scene): FighterRig {
+  const root = new THREE.Object3D();
+  scene.add(root);
+  return {
+    root,
+    mixer: null,
+    idleAction: null,
+    runAction: null,
+    fireAction: null,
+    deathAction: null,
+    rightArm: null,
+    rightForeArm: null,
+    rightHand: null,
+    leftArm: null,
+    leftForeArm: null,
+    leftHand: null,
+    gun: null,
+    rightFingers: {},
+    leftFingers: {},
+    materials: [],
+  };
+}
+
 // Loads the one character model we have twice — once as the player (its
 // natural color) and once as the bot (red-tinted) — since there's no
 // separate enemy asset yet.
@@ -6222,13 +6255,9 @@ function CombatArena({
       // (see combatDisabled). Hands stay empty; nothing else here reads
       // rig.gun without also checking for it being null first.
     };
-    const savedCard = Number(localStorage.getItem(SELECTED_CARD_STORAGE_KEY));
-    const playerModel = CARD_MODELS[savedCard] && isCardUnlocked(savedCard) ? CARD_MODELS[savedCard] : CARD_MODELS[0];
-    if (playerModel.kind === "bot") {
-      loadBotFighter(scene, playerModel.src, spawnPlayer);
-    } else {
-      loadFighter(scene, 0xffffff, spawnPlayer);
-    }
+    // No character model to load right now (see createPlaceholderRig) —
+    // spawns synchronously instead of waiting on a GLTFLoader promise.
+    spawnPlayer(createPlaceholderRig(scene));
 
     // Six fighters total on Maps 1-3: five guards (index 0-4, one
     // patrolling its own post — Map 1's ROOM_POSITIONS or Map 2/3's guard
@@ -10577,18 +10606,18 @@ function isCardUnlocked(i: number): boolean {
   return !CARD_UNLOCK_COST[i] || loadUnlockedCards().has(i);
 }
 
-// Renders a character model standing on the stage. "source" loads
-// char-1.glb directly and plays its own IdleBreathing clip. "bot" is for
-// bot-2.glb, which — same as in CombatArena — carries no baked animations
-// of its own; loadBotFighter retargets char-1's RifleIdle clip onto its
-// skeleton, so that's reused here rather than re-implementing retargeting.
-function CharacterViewer3D({ src, kind = "source" }: { src: string; kind?: "source" | "bot" }) {
+// Renders the character stage (lighting + stage only, no model) — the old
+// char-1.glb/bot-2.glb models were removed pending a new character + its own
+// animations to be integrated later (see createPlaceholderRig). `src`/`kind`
+// are kept as props (and still read from CARD_MODELS by the caller) so
+// wiring a real model back in later is a one-line swap here, same shape as
+// the old GLTFLoader/loadBotFighter calls this replaced.
+function CharacterViewer3D({ src: _src, kind: _kind = "source" }: { src: string; kind?: "source" | "bot" }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    let disposed = false;
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
@@ -10608,45 +10637,6 @@ function CharacterViewer3D({ src, kind = "source" }: { src: string; kind?: "sour
     rim.position.set(-2.5, 2.5, -2.5);
     scene.add(rim);
 
-    let mixer: THREE.AnimationMixer | null = null;
-    const clock = new THREE.Clock();
-
-    if (kind === "bot") {
-      loadBotFighter(scene, src, (rig) => {
-        if (disposed) return;
-        mixer = rig.mixer;
-      }, "IdleBreathing");
-    } else {
-      new GLTFLoader().load(
-        src,
-        (gltf) => {
-          if (disposed) return;
-          const model = gltf.scene;
-
-          // Center horizontally, sit exactly on the platform, and scale to a
-          // consistent on-screen height regardless of the source model's units.
-          const box = new THREE.Box3().setFromObject(model);
-          const size = box.getSize(new THREE.Vector3());
-          const center = box.getCenter(new THREE.Vector3());
-          const scale = 1.7 / (size.y || 1);
-          model.scale.setScalar(scale);
-          model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
-          scene.add(model);
-
-          const idleClip =
-            gltf.animations.find((c) => c.name === "IdleBreathing") ??
-            gltf.animations.find((c) => c.tracks.length > 0) ??
-            gltf.animations[0];
-          if (idleClip) {
-            mixer = new THREE.AnimationMixer(model);
-            mixer.clipAction(idleClip).play();
-          }
-        },
-        undefined,
-        (err) => console.error("Failed to load character model", src, err),
-      );
-    }
-
     const resize = () => {
       const w = container.clientWidth;
       const h = container.clientHeight;
@@ -10662,19 +10652,17 @@ function CharacterViewer3D({ src, kind = "source" }: { src: string; kind?: "sour
     let raf = 0;
     const tick = () => {
       raf = requestAnimationFrame(tick);
-      mixer?.update(clock.getDelta());
       renderer.render(scene, camera);
     };
     tick();
 
     return () => {
-      disposed = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
       renderer.dispose();
       container.removeChild(renderer.domElement);
     };
-  }, [src, kind]);
+  }, [_src, _kind]);
 
   return <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />;
 }
