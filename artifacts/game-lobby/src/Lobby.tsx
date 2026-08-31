@@ -3718,6 +3718,100 @@ function createPlaceholderRig(scene: THREE.Scene): FighterRig {
   };
 }
 
+// The user-supplied player character. It arrived as an FBX (mixamorig:
+// prefixed bone names, colon-separated like FBX exports use, unlike
+// char-1.glb's glTF-sanitized "mixamorig" names) written in the old FBX 6.1
+// binary format from 2006 — a format three.js's own FBXLoader, Blender, and
+// assimp all refuse to parse at all ("FBX version not supported"). Converted
+// once offline (ufbx Python bindings to read it + a hand-rolled glTF
+// exporter to write it back out, since every off-the-shelf converter tried
+// also choked on this format) into player.glb, kept alongside char-1.glb's
+// loader below as the same familiar GLTFLoader shape. It carries a skeleton
+// and mesh but no baked animation clips and no texture — the character
+// stands in its exported bind pose and renders with a flat material color
+// until a texture/animation set is added. Bot spawning still stays off
+// entirely (see combatDisabled) — this is the player's model only, not
+// retargeted onto any bot yet.
+function loadPlayerCharacter(scene: THREE.Scene, onLoaded: (rig: FighterRig) => void) {
+  new GLTFLoader().load(
+    "/characters/player.glb",
+    (gltf) => {
+      const model = gltf.scene;
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const scale = 1.6 / (size.y || 1);
+      model.scale.setScalar(scale);
+      model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+
+      let rightArm: THREE.Object3D | null = null;
+      let rightForeArm: THREE.Object3D | null = null;
+      let rightHand: THREE.Object3D | null = null;
+      let leftArm: THREE.Object3D | null = null;
+      let leftForeArm: THREE.Object3D | null = null;
+      let leftHand: THREE.Object3D | null = null;
+      const rightFingers: Record<string, THREE.Object3D> = {};
+      const leftFingers: Record<string, THREE.Object3D> = {};
+      const materials: THREE.MeshStandardMaterial[] = [];
+
+      model.traverse((o) => {
+        if (o.name === "mixamorig:RightArm") rightArm = o;
+        if (o.name === "mixamorig:RightForeArm") rightForeArm = o;
+        if (o.name === "mixamorig:RightHand") rightHand = o;
+        if (o.name === "mixamorig:LeftArm") leftArm = o;
+        if (o.name === "mixamorig:LeftForeArm") leftForeArm = o;
+        if (o.name === "mixamorig:LeftHand") leftHand = o;
+        const rightFinger = o.name.match(/^mixamorig:RightHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
+        if (rightFinger) rightFingers[`${rightFinger[1]}${rightFinger[2]}`] = o;
+        const leftFinger = o.name.match(/^mixamorig:LeftHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
+        if (leftFinger) leftFingers[`${leftFinger[1]}${leftFinger[2]}`] = o;
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        // Same bind-pose-bbox frustum culling pitfall hit with the bot-2
+        // rig (see loadBotFighter) — cheap enough to disable unconditionally
+        // rather than wait to reproduce it on this model too.
+        mesh.frustumCulled = false;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+        mesh.material = mat;
+        materials.push(mat);
+      });
+
+      const root = new THREE.Group();
+      root.add(model);
+      scene.add(root);
+
+      // No animation clips are baked into this FBX (checked at import time)
+      // — mixer/idleAction/runAction stay null, same as createPlaceholderRig,
+      // until an animated version of this character (or separate Mixamo
+      // clips retargeted onto it, like loadBotFighter does for the bot) is
+      // added. The character just holds its exported bind pose while it
+      // moves.
+      onLoaded({
+        root,
+        mixer: null,
+        idleAction: null,
+        runAction: null,
+        fireAction: null,
+        deathAction: null,
+        rightArm,
+        rightForeArm,
+        rightHand,
+        leftArm,
+        leftForeArm,
+        leftHand,
+        gun: null,
+        rightFingers,
+        leftFingers,
+        materials,
+      });
+    },
+    undefined,
+    (err) => console.error("Failed to load player character model", err),
+  );
+}
+
 // Loads the one character model we have twice — once as the player (its
 // natural color) and once as the bot (red-tinted) — since there's no
 // separate enemy asset yet.
@@ -6255,9 +6349,12 @@ function CombatArena({
       // (see combatDisabled). Hands stay empty; nothing else here reads
       // rig.gun without also checking for it being null first.
     };
-    // No character model to load right now (see createPlaceholderRig) —
-    // spawns synchronously instead of waiting on a GLTFLoader promise.
-    spawnPlayer(createPlaceholderRig(scene));
+    // `player` stays null (every read site already guards with `if
+    // (player)`/`player?.`) until player.fbx finishes loading and
+    // spawnPlayer runs — same async-load pattern loadFighter/loadBotFighter
+    // used before combat/characters were stripped out, just pointed at the
+    // new model.
+    loadPlayerCharacter(scene, spawnPlayer);
 
     // Six fighters total on Maps 1-3: five guards (index 0-4, one
     // patrolling its own post — Map 1's ROOM_POSITIONS or Map 2/3's guard
