@@ -3719,30 +3719,43 @@ function createPlaceholderRig(scene: THREE.Scene): FighterRig {
 }
 
 // The user-supplied player character. It arrived as an FBX (mixamorig:
-// prefixed bone names, colon-separated like FBX exports use, unlike
-// char-1.glb's glTF-sanitized "mixamorig" names) written in the old FBX 6.1
-// binary format from 2006 — a format three.js's own FBXLoader, Blender, and
-// assimp all refuse to parse at all ("FBX version not supported"). Converted
-// once offline (ufbx Python bindings to read it + a hand-rolled glTF
-// exporter to write it back out, since every off-the-shelf converter tried
-// also choked on this format) into player.glb, kept alongside char-1.glb's
-// loader below as the same familiar GLTFLoader shape. It carries a skeleton
-// and mesh but no baked animation clips and no texture — the character
-// stands in its exported bind pose and renders with a flat material color
-// until a texture/animation set is added. Bot spawning still stays off
-// entirely (see combatDisabled) — this is the player's model only, not
-// retargeted onto any bot yet.
+// prefixed bone names) written in the old FBX 6.1 binary format from 2006 —
+// a format three.js's own FBXLoader, Blender, and assimp all refuse to parse
+// at all ("FBX version not supported"). Converted once offline (ufbx Python
+// bindings to read it + a hand-rolled glTF exporter to write it back out,
+// since every off-the-shelf converter tried also choked on this format)
+// into player.glb, kept alongside char-1.glb's loader below as the same
+// familiar GLTFLoader shape. The FBX's bone names were colon-separated
+// ("mixamorig:RightArm") and preserved verbatim through that conversion,
+// but three.js's own GLTFLoader strips the colon back out of every node
+// name at load time (confirmed by dumping the live scene graph: it comes
+// back as "mixamorigRightArm") — the SAME sanitized, no-colon convention
+// char-1.glb's own bones already use, so no renaming is needed anywhere
+// here; every lookup below just uses that shared convention directly.
+// It carries a skeleton and mesh but no texture — it renders with a flat
+// material color until a real texture is supplied. Its idle/run/fire/death
+// animation comes from char-1's mocap, retargeted onto this skeleton
+// exactly like loadBotFighter already retargets the same clips onto bot-2's
+// differently-shaped skeleton — reusing that existing retarget machinery
+// rather than re-solving it. Bot spawning still stays off entirely (see
+// combatDisabled) — this is the player's model only, not retargeted onto
+// any bot yet.
 function loadPlayerCharacter(scene: THREE.Scene, onLoaded: (rig: FighterRig) => void) {
-  new GLTFLoader().load(
-    "/characters/player.glb",
-    (gltf) => {
+  Promise.all([new GLTFLoader().loadAsync("/characters/player.glb"), loadSourceRigData()])
+    .then(([gltf, source]) => {
       const model = gltf.scene;
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
-      const scale = 1.6 / (size.y || 1);
+      const nativeHeight = size.y || 1;
+      const posRatio = nativeHeight / source.nativeHeight;
+      const scale = 1.6 / nativeHeight;
       model.scale.setScalar(scale);
       model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+
+      // Captured before any clip plays, so this is genuinely the bind/rest
+      // pose retargetClip needs to measure deltas against.
+      const restPlayer = captureRestPose(model);
 
       let rightArm: THREE.Object3D | null = null;
       let rightForeArm: THREE.Object3D | null = null;
@@ -3755,15 +3768,15 @@ function loadPlayerCharacter(scene: THREE.Scene, onLoaded: (rig: FighterRig) => 
       const materials: THREE.MeshStandardMaterial[] = [];
 
       model.traverse((o) => {
-        if (o.name === "mixamorig:RightArm") rightArm = o;
-        if (o.name === "mixamorig:RightForeArm") rightForeArm = o;
-        if (o.name === "mixamorig:RightHand") rightHand = o;
-        if (o.name === "mixamorig:LeftArm") leftArm = o;
-        if (o.name === "mixamorig:LeftForeArm") leftForeArm = o;
-        if (o.name === "mixamorig:LeftHand") leftHand = o;
-        const rightFinger = o.name.match(/^mixamorig:RightHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
+        if (o.name === "mixamorigRightArm") rightArm = o;
+        if (o.name === "mixamorigRightForeArm") rightForeArm = o;
+        if (o.name === "mixamorigRightHand") rightHand = o;
+        if (o.name === "mixamorigLeftArm") leftArm = o;
+        if (o.name === "mixamorigLeftForeArm") leftForeArm = o;
+        if (o.name === "mixamorigLeftHand") leftHand = o;
+        const rightFinger = o.name.match(/^mixamorigRightHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
         if (rightFinger) rightFingers[`${rightFinger[1]}${rightFinger[2]}`] = o;
-        const leftFinger = o.name.match(/^mixamorig:LeftHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
+        const leftFinger = o.name.match(/^mixamorigLeftHand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
         if (leftFinger) leftFingers[`${leftFinger[1]}${leftFinger[2]}`] = o;
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
@@ -3782,19 +3795,54 @@ function loadPlayerCharacter(scene: THREE.Scene, onLoaded: (rig: FighterRig) => 
       root.add(model);
       scene.add(root);
 
-      // No animation clips are baked into this FBX (checked at import time)
-      // — mixer/idleAction/runAction stay null, same as createPlaceholderRig,
-      // until an animated version of this character (or separate Mixamo
-      // clips retargeted onto it, like loadBotFighter does for the bot) is
-      // added. The character just holds its exported bind pose while it
-      // moves.
+      // Idle/run default to the plain (unarmed) mocap — RifleIdle/RifleRun
+      // exist in char-1's clip set too, but they're a two-handed rifle-grip
+      // stance, and there's no gun anywhere in the game anymore (see
+      // combatDisabled) for the arms to plausibly be holding. Using them
+      // here would reproduce the exact "why is the hand in this pose"
+      // complaint from before the gun/combat removal — IdleBreathing/
+      // Running are the normal, nothing-in-hand mocap instead.
+      const mixer = new THREE.AnimationMixer(model);
+      let idleAction: THREE.AnimationAction | null = null;
+      let runAction: THREE.AnimationAction | null = null;
+      let fireAction: THREE.AnimationAction | null = null;
+      let deathAction: THREE.AnimationAction | null = null;
+
+      const idleClip = source.clips.get("IdleBreathing") ?? source.clips.get("RifleIdle");
+      if (idleClip) {
+        idleAction = mixer.clipAction(retargetClip(idleClip, source.rest, restPlayer, posRatio));
+        idleAction.play();
+      }
+      const runClip = source.clips.get("Running") ?? source.clips.get("RifleRun");
+      if (runClip) {
+        runAction = mixer.clipAction(retargetClip(runClip, source.rest, restPlayer, posRatio));
+        runAction.play();
+        runAction.setEffectiveWeight(0);
+      }
+      const fireClip = source.clips.get("RifleFire");
+      if (fireClip) {
+        fireAction = mixer.clipAction(retargetClip(fireClip, source.rest, restPlayer, posRatio));
+        fireAction.setLoop(THREE.LoopOnce, 1);
+        fireAction.clampWhenFinished = true;
+        fireAction.play();
+        fireAction.setEffectiveWeight(0);
+      }
+      const deathClip = source.clips.get("DeathFromBackHeadshot");
+      if (deathClip) {
+        deathAction = mixer.clipAction(retargetClip(deathClip, source.rest, restPlayer, posRatio));
+        deathAction.setLoop(THREE.LoopOnce, 1);
+        deathAction.clampWhenFinished = true;
+        deathAction.play();
+        deathAction.setEffectiveWeight(0);
+      }
+
       onLoaded({
         root,
-        mixer: null,
-        idleAction: null,
-        runAction: null,
-        fireAction: null,
-        deathAction: null,
+        mixer,
+        idleAction,
+        runAction,
+        fireAction,
+        deathAction,
         rightArm,
         rightForeArm,
         rightHand,
@@ -3806,10 +3854,8 @@ function loadPlayerCharacter(scene: THREE.Scene, onLoaded: (rig: FighterRig) => 
         leftFingers,
         materials,
       });
-    },
-    undefined,
-    (err) => console.error("Failed to load player character model", err),
-  );
+    })
+    .catch((err) => console.error("Failed to load player character model", err));
 }
 
 // Loads the one character model we have twice — once as the player (its
@@ -4062,21 +4108,37 @@ interface SourceRigData {
   nativeHeight: number;
 }
 
-// char-1.glb loaded once purely to harvest its named clips + rest pose for
-// retargeting onto the new bot — cached the same way loadGunPrototype
-// caches the gun model, so a second bot spawn wouldn't reload it.
+// char-1's named clips + rest pose, harvested once for retargeting onto
+// both the bot AND (see loadPlayerCharacter) the player — cached the same
+// way loadGunPrototype caches the gun model, so a second spawn wouldn't
+// reload it. Loaded from char1-anim-source.glb rather than the original
+// char-1.glb (removed along with the old character models, see
+// createPlaceholderRig above): a stripped copy with every mesh/material/
+// texture/skin removed via gltf-transform, keeping only the bone hierarchy
+// and animation clips retargetClip actually reads — 690KB instead of the
+// original 9.95MB, since nothing here needs the old character's visible
+// mesh, only its mocap.
 let sourceRigDataPromise: Promise<SourceRigData> | null = null;
 function loadSourceRigData(): Promise<SourceRigData> {
   if (!sourceRigDataPromise) {
     sourceRigDataPromise = new Promise((resolve, reject) => {
       new GLTFLoader().load(
-        "/characters/char-1.glb",
+        "/characters/char1-anim-source.glb",
         (gltf) => {
-          const box = new THREE.Box3().setFromObject(gltf.scene);
+          // Box3.setFromObject only expands around actual geometry (meshes/
+          // lines/points) — with the mesh stripped out, every remaining
+          // node here is a bare, geometry-less bone, so that would measure
+          // as an empty box (nativeHeight silently falling back to 1) and
+          // throw off posRatio for every retargeted clip's root motion.
+          // Expanding around each bone's own world position instead
+          // approximates the same standing-height span the original mesh's
+          // bounding box gave.
+          const box = new THREE.Box3();
+          gltf.scene.traverse((o) => box.expandByPoint(o.getWorldPosition(new THREE.Vector3())));
           const nativeHeight = box.getSize(new THREE.Vector3()).y || 1;
           const rest = captureRestPose(gltf.scene);
           const clips = new Map<string, THREE.AnimationClip>();
-          for (const name of ["RifleIdle", "RifleRun", "RifleFire", "DeathFromBackHeadshot", "IdleBreathing"]) {
+          for (const name of ["RifleIdle", "RifleRun", "RifleFire", "DeathFromBackHeadshot", "IdleBreathing", "Running"]) {
             const clip = gltf.animations.find((c) => c.name === name);
             if (clip) clips.set(name, clip);
           }
