@@ -2543,20 +2543,24 @@ const FIRE_FADE_OUT = 0.4;
 const TRACER_DURATION = 0.08;
 // Roughly chest height — tracers aim here instead of at the root/feet.
 const TRACER_TARGET_HEIGHT = 1.3;
-// A new SMG model held in the hand — every fighter actually shoots with it
-// (see the fire logic in the tick loop and applyFirePose/spawnTracer),
-// with this rig's real finger joints curled around the grip on both
-// hands (see curlGunGripFingers) instead of resting against a fixed
-// open palm.
+// The user-supplied rifle model (an FN SCAR-17, converted the same way as
+// player.glb — loaded via three's own FBXLoader, since this one's a modern
+// FBX 7700 export that parses fine directly, then re-exported to glb via
+// GLTFExporter and run through gltf-transform's weld/dedup/prune to shrink
+// it — no gun-specific animation, this is purely a static prop clipped
+// onto the hand, same as the old SMG model this replaces). Held in the
+// hand purely for visual/RP purposes — see equipGun's call site: nothing
+// fires it, there's no FIRE button, no damage, no bots (see
+// combatDisabled), just the player visibly carrying it.
 //
-// Unlike the old rifle model (long axis on local X), this mesh's long
-// axis is local Z, muzzle/silencer at -Z (the silencer part's bounding
-// box sits at the most-negative Z of the whole mesh, the stock/latches at
-// the most-positive Z) — measured directly off the converted glb's own
-// part bounding boxes, not guessed. Grip is already a separate named part
-// in this mesh, so its own bounding-box center is used directly as the
-// hand target instead of a hand-tuned point.
-const GUN_GRIP_LOCAL = new THREE.Vector3(0, -10.43, 18.33);
+// Long axis is local Z, muzzle/suppressor at -Z (the "supressor" mesh part
+// sits at the most-negative Z of the whole model, the "culette"/stock part
+// at the most-positive Z) — measured directly off the converted glb's own
+// part bounding boxes, not guessed, same technique the old SMG model used.
+// Grip is already a separate named part ("grip_and_hand_grip") in this
+// mesh too, so its own bounding-box center is used directly as the hand
+// target instead of a hand-tuned point.
+const GUN_GRIP_LOCAL = new THREE.Vector3(9.9, -113.6, 3.6);
 // Where the off-hand actually reaches for (see updateOffHandReach) — a
 // little forward of the main grip, toward the muzzle. Measured (not
 // guessed): the off-hand's own two-bone reach (upper arm + forearm) from
@@ -2572,9 +2576,10 @@ const GUN_GRIP_LOCAL = new THREE.Vector3(0, -10.43, 18.33);
 // the gun instead of reaching for a point past its own arm's length.
 const GUN_OFFHAND_TARGET_LOCAL = new THREE.Vector3(0, -10.43, 18.33).lerp(new THREE.Vector3(0, 0, -31.4), 0.2);
 const GUN_MUZZLE_AXIS = new THREE.Vector3(0, 0, -1);
-// A real SMG is roughly this long; the rest of the transform is derived
-// from that, not guessed independently.
-const GUN_TARGET_LENGTH = 0.55;
+// A real SCAR-17 (folding-stock rifle, not an SMG) is roughly this long;
+// the rest of the transform is derived from that, not guessed
+// independently.
+const GUN_TARGET_LENGTH = 0.65;
 // Where the muzzle should point, in RightHand-local space, at the idle
 // pose's frame 0 — measured directly (character-forward transformed into
 // RightHand's local frame at that pose). The direction from the grip hand
@@ -2663,22 +2668,21 @@ function saveGunGripNudgeStep() {
 // the hand and the gun visibly pivots around it, the way tilting a
 // held gun pivots around the hand holding it rather than around the
 // muzzle or some arbitrary point.
-// v3: BOTH pitch and yaw re-calibrated this round (see
-// GUN_GRIP_ROTATION_DEFAULT below) — the v2 yaw (83°, inherited from the
-// player's own old BACKUP code) swung the gun almost flat across the
-// chest, hidden tight against the body from the front; only the pitch
-// had been fixed. Bumped again so every device picks up the new
-// default fresh, same reasoning as the v1->v2 bump.
-const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation-v3";
+// v4: pitch re-calibrated again for the new SCAR-17 model (see
+// GUN_GRIP_ROTATION_DEFAULT below) — the v3 pitch (35°) was tuned against
+// the old, shorter SMG; on the longer rifle the same angle swung the
+// muzzle down noticeably further than the reference pose (a relaxed
+// forward carry, muzzle only slightly below level), since the same
+// rotation displaces a longer barrel more. Bumped again so every device
+// picks up the new default fresh, same reasoning as the v1->v2->v3 bumps.
+const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation-v4";
 // Default pitch/yaw when nothing's saved yet. Re-calibrated by setting
-// the gun tab's sliders directly and comparing screenshots — from a
-// fixed, precise front-on camera angle (forced via cameraYaw, not a
-// hand-eyeballed drag) — against a reference photo of a natural
-// two-handed rifle carry (muzzle down and forward, both hands visible on
-// the weapon, not tucked flat against the chest). Yaw 83° -> 0°, pitch
-// 0.30 -> ~0.61 (35°); together these land the gun held out in front at
-// a relaxed forward-down angle instead of pinned to the body.
-const GUN_GRIP_ROTATION_DEFAULT = { x: 0.6108652381980153, y: 0, z: 0 };
+// this value directly and comparing screenshots — from a fixed, precise
+// front-on camera angle (forced via cameraYaw, not a hand-eyeballed
+// drag) — against the reference image the user supplied (a relaxed
+// two-handed rifle carry, muzzle down-forward at a shallow angle, held
+// out in front of the body).
+const GUN_GRIP_ROTATION_DEFAULT = { x: 0.4, y: 0, z: 0 };
 function loadGunGripRotation(): THREE.Euler {
   try {
     const raw = localStorage.getItem(GUN_GRIP_ROTATION_STORAGE_KEY);
@@ -2919,7 +2923,7 @@ function loadGunPrototype(): Promise<THREE.Object3D> {
   if (!gunPrototypePromise) {
     gunPrototypePromise = new Promise((resolve, reject) => {
       new GLTFLoader().load(
-        "/characters/gun-smg.glb",
+        "/characters/gun-scar17.glb",
         (gltf) => resolve(gltf.scene),
         undefined,
         reject,
@@ -3092,7 +3096,10 @@ function getDrumCapMaterial(): THREE.MeshStandardMaterial {
 // (the detached preview used to compute this differently from the other
 // two).
 function computeGunLocalTransform(handWorldScaleX: number, outPos: THREE.Vector3, outQuat: THREE.Quaternion): number {
-  const rawLength = 79.03;
+  // The gun-scar17.glb prototype's own raw (pre-scale) length along its
+  // local Z (muzzle) axis — measured the same way GUN_GRIP_LOCAL was, off
+  // the model's own bounding box, not guessed.
+  const rawLength = 1329.79;
   const scale = (GUN_TARGET_LENGTH / rawLength) / (handWorldScaleX || 1);
   outQuat.copy(GUN_BASE_QUAT);
   outPos.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(outQuat).multiplyScalar(-1);
@@ -3795,25 +3802,27 @@ function loadPlayerCharacter(scene: THREE.Scene, onLoaded: (rig: FighterRig) => 
       root.add(model);
       scene.add(root);
 
-      // Idle/run default to the plain (unarmed) mocap — RifleIdle/RifleRun
-      // exist in char-1's clip set too, but they're a two-handed rifle-grip
-      // stance, and there's no gun anywhere in the game anymore (see
-      // combatDisabled) for the arms to plausibly be holding. Using them
-      // here would reproduce the exact "why is the hand in this pose"
-      // complaint from before the gun/combat removal — IdleBreathing/
-      // Running are the normal, nothing-in-hand mocap instead.
+      // Idle/run default to the two-handed rifle-grip mocap now that the
+      // player actually carries a gun again (see equipGun's call site) —
+      // IdleBreathing/Running's arms-at-the-sides pose was right while
+      // there was no gun to hold (see the git history on this block, from
+      // when combat/guns were removed entirely), but with a rigid gun
+      // model rigidly attached to a hand that's just hanging by the hip,
+      // the gun itself ends up hanging down at the hip too, nothing like a
+      // held rifle. RifleIdle/RifleRun already pose the arms the way
+      // GUN_GRIP_LOCAL/GUN_GRIP_ROTATION_DEFAULT assume.
       const mixer = new THREE.AnimationMixer(model);
       let idleAction: THREE.AnimationAction | null = null;
       let runAction: THREE.AnimationAction | null = null;
       let fireAction: THREE.AnimationAction | null = null;
       let deathAction: THREE.AnimationAction | null = null;
 
-      const idleClip = source.clips.get("IdleBreathing") ?? source.clips.get("RifleIdle");
+      const idleClip = source.clips.get("RifleIdle") ?? source.clips.get("IdleBreathing");
       if (idleClip) {
         idleAction = mixer.clipAction(retargetClip(idleClip, source.rest, restPlayer, posRatio));
         idleAction.play();
       }
-      const runClip = source.clips.get("Running") ?? source.clips.get("RifleRun");
+      const runClip = source.clips.get("RifleRun") ?? source.clips.get("Running");
       if (runClip) {
         runAction = mixer.clipAction(retargetClip(runClip, source.rest, restPlayer, posRatio));
         runAction.play();
@@ -6372,23 +6381,21 @@ function CombatArena({
     // inside the click handler.
     let offHandFreezeArmed = false;
 
-    // Guns removed from the whole game (see combatDisabled) — the model
-    // asset itself is gone too, so this is never actually called anymore
-    // (nothing invokes equipGun below), but skipping the eager
-    // loadGunPrototype() call as well means no one ever tries to fetch a
-    // file that no longer exists in the first place.
-    const equipGun = combatDisabled
-      ? (_rig: FighterRig) => {}
-      : (rig: FighterRig) => {
-          if (!rig.rightHand) return;
-          loadGunPrototype().then((proto) => {
-            rig.gun = createGunAttachment(rig.rightHand as THREE.Object3D, proto);
-            curlGunGripFingers(rig.rightFingers, 1);
-            curlGunGripFingers(rig.leftFingers, -1);
-            curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right);
-            curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left);
-          });
-        };
+    // Purely visual now — the player carries the gun (see the spawnPlayer
+    // call below), but nothing fires it: no FIRE button, no damage, no
+    // bots (see combatDisabled, still fully in effect for all of that).
+    // Bot spawning stays at zero regardless, so in practice this only ever
+    // runs for the player.
+    const equipGun = (rig: FighterRig) => {
+      if (!rig.rightHand) return;
+      loadGunPrototype().then((proto) => {
+        rig.gun = createGunAttachment(rig.rightHand as THREE.Object3D, proto);
+        curlGunGripFingers(rig.rightFingers, 1);
+        curlGunGripFingers(rig.leftFingers, -1);
+        curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right);
+        curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left);
+      });
+    };
 
     // The player spawns as whichever character was picked in Character
     // Selection (persisted under SELECTED_CARD_STORAGE_KEY) instead of
@@ -6407,9 +6414,7 @@ function CombatArena({
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
       rig.root.rotation.y = Math.PI; // face into the facility at the start
       player = rig;
-      // No gun equipped anymore — combat/guns removed from the whole game
-      // (see combatDisabled). Hands stay empty; nothing else here reads
-      // rig.gun without also checking for it being null first.
+      equipGun(rig);
     };
     // `player` stays null (every read site already guards with `if
     // (player)`/`player?.`) until player.fbx finishes loading and
