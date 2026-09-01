@@ -1,4 +1,4 @@
-import { Audio, AVPlaybackSource } from "expo-av";
+import { Audio, AVPlaybackSource, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
 
 export type SfxKey =
   | "tap"
@@ -34,10 +34,18 @@ class SoundManager {
   async init() {
     if (this.ready) return;
     try {
+      // Explicitly set every field -- leaving fields unset lets some Android
+      // devices route this app's audio through the in-call/communication
+      // stream (silent on the loudspeaker, narrowband/buzzy over Bluetooth)
+      // instead of the normal media stream.
       await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
         playsInSilentModeIOS: true,
         staysActiveInBackground: false,
+        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
         shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
       });
       this.ready = true;
     } catch {
