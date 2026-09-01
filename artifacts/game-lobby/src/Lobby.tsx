@@ -2561,20 +2561,14 @@ const TRACER_TARGET_HEIGHT = 1.3;
 // mesh too, so its own bounding-box center is used directly as the hand
 // target instead of a hand-tuned point.
 const GUN_GRIP_LOCAL = new THREE.Vector3(9.9, -113.6, 3.6);
-// Where the off-hand actually reaches for (see updateOffHandReach) — a
-// little forward of the main grip, toward the muzzle. Measured (not
-// guessed): the off-hand's own two-bone reach (upper arm + forearm) from
-// this rig's left shoulder tops out around 0.50m, and the main grip
-// itself already sits ~0.47m from that shoulder — barely 3cm of slack.
-// A larger lerp fraction here (tried up to 0.75, further toward the
-// muzzle) put the target past max reach, so the IK solve stretched the
-// arm as far as it could and stopped short — the off-hand visibly
-// floated ~15cm away from the gun instead of touching it, which read as
-// a much worse "not holding the gun" bug than the hands sitting close
-// together. 0.2 keeps the target just inside reach (~2cm short, fully
-// closed by the hand/finger mesh itself) so the off-hand actually grips
-// the gun instead of reaching for a point past its own arm's length.
-const GUN_OFFHAND_TARGET_LOCAL = new THREE.Vector3(0, -10.43, 18.33).lerp(new THREE.Vector3(0, 0, -31.4), 0.2);
+// Where the off-hand actually reaches for (see updateOffHandReach) — the
+// handguard, using the "metal_black" part's own bounding-box center
+// directly as the target (same technique GUN_GRIP_LOCAL uses for the main
+// grip), which sits well forward of the main grip's z 3.6 and noticeably
+// higher up — y 31.0 versus the grip's y -113.6 — matching how a rifle's
+// forend sits up near the barrel line rather than hanging below like the
+// pistol grip.
+const GUN_OFFHAND_TARGET_LOCAL = new THREE.Vector3(-8.0, 31.0, -116.8);
 const GUN_MUZZLE_AXIS = new THREE.Vector3(0, 0, -1);
 // A real SCAR-17 (folding-stock rifle, not an SMG) is roughly this long;
 // the rest of the transform is derived from that, not guessed
@@ -6582,21 +6576,28 @@ function CombatArena({
       if (keyPropRef.current) keyPropRef.current.rotation.y += dt * 1.2;
       player?.mixer?.update(dt);
       for (const rig of bots) rig?.mixer?.update(dt);
-      // The off-hand used to be bent every tick toward wherever the gun's
-      // foregrip would be (updateOffHandReach/applyOffHandFreeze/
-      // updateDetachedGunAnchor — the whole gun-detach/freeze/anchor
-      // system) — with the gun gone entirely (see combatDisabled), that
-      // no longer runs at all: there's nothing left for either hand to
-      // reach for, so both arms just show whatever applyArmPoseCorrection
-      // (below) leaves them at on top of the base animation clip, same as
-      // the rest of the body.
+      // Bends the off-hand toward the gun's foregrip every tick (see
+      // updateOffHandReach) — has to run every tick, not just once at
+      // equip time, since the idle/run mocap clip keeps re-driving the
+      // same arm bones on every mixer.update just above, which would
+      // otherwise immediately undo a one-time snap. The detach/freeze/
+      // anchor half of this system (applyOffHandFreeze/
+      // updateDetachedGunAnchor/gunDetached) stays unused — the GUN tab
+      // that toggled that is gone, gunDetached is permanently false in
+      // practice, so there's nothing to freeze against.
       // PLAYER tab's shoulder/elbow/wrist correction (see armPoseExtra) —
       // same every-tick reasoning as updateOffHandReach just above, and
       // the same "skip once dead" guard.
-      if (player && playerDeathT < 0) applyArmPoseCorrection(player);
+      if (player && playerDeathT < 0) {
+        updateOffHandReach(player);
+        applyArmPoseCorrection(player);
+      }
       for (let i = 0; i < bots.length; i++) {
         const rig = bots[i];
-        if (rig && botStates[i].deathT < 0) applyArmPoseCorrection(rig);
+        if (rig && botStates[i].deathT < 0) {
+          updateOffHandReach(rig);
+          applyArmPoseCorrection(rig);
+        }
       }
       updateTracers(tracers, dt);
 
