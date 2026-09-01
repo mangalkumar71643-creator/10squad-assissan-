@@ -6628,16 +6628,28 @@ function CombatArena({
       // updateOffHandReach) — has to run every tick, not just once at
       // equip time, since the idle/run mocap clip keeps re-driving the
       // same arm bones on every mixer.update just above, which would
-      // otherwise immediately undo a one-time snap. The detach/freeze/
-      // anchor half of this system (applyOffHandFreeze/
-      // updateDetachedGunAnchor/gunDetached) stays unused — the GUN tab
-      // that toggled that is gone, gunDetached is permanently false in
-      // practice, so there's nothing to freeze against.
+      // otherwise immediately undo a one-time snap. Held frozen
+      // (applyOffHandFreeze) for the player while the GUN tab's ON/OFF
+      // toggle has detached the gun instead, so nudging the grip while
+      // detached doesn't visibly yank the off-hand along with it — see
+      // toggleGunDetach and offHandFreezeArmed's own comments for why the
+      // freeze snapshot has to be captured here, one tick late, rather
+      // than synchronously inside the click handler.
       // PLAYER tab's shoulder/elbow/wrist correction (see armPoseExtra) —
       // same every-tick reasoning as updateOffHandReach just above, and
       // the same "skip once dead" guard.
       if (player && playerDeathT < 0) {
-        updateOffHandReach(player);
+        if (gunDetached) {
+          if (offHandFreezeArmed) {
+            updateOffHandReach(player);
+            captureOffHandFreeze(player);
+            offHandFreezeArmed = false;
+          }
+          applyOffHandFreeze(player);
+          updateDetachedGunAnchor(player);
+        } else {
+          updateOffHandReach(player);
+        }
         applyArmPoseCorrection(player);
       }
       for (let i = 0; i < bots.length; i++) {
@@ -8686,7 +8698,7 @@ function CombatArena({
                 maxWidth: "calc(100vw - 90px)",
               }}
             >
-              {(["map", "right", "left"] as const).map((tab) => (
+              {(["map", "right", "left", "gun"] as const).map((tab) => (
                 <button
                   key={tab}
                   onPointerDown={(e) => {
@@ -8707,9 +8719,42 @@ function CombatArena({
                     cursor: "pointer",
                   }}
                 >
-                  {tab === "map" ? "MAP" : tab === "right" ? "RIGHT" : "LEFT"}
+                  {tab === "map" ? "MAP" : tab === "right" ? "RIGHT" : tab === "left" ? "LEFT" : "GUN"}
                 </button>
               ))}
+              {/* GUN ON/OFF — ON means the gun is attached and follows the
+                  hand (see applyCalibratedGunTransform, re-run every nudge/
+                  slider so it always tracks); OFF means the gun is
+                  detached and stays exactly where it is while the hand/arm
+                  moves freely (see toggleGunDetach's scene-reparent
+                  branch). Physically it's the same ATTACH/DETACH toggle
+                  this always was, just standalone now instead of living
+                  inside one tab's own panel. */}
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  if (buildLockedUI) return;
+                  buildModeRef.current?.toggleGunDetach();
+                  setGunDetachedUI((d) => !d);
+                }}
+                disabled={buildLockedUI}
+                aria-label="Toggle gun detach"
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 6,
+                  background: gunDetachedUI ? "rgba(255,110,90,0.3)" : "rgba(120,255,140,0.3)",
+                  border: gunDetachedUI ? "1px solid rgba(255,150,130,0.9)" : "1px solid rgba(150,255,170,0.9)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  letterSpacing: "0.04em",
+                  cursor: buildLockedUI ? "not-allowed" : "pointer",
+                  opacity: buildLockedUI ? 0.5 : 1,
+                }}
+              >
+                {gunDetachedUI ? "○ GUN: OFF" : "● GUN: ON"}
+              </button>
             </div>
           )}
           {/* VALUES / LOCK — kept out of the tab row above (that row
@@ -9684,6 +9729,471 @@ function CombatArena({
         </>
       )}
 
+
+      {(mapId === 4 || mapId === 5) && buildTopTab === "gun" && (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              top: 52,
+              left: 16,
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              width: "min(70vw, 230px)",
+              // This whole panel is position:absolute over the canvas, not
+              // part of any normally-scrolling page — so on a short/
+              // landscape screen where its natural content height (banner
+              // + RESET + BACKUP/RESTORE + L-R SWEEP + UD SWEEP + the
+              // LEFT/FIRE/RIGHT/PITCH/YAW/ROLL/ROLL-spin section below)
+              // exceeds the viewport, anything past the bottom edge used
+              // to be genuinely unreachable: there was no scroll mechanism
+              // at this outer level at all, only on the inner sub-section
+              // further down, which just meant the CONTENT ABOVE it (the
+              // banner/RESET/BACKUP/RESTORE/sweeps) was already eating the
+              // entire short viewport before that inner section even got a
+              // chance to render — exactly what made GUN ROLL and its new
+              // spin buttons invisible on a landscape phone. Capping and
+              // scrolling the panel as a whole, instead of only one inner
+              // slice of it, means every control stays reachable by
+              // swiping the panel itself on any screen size.
+              maxHeight: "calc(100vh - 64px)",
+              overflowY: "auto",
+              touchAction: "pan-y",
+            }}
+          >
+            <div
+              style={{
+                background: "rgba(8,14,24,0.7)",
+                border: "1px solid rgba(200,220,240,0.3)",
+                borderRadius: 8,
+                padding: 10,
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontSize: 12,
+                lineHeight: 1.4,
+              }}
+            >
+              Nudge the gun's grip in the hand with the D-pad. Saved automatically.
+            </div>
+            {/* How far one D-pad tap moves the gun (see gunGripNudgeStep/
+                handleGunGripNudge) — its own slider right under the D-pad's
+                own explanation banner, since it directly controls what
+                that D-pad does per tap: small for fine-tuning the last bit
+                of precision, large for fast coarse repositioning. */}
+            {renderSliderRow(
+              "gun-nudge-step",
+              "NUDGE STEP",
+              gunNudgeStepUI,
+              GUN_GRIP_NUDGE_STEP_MIN,
+              GUN_GRIP_NUDGE_STEP_MAX,
+              0.01,
+              0.1,
+              gunNudgeStepUI.toFixed(2),
+              (v) => handleGunNudgeStepSlider(v),
+              (delta) => handleGunNudgeStepSlider(gunGripNudgeStep + delta),
+            )}
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                if (buildLockedUI) return;
+                buildModeRef.current?.resetGun();
+                setGunRotationUI({ pitch: 0, yaw: 0, roll: 0 });
+              }}
+              disabled={buildLockedUI}
+              aria-label="Reset gun grip"
+              style={{
+                padding: "8px 18px",
+                borderRadius: 6,
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(200,220,240,0.4)",
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                fontSize: 13,
+                cursor: buildLockedUI ? "not-allowed" : "pointer",
+                opacity: buildLockedUI ? 0.5 : 1,
+              }}
+            >
+              RESET
+            </button>
+            {/* BACKUP/RESTORE POSE — same pair as RIGHT/LEFT's own tabs
+                (see renderHandTab), covers gun grip + both hands
+                together (PoseBundle) regardless of which tab it's
+                tapped from. */}
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handlePoseExport();
+                }}
+                aria-label="Backup pose"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                💾 BACKUP
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  if (buildLockedUI) return;
+                  setPoseImportOpen(true);
+                }}
+                disabled={buildLockedUI}
+                aria-label="Restore pose"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(200,220,240,0.4)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: buildLockedUI ? "not-allowed" : "pointer",
+                  opacity: buildLockedUI ? 0.5 : 1,
+                }}
+              >
+                📥 RESTORE
+              </button>
+            </div>
+            {/* L-R SWEEP — the exact same value GUN YAW controls (below) —
+                same handlers, same gunRotationUI.yaw, so dragging either
+                one keeps both in sync automatically. Nothing new is
+                stored; this is just a second window onto gunGripRotation.y.
+                Full -180°..+180° range (was a narrower -90°..+90° shortcut,
+                widened to match GUN YAW's own full range per request). */}
+            {renderSliderRow(
+              "gun-lr-sweep",
+              "L-R SWEEP",
+              gunRotationUI.yaw,
+              GUN_GRIP_ROTATION_MIN,
+              GUN_GRIP_ROTATION_MAX,
+              0.01,
+              GUN_ROTATE_STEP_RAD,
+              `${((gunRotationUI.yaw * 180) / Math.PI).toFixed(2)}°`,
+              (v) => handleGunRotationSlider("yaw", v),
+              (delta) => handleGunRotationNudge("yaw", delta),
+            )}
+            {/* UD SWEEP — same pattern as L-R SWEEP directly above, just on
+                the pitch axis instead of yaw, full -180°..+180° range (see
+                L-R SWEEP's own comment for why it's no longer narrower). */}
+            {renderSliderRow(
+              "gun-ud-sweep",
+              "UD SWEEP",
+              gunRotationUI.pitch,
+              GUN_GRIP_ROTATION_MIN,
+              GUN_GRIP_ROTATION_MAX,
+              0.01,
+              GUN_ROTATE_STEP_RAD,
+              `${((gunRotationUI.pitch * 180) / Math.PI).toFixed(2)}°`,
+              (v) => handleGunRotationSlider("pitch", v),
+              (delta) => handleGunRotationNudge("pitch", delta),
+            )}
+            {/* FIRE/LEFT/RIGHT + PITCH/YAW/ROLL + the gun grip D-pad — used
+                to be its own separately-scrolling block (a fixed maxHeight
+                reservation, distinct from the panel it sits in) so that a
+                flex column with overflow on itself wouldn't just shrink
+                its children to fit instead of actually scrolling. That
+                approach broke down on a short/landscape screen: the fixed
+                px budget it reserved for "everything above" (banner +
+                RESET + BACKUP/RESTORE + L-R SWEEP + UD SWEEP) assumed a
+                tall portrait phone, so on a real short screen those alone
+                already ate the whole viewport, collapsing THIS section to
+                a sliver a couple px tall — visible in principle, never
+                actually reachable by a real thumb swipe (that's what made
+                GUN ROLL and the ROLL spin buttons "never came" on a
+                landscape phone). The panel wrapping this whole tab (see
+                its own maxHeight/overflowY a bit further up) now scrolls
+                as ONE unit instead, so every control here just needs to
+                not get squeezed by that panel's own flex-shrink — hence
+                flexShrink: 0, no maxHeight/overflow of its own anymore. */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                flexShrink: 0,
+              }}
+            >
+            {/* LEFT/RIGHT spin the GUN itself all the way around (yaw,
+                wrapping past +/-180° instead of jamming there — see
+                handleGunYawSpin/wrapAngle) — a full continuous 360°
+                turn with repeated taps, not just the slider's own
+                bounded range. FIRE stays in the middle, previewing the
+                recoil pose (see triggerFirePreview) with no cooldown/
+                tracer/damage, just the animation. */}
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleGunYawSpin(-GUN_ROTATE_STEP_RAD);
+                }}
+                aria-label="Rotate gun left"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                ↺ LEFT
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  buildModeRef.current?.triggerFirePreview();
+                }}
+                aria-label="Preview fire pose"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(255,140,90,0.22)",
+                  border: "1px solid rgba(255,170,130,0.6)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                🔥 FIRE
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleGunYawSpin(GUN_ROTATE_STEP_RAD);
+                }}
+                aria-label="Rotate gun right"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                RIGHT ↻
+              </button>
+            </div>
+            {/* PITCH/YAW/ROLL (see gunGripRotation) — plain sliders, on
+                purpose not a D-pad. This tab used to have both a slider
+                AND an arrow-button D-pad for the same three values,
+                which is what pushed this scrollable section tall enough
+                to start crowding GUN CAM's own D-pad on short screens.
+                Sliders alone here; the grip POSITION D-pad (an actually
+                different control — where the gun sits, not how it's
+                turned) goes back to floating on the right side, see
+                below. */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              {(["pitch", "yaw", "roll"] as const).map((axis) => {
+                const value = gunRotationUI[axis];
+                return renderSliderRow(
+                  `gun-${axis}`,
+                  `GUN ${axis.toUpperCase()}`,
+                  value,
+                  GUN_GRIP_ROTATION_MIN,
+                  GUN_GRIP_ROTATION_MAX,
+                  0.01,
+                  GUN_ROTATE_STEP_RAD,
+                  `${((value * 180) / Math.PI).toFixed(2)}°`,
+                  (v) => handleGunRotationSlider(axis, v),
+                  (delta) => handleGunRotationNudge(axis, delta),
+                );
+              })}
+            </div>
+            {/* Spins the gun all the way around its own barrel axis, like a
+                drill bit — same wrap-past-the-slider's-own-limit trick as
+                the LEFT/RIGHT yaw-spin buttons above (see handleGunRollSpin/
+                wrapAngle), just on GUN ROLL instead of GUN YAW, and placed
+                right under that slider instead of duplicating the top
+                FIRE row (there's nothing roll-specific to preview there). */}
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleGunRollSpin(-GUN_ROTATE_STEP_RAD);
+                }}
+                aria-label="Spin gun roll left"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                ↺ ROLL
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleGunRollSpin(GUN_ROTATE_STEP_RAD);
+                }}
+                aria-label="Spin gun roll right"
+                style={{
+                  flex: 1,
+                  padding: "8px 0",
+                  borderRadius: 6,
+                  background: "rgba(107,216,255,0.18)",
+                  border: "1px solid rgba(107,216,255,0.5)",
+                  color: "#dce8f5",
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                ROLL ↻
+              </button>
+            </div>
+            </div>
+          </div>
+          {/* Gun grip nudge D-pad — position (where the gun sits in the
+              hand), not rotation, so it stays a separate control on the
+              opposite side of the screen from the LEFT-side panel above,
+              not folded into that panel's own scroll. Sized compact
+              (110px grid, 32px side column) and kept well clear of GUN
+              CAM's own D-pad in the bottom-left corner (see that D-pad's
+              own matching compact size) — verified no overlap at
+              320-420px screen widths. */}
+          <div
+            style={{
+              position: "absolute",
+              right: "4%",
+              bottom: "6%",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              opacity: buildLockedUI ? settings.buttonOpacity * 0.5 : settings.buttonOpacity,
+              pointerEvents: buildLockedUI ? "none" : "auto",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                width: 32,
+                height: 110,
+              }}
+            >
+              {(["up", "down"] as const).map((dir) => (
+                <button
+                  key={dir}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    handleGunGripNudge(dir);
+                  }}
+                  aria-label={`Gun grip ${dir}`}
+                  style={{
+                    flex: 1,
+                    borderRadius: 7,
+                    background: "rgba(255,190,90,0.3)",
+                    border: "1px solid rgba(255,215,150,0.8)",
+                    color: "#dce8f5",
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontWeight: 700,
+                    fontSize: 10,
+                    cursor: "pointer",
+                  }}
+                >
+                  {dir === "up" ? "▲" : "▼"}
+                </button>
+              ))}
+            </div>
+            <div
+              style={{
+                width: 110,
+                height: 110,
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1fr",
+                gridTemplateRows: "1fr 1fr 1fr",
+                gap: 4,
+              }}
+            >
+              {(
+                [
+                  [null, "forward", null],
+                  ["left", null, "right"],
+                  [null, "back", null],
+                ] as const
+              ).map((row, rowIdx) =>
+                row.map((dir, colIdx) =>
+                  dir ? (
+                    <button
+                      key={dir}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        handleGunGripNudge(dir);
+                      }}
+                      aria-label={`Gun grip ${dir}`}
+                      style={{
+                        gridColumn: colIdx + 1,
+                        gridRow: rowIdx + 1,
+                        borderRadius: 7,
+                        background: "rgba(107,216,255,0.3)",
+                        border: "1px solid rgba(190,235,255,0.8)",
+                        color: "#dce8f5",
+                        fontFamily: "'Rajdhani', sans-serif",
+                        fontWeight: 700,
+                        fontSize: 15,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {dir === "forward" ? "↑" : dir === "back" ? "↓" : dir === "left" ? "←" : "→"}
+                    </button>
+                  ) : (
+                    <div key={`${rowIdx}-${colIdx}`} style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }} />
+                  ),
+                ),
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* RIGHT HAND / LEFT HAND tabs — each side's own shoulder/elbow/
           wrist pose plus its 5 fingers (see renderHandTab). */}
