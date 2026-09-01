@@ -3299,9 +3299,33 @@ function solveTwoBoneIK(shoulder: THREE.Object3D, elbow: THREE.Object3D, hand: T
 // time, since the idle/run/fire mocap clips keep re-driving these arm
 // bones' rotations on every mixer.update, which would otherwise
 // immediately undo a one-time snap.
+// solveTwoBoneIK only ever rotates the shoulder/elbow to place the HAND at
+// the target position — it never touches the hand bone's own rotation, so
+// the wrist keeps whatever roll the base RifleIdle clip left it at. That's
+// fine for the position (verified numerically — see the commit that added
+// this), but the palm/fingers end up facing an arbitrary direction instead
+// of wrapped around the barrel, reading as an open hand floating near the
+// gun rather than gripping it. This rolls the wrist, in the GUN's own
+// local frame (so it rotates together with GUN_GRIP_ROTATION_DEFAULT if
+// that's ever changed again), to close the palm around the foregrip.
+// Tuned the same way GUN_GRIP_ROTATION_DEFAULT was — set directly, compare
+// screenshots, adjust.
+const OFFHAND_WRIST_ROLL = { x: -0.35, y: 1.9, z: 1.1 };
+// Both hands' fingers get curled noticeably past FINGER_CURL_ANGLES' own
+// base amount (that table alone reads as barely-closed on this model's
+// thicker, blockier finger geometry) so the grip reads as an actually
+// closed fist around the gun instead of loosely cupped fingers hovering
+// near it.
+const GUN_GRIP_CURL_SCALE = 1.8;
 const offHandForward = new THREE.Vector3();
 const offHandPoleWorld = new THREE.Vector3();
 const offHandGripMatrix = new THREE.Matrix4();
+const offHandGripPos = new THREE.Vector3();
+const offHandGripScale = new THREE.Vector3();
+const offHandGripQuat = new THREE.Quaternion();
+const offHandWristQuat = new THREE.Quaternion();
+const offHandWristEuler = new THREE.Euler();
+const offHandParentQuat = new THREE.Quaternion();
 function updateOffHandReach(rig: FighterRig) {
   // Gated on rig.gun's mere existence (armed vs not yet equipped), not
   // its current transform — see calibratedGripWorldMatrix above for why
@@ -3317,6 +3341,30 @@ function updateOffHandReach(rig: FighterRig) {
   offHandPoleWorld.y -= 1;
   offHandPoleWorld.addScaledVector(offHandForward, 0.3);
   solveTwoBoneIK(rig.leftArm, rig.leftForeArm, rig.leftHand, foregripWorld, offHandPoleWorld);
+
+  // Wrist roll (see OFFHAND_WRIST_ROLL above) — applied in the gun's own
+  // local frame: take the gun's world orientation, add the roll, convert
+  // back into rig.leftHand's own parent (forearm) frame.
+  offHandGripMatrix.decompose(offHandGripPos, offHandGripQuat, offHandGripScale);
+  offHandWristEuler.set(OFFHAND_WRIST_ROLL.x, OFFHAND_WRIST_ROLL.y, OFFHAND_WRIST_ROLL.z, "XYZ");
+  offHandWristQuat.setFromEuler(offHandWristEuler);
+  offHandGripQuat.multiply(offHandWristQuat);
+  rig.leftHand.parent!.getWorldQuaternion(offHandParentQuat);
+  rig.leftHand.quaternion.copy(offHandParentQuat.invert().multiply(offHandGripQuat));
+
+  // Re-curl both hands' fingers every tick, same reasoning as the wrist
+  // roll just above and the whole reason this function has to run every
+  // tick at all: RifleIdle's own retargeted mocap bakes real keyframes for
+  // every finger joint (30 channels, both hands — checked directly in the
+  // clip), so mixer.update was silently re-driving them back to the source
+  // actor's own relaxed hand shape every single frame, undoing equipGun's
+  // one-time curl before it ever reached the screen. That equip-time call
+  // is now redundant (left in place, harmless) — this is what actually
+  // sticks.
+  curlGunGripFingers(rig.rightFingers, 1, GUN_GRIP_CURL_SCALE);
+  curlGunGripFingers(rig.leftFingers, -1, GUN_GRIP_CURL_SCALE);
+  curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right);
+  curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left);
 }
 
 // The player's own off-hand pose (shoulder + elbow + wrist local
