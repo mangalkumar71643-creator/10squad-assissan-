@@ -6065,10 +6065,24 @@ function CombatArena({
               gunGripOffset.z += dz;
             }
             saveGunGripOffset();
-            if (gunDetached && player?.gun) {
-              updateDetachedGunPreview(player.gun);
-            } else if (player?.gun && player.rightHand) {
-              applyCalibratedGunTransform(player.gun, player.rightHand);
+            // While REFERENCE POSE owns the gun (parked at its own fixed
+            // spot, not derived from gunGripOffset/gunGripRotation at
+            // all — see toggleReferencePose), updateDetachedGunPreview
+            // would recompute the gun's transform against
+            // detachedHandMatrix instead — which reference pose never
+            // keeps in sync (the tick loop's referencePoseOn branch
+            // skips updateDetachedGunAnchor entirely), so it's whatever
+            // was last left there (often the untouched identity matrix)
+            // — snapping the gun to a bogus, usually-invisible spot the
+            // instant any D-pad/slider/reset button was pressed. The
+            // offset itself still updates and saves normally above, so
+            // it's there waiting once reference pose is toggled back off.
+            if (!referencePoseOn) {
+              if (gunDetached && player?.gun) {
+                updateDetachedGunPreview(player.gun);
+              } else if (player?.gun && player.rightHand) {
+                applyCalibratedGunTransform(player.gun, player.rightHand);
+              }
             }
           },
           // A slider's onChange always hands over the new ABSOLUTE value,
@@ -6085,10 +6099,13 @@ function CombatArena({
             const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
             gunGripRotation[key] = value;
             saveGunGripRotation();
-            if (!gunDetached && player?.gun && player.rightHand) {
-              applyCalibratedGunTransform(player.gun, player.rightHand);
-            } else if (gunDetached && player?.gun) {
-              updateDetachedGunPreview(player.gun);
+            // See nudgeGunGrip's own comment — same reference-pose guard.
+            if (!referencePoseOn) {
+              if (!gunDetached && player?.gun && player.rightHand) {
+                applyCalibratedGunTransform(player.gun, player.rightHand);
+              } else if (gunDetached && player?.gun) {
+                updateDetachedGunPreview(player.gun);
+              }
             }
           },
           // Same idea for one finger's curl (see curlGunGripFingers'
@@ -6127,10 +6144,13 @@ function CombatArena({
             saveGunGripOffset();
             gunGripRotation.set(0, 0, 0);
             saveGunGripRotation();
-            if (!gunDetached && player?.gun && player.rightHand) {
-              applyCalibratedGunTransform(player.gun, player.rightHand);
-            } else if (gunDetached && player?.gun) {
-              updateDetachedGunPreview(player.gun);
+            // See nudgeGunGrip's own comment — same reference-pose guard.
+            if (!referencePoseOn) {
+              if (!gunDetached && player?.gun && player.rightHand) {
+                applyCalibratedGunTransform(player.gun, player.rightHand);
+              } else if (gunDetached && player?.gun) {
+                updateDetachedGunPreview(player.gun);
+              }
             }
           },
           // RIGHT HAND / LEFT HAND tab's own RESET — just that one side's
@@ -6195,10 +6215,13 @@ function CombatArena({
               wrist: { ...bundle.armPoseExtras.left.wrist },
             };
             saveArmPoseExtras();
-            if (!gunDetached && player?.gun && player.rightHand) {
-              applyCalibratedGunTransform(player.gun, player.rightHand);
-            } else if (gunDetached && player?.gun) {
-              updateDetachedGunPreview(player.gun);
+            // See nudgeGunGrip's own comment — same reference-pose guard.
+            if (!referencePoseOn) {
+              if (!gunDetached && player?.gun && player.rightHand) {
+                applyCalibratedGunTransform(player.gun, player.rightHand);
+              } else if (gunDetached && player?.gun) {
+                updateDetachedGunPreview(player.gun);
+              }
             }
           },
           // Pulls the gun off the hand (reparented to the scene root) so
@@ -6226,6 +6249,18 @@ function CombatArena({
           // sway, so there's no visible jump either way, walked somewhere
           // else or not.
           toggleGunDetach: () => {
+            // REFERENCE POSE owns gunDetached/the gun's transform for as
+            // long as it's on (see toggleReferencePose) — the GUN ON/OFF
+            // button stays visible and tappable the whole time (it's
+            // outside the tab row), and without this guard, pressing it
+            // could occasionally re-attach the reference-pose gun (the
+            // 0.5m attach-distance gate below only reliably blocks this
+            // when the hand happens to be more than 0.5m from wherever
+            // reference pose parked the gun, which isn't guaranteed for
+            // every camera angle/arm length) or otherwise fight
+            // toggleReferencePose's own bookkeeping. No-op here — exit
+            // REFERENCE POSE first.
+            if (referencePoseOn) return gunDetached;
             if (!player?.gun) return gunDetached;
             const gun = player.gun;
             if (!gunDetached) {
@@ -7630,13 +7665,22 @@ function CombatArena({
       birdPitchRef.current = clamp(birdPitchRef.current - dy * BIRD_STEER_SENSITIVITY, -1.5, 1.4);
       return;
     }
-    if (gunCamOnRef.current) {
+    if (gunCamOnRef.current && !referencePoseOnUI) {
       // GUN CAM: same drag-to-look gesture as the normal chase camera,
       // just steering gunCamYaw/gunCamPitch instead of cameraYaw/
       // cameraPitch — dragging left/right orbits all the way around
       // (unclamped, same as the D-pad's own left/right), dragging up/
       // down orbits over the top within the same pitch limit the D-pad's
-      // up/down buttons already respect.
+      // up/down buttons already respect. Excluded while REFERENCE POSE is
+      // on: the render loop's own camera branch (see the tick loop's
+      // `gunCamOnRef.current && !referencePoseOn` check) falls back to
+      // the normal chase cam for the whole time reference pose is active,
+      // regardless of which tab is open — so routing drag input to
+      // gunCamYaw/gunCamPitch here too (as this used to, checking only
+      // gunCamOnRef) fed a camera variable nothing was reading, while the
+      // one actually driving the view (cameraYaw/cameraPitch) never
+      // moved: dragging did nothing at all, reading as the whole screen
+      // being stuck.
       gunCamYaw.current -= dx * LOOK_SENSITIVITY_BASE * lookSensitivity;
       gunCamPitch.current = clamp(gunCamPitch.current - dy * LOOK_SENSITIVITY_BASE * lookSensitivity, -GUN_CAM_PITCH_LIMIT, GUN_CAM_PITCH_LIMIT);
       return;
