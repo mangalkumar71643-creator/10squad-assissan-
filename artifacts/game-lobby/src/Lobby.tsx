@@ -2588,6 +2588,16 @@ const GUN_RAW_LENGTH = 1329.79;
 // for the body's own natural shape, not a real attachment point.
 const REFERENCE_GUN_DISTANCE = 1;
 const REFERENCE_GUN_HEIGHT = 1.2;
+// How REFERENCE_GUN_DISTANCE's 1m splits between forward and sideways
+// (see toggleReferencePose) — must satisfy SIDE²+FORWARD²=1 so the real
+// distance from the body stays exactly REFERENCE_GUN_DISTANCE regardless
+// of the split. Tuned empirically (NDC projection through the actual
+// chase camera) against this camera's real, narrow horizontal FOV: 0.5
+// sideways landed at NDC.x ≈ 0.76 (comfortably on screen); pure sideways
+// (1.0) landed past ±1 (off screen entirely); pure forward (0 sideways)
+// foreshortens to almost nothing on screen.
+const REFERENCE_GUN_SIDE_FRACTION = 0.5;
+const REFERENCE_GUN_FORWARD_FRACTION = Math.sqrt(1 - REFERENCE_GUN_SIDE_FRACTION * REFERENCE_GUN_SIDE_FRACTION);
 // GUN ON/OFF's attach gate — turning GUN ON while it's sitting detached
 // far away from the hand (e.g. mid-calibration, nudged way out for a
 // clear look) used to just teleport it straight onto the hand no matter
@@ -6231,12 +6241,54 @@ function CombatArena({
                 offHandFreezeArmed = true;
               }
               if (player.gun) {
-                const forwardX = Math.sin(player.root.rotation.y);
-                const forwardZ = Math.cos(player.root.rotation.y);
+                // Camera-relative, not player-relative — cameraYaw (the
+                // chase camera's own facing) rather than the player's own
+                // rotation, so the gun consistently lands on the same
+                // SCREEN side regardless of which way the character
+                // happens to be facing (player rotation and camera yaw
+                // only coincide by default; free-look can turn them
+                // apart). forward here is the direction the camera looks
+                // (matches camTargetPos's own -sin/-cos offset from the
+                // player, see the chase-cam branch below); right is
+                // forward × up (Y-up, right-handed), the real screen-
+                // right direction — NOT (forwardZ, -forwardX), which is
+                // screen-LEFT (caught by NDC-projecting the gun: that
+                // sign landed it at NDC.x ≈ -1.13, off the left edge, and
+                // squarely behind the GUN tab panel, which covers the
+                // screen's left half — exactly where this is being
+                // looked at from).
+                const camFacing = cameraYaw.current;
+                const forwardX = Math.sin(camFacing);
+                const forwardZ = Math.cos(camFacing);
+                const rightX = -forwardZ;
+                const rightZ = forwardX;
+                // Parked diagonally (mostly forward, partly to the side)
+                // — this chase camera sits close behind the player with a
+                // narrow horizontal FOV (portrait aspect), so a purely
+                // SIDEWAYS 1m offset pushes the gun clean off the edge of
+                // frame (verified via NDC projection — it landed past
+                // ±1), while a purely FORWARD offset moves it straight
+                // down the camera's own line of sight, which foreshortens
+                // almost to nothing on screen and reads as sitting right
+                // on the body (the original bug report) — an even 50/50
+                // diagonal split still clipped past the edge. REFERENCE_
+                // GUN_SIDE_FRACTION's 0.5/0.87 split (verified NDC.x
+                // ≈ 0.77, comfortably on the RIGHT side of frame, clear
+                // of the panel) keeps the real 1m distance intact but
+                // weights it toward forward: the larger forward share pushes the gun
+                // slightly deeper, which WIDENS the camera's visible
+                // frustum at that depth (it's a cone) — more headroom for
+                // the smaller sideways share, which is what actually
+                // reads as visible separation from the body's silhouette,
+                // since lateral motion (unlike forward motion) isn't
+                // foreshortened by a camera looking down that same
+                // forward axis.
+                const diagX = forwardX * REFERENCE_GUN_FORWARD_FRACTION + rightX * REFERENCE_GUN_SIDE_FRACTION;
+                const diagZ = forwardZ * REFERENCE_GUN_FORWARD_FRACTION + rightZ * REFERENCE_GUN_SIDE_FRACTION;
                 player.gun.position.set(
-                  player.root.position.x + forwardX * REFERENCE_GUN_DISTANCE,
+                  player.root.position.x + diagX * REFERENCE_GUN_DISTANCE,
                   player.root.position.y + REFERENCE_GUN_HEIGHT,
-                  player.root.position.z + forwardZ * REFERENCE_GUN_DISTANCE,
+                  player.root.position.z + diagZ * REFERENCE_GUN_DISTANCE,
                 );
                 player.gun.quaternion.identity();
                 player.gun.scale.setScalar(GUN_TARGET_LENGTH / GUN_RAW_LENGTH);
@@ -6254,6 +6306,22 @@ function CombatArena({
               player.idleAction?.setEffectiveWeight(1);
               referencePoseOn = false;
             }
+            // GUN CAM (active the whole time the GUN tab — the only place
+            // this button lives — is open) orbits a CACHED anchor point
+            // that normally only re-snaps once the player's ROOT moves
+            // more than 5cm (GUN_CAM_ANCHOR_ROOT_MOVE) — cheap insurance
+            // against idle-sway jitter. But toggling REFERENCE POSE moves
+            // the GUN, not the root, so without this the anchor stayed
+            // frozen exactly where the gun USED to be: the gun would jump
+            // to its new 1m spot while the camera kept orbiting the old
+            // spot, so the actual reference view showed empty space where
+            // the gun no longer was (or the hand's old grip spot on the
+            // way back out) — this is what made the gun read as "still
+            // right on the body" no matter how the diagonal placement
+            // above was tuned, since the camera was never even looking at
+            // it. Forcing a re-init here makes the very next tick's GUN
+            // CAM logic re-snap to the gun's ACTUAL current position.
+            gunCamAnchorInit = false;
           },
           // GUN tab's FIRE button: previews the recoil pose (applyFirePose,
           // driven by playerFireT below) without any of the actual combat
@@ -7333,7 +7401,7 @@ function CombatArena({
         // it eases a little slower while the player's speed is changing
         // quickly — accelerating off the mark or braking to a stop — which
         // reads as a slight, natural lag instead of a rigid, glued-on rig.
-        if (gunCamOnRef.current && (player.gun || player.rightHand)) {
+        if (gunCamOnRef.current && !referencePoseOn && (player.gun || player.rightHand)) {
           // GUN CAM (Build Mode): orbits gunCamYaw/gunCamPitch/gunCamDist
           // around the gun's current world position (falling back to the
           // hand if the gun is mid-detach) instead of the player's whole
