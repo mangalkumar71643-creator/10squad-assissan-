@@ -1,4 +1,4 @@
-import { Audio, AVPlaybackSource, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
+import { AudioPlayer, AudioSource, createAudioPlayer, setAudioModeAsync } from "expo-audio";
 
 export type SfxKey =
   | "tap"
@@ -11,7 +11,7 @@ export type SfxKey =
   | "danger"
   | "gameover";
 
-const SFX_SOURCES: Record<SfxKey, AVPlaybackSource> = {
+const SFX_SOURCES: Record<SfxKey, AudioSource> = {
   tap: require("../../assets/audio/tap.wav"),
   correct: require("../../assets/audio/correct.wav"),
   wrong: require("../../assets/audio/wrong.wav"),
@@ -23,34 +23,29 @@ const SFX_SOURCES: Record<SfxKey, AVPlaybackSource> = {
   gameover: require("../../assets/audio/gameover.wav"),
 };
 
-const MUSIC_SOURCE: AVPlaybackSource = require("../../assets/audio/music_loop.wav");
+const MUSIC_SOURCE: AudioSource = require("../../assets/audio/music_loop.wav");
 
 class SoundManager {
   private sfxEnabled = true;
   private musicEnabled = true;
-  private musicSound: Audio.Sound | null = null;
-  private ready = false;
+  private musicPlayer: AudioPlayer | null = null;
+  private initPromise: Promise<void> | null = null;
 
-  async init() {
-    if (this.ready) return;
-    try {
-      // Explicitly set every field -- leaving fields unset lets some Android
-      // devices route this app's audio through the in-call/communication
-      // stream (silent on the loudspeaker, narrowband/buzzy over Bluetooth)
-      // instead of the normal media stream.
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
-      this.ready = true;
-    } catch {
-      // Audio subsystem unavailable (e.g. web preview) — fail silently.
+  // Cached and awaited by play()/startMusic() so a player is never created
+  // before the audio mode is actually applied natively -- creating a player
+  // first can leave it stuck on the wrong (voice-call) audio stream. Also
+  // called eagerly on app mount (see useSoundSystem) to warm it up early.
+  init(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: false,
+        interruptionMode: "duckOthers",
+        allowsRecording: false,
+        shouldRouteThroughEarpiece: false,
+      }).catch(() => undefined); // Audio subsystem unavailable (e.g. web preview).
     }
+    return this.initPromise;
   }
 
   setSfxEnabled(enabled: boolean) {
@@ -68,16 +63,17 @@ class SoundManager {
 
   async play(key: SfxKey) {
     if (!this.sfxEnabled) return;
+    await this.init();
     try {
-      const { sound } = await Audio.Sound.createAsync(SFX_SOURCES[key], {
-        volume: 0.9,
-      });
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if ("didJustFinish" in status && status.didJustFinish) {
-          sound.unloadAsync().catch(() => undefined);
+      const player = createAudioPlayer(SFX_SOURCES[key]);
+      player.volume = 0.9;
+      const subscription = player.addListener("playbackStatusUpdate", (status) => {
+        if (status.didJustFinish) {
+          subscription.remove();
+          player.remove();
         }
       });
-      await sound.playAsync();
+      player.play();
     } catch {
       // Missing/unsupported asset — ignore so gameplay never crashes.
     }
@@ -85,23 +81,23 @@ class SoundManager {
 
   async startMusic() {
     if (!this.musicEnabled) return;
+    await this.init();
     try {
-      if (!this.musicSound) {
-        const { sound } = await Audio.Sound.createAsync(MUSIC_SOURCE, {
-          isLooping: true,
-          volume: 0.35,
-        });
-        this.musicSound = sound;
+      if (!this.musicPlayer) {
+        const player = createAudioPlayer(MUSIC_SOURCE);
+        player.loop = true;
+        player.volume = 0.35;
+        this.musicPlayer = player;
       }
-      await this.musicSound.playAsync();
+      this.musicPlayer.play();
     } catch {
       // ignore
     }
   }
 
-  async stopMusic() {
+  stopMusic() {
     try {
-      await this.musicSound?.stopAsync();
+      this.musicPlayer?.pause();
     } catch {
       // ignore
     }
