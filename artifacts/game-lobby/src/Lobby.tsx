@@ -3371,10 +3371,10 @@ function updateOffHandReach(rig: FighterRig) {
   // one-time curl before it ever reached the screen. That equip-time call
   // is now redundant (left in place, harmless) — this is what actually
   // sticks.
-  curlGunGripFingers(rig.rightFingers, 1, GUN_GRIP_CURL_SCALE);
-  curlGunGripFingers(rig.leftFingers, -1, GUN_GRIP_CURL_SCALE);
-  curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right);
-  curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left);
+  curlGunGripFingers(rig.rightFingers, 1, GUN_GRIP_CURL_SCALE, rig.restPose);
+  curlGunGripFingers(rig.leftFingers, -1, GUN_GRIP_CURL_SCALE, rig.restPose);
+  curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right, rig.restPose);
+  curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left, rig.restPose);
 }
 
 // The player's own off-hand pose (shoulder + elbow + wrist local
@@ -3453,14 +3453,43 @@ const FINGER_CURL_ANGLES: Record<string, number> = {
   Thumb1: 0.2, Thumb2: 0.4, Thumb3: 0.35, Thumb4: 0.25,
 };
 const fingerCurlQuat = new THREE.Quaternion();
-function curlGunGripFingers(fingers: Record<string, THREE.Object3D>, mirror: 1 | -1, scale: number | FingerCurlExtra = 1) {
+// `restPose` (see FighterRig, captured once at load before any clip ever
+// played) makes this idempotent — called every tick, not just once at
+// equip time (same reasoning as updateOffHandReach re-solving every tick),
+// re-computing curl as restQuat*curlDelta (an ABSOLUTE target) rather than
+// bone.quaternion.multiply (a RELATIVE nudge onto whatever's already
+// there). That distinction only shows up on joints RifleIdle's own
+// retargeted mocap never actually animates — checked directly in the
+// clip: it drives joints 1-3 of each finger but not the 4th (outermost)
+// segment on this rig, so joints 1-3 get freshly reset to the baked pose
+// by mixer.update every frame before this runs (multiply was harmless
+// there), but joint 4 never gets touched by anything else at all — a
+// per-tick multiply onto it compounded a little further every single
+// frame with nothing ever pulling it back, and after long enough
+// play kept spinning until it wound up fully twisted (the "fingers look
+// like they're rotating/glitching" bug). Falls back to the old
+// multiply-onto-current behavior when no rest data is available (bots,
+// which never actually spawn — see combatDisabled — so this path is
+// dead in practice, kept only so the function still works if that
+// changes).
+function curlGunGripFingers(
+  fingers: Record<string, THREE.Object3D>,
+  mirror: 1 | -1,
+  scale: number | FingerCurlExtra = 1,
+  restPose?: Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }> | null,
+) {
   for (const [joint, angle] of Object.entries(FINGER_CURL_ANGLES)) {
     const bone = fingers[joint];
     if (!bone) continue;
     const jointScale = typeof scale === "number" ? scale : scale[joint.replace(/\d+$/, "") as FingerName];
     if (!jointScale) continue;
     fingerCurlQuat.setFromAxisAngle(FINGER_CURL_AXIS, angle * mirror * jointScale);
-    bone.quaternion.multiply(fingerCurlQuat);
+    const rest = restPose?.get(bone.name);
+    if (rest) {
+      bone.quaternion.copy(rest.quat).multiply(fingerCurlQuat);
+    } else {
+      bone.quaternion.multiply(fingerCurlQuat);
+    }
   }
 }
 
@@ -3742,11 +3771,21 @@ interface FighterRig {
   // firing, so the tracer actually starts from the gun instead of the hand.
   gun: THREE.Object3D | null;
   // Real per-finger joints on this rig (mixamorig standard skeleton),
-  // keyed by e.g. "Index1"/"Thumb2" — curled once around the grip/foregrip
-  // at gun-attach time (see curlGunGripFingers) rather than every tick,
-  // since the rig's baked clips never touch them.
+  // keyed by e.g. "Index1"/"Thumb2" — curled around the grip/foregrip
+  // every tick (see updateOffHandReach/curlGunGripFingers), since
+  // RifleIdle's own baked mocap re-drives some of these joints itself
+  // every frame and would otherwise fight a one-time curl.
   rightFingers: Record<string, THREE.Object3D>;
   leftFingers: Record<string, THREE.Object3D>;
+  // Every named node's local rest transform, captured once right after
+  // load, before any clip ever played (see captureRestPose) — lets
+  // curlGunGripFingers compute an ABSOLUTE curled pose every tick
+  // (restQuat*curlDelta) instead of nudging whatever the bone's current
+  // value happens to be, which is what actually makes calling it every
+  // tick safe on joints no animation clip ever touches (see that
+  // function's own comment for the bug this fixes). Only ever populated
+  // for the player (loadPlayerCharacter) — null everywhere else.
+  restPose: Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }> | null;
   materials: THREE.MeshStandardMaterial[];
 }
 
@@ -3780,6 +3819,7 @@ function createPlaceholderRig(scene: THREE.Scene): FighterRig {
     gun: null,
     rightFingers: {},
     leftFingers: {},
+    restPose: null,
     materials: [],
   };
 }
@@ -3933,6 +3973,7 @@ function loadPlayerCharacter(scene: THREE.Scene, onLoaded: (rig: FighterRig) => 
         gun: null,
         rightFingers,
         leftFingers,
+        restPose: restPlayer,
         materials,
       });
     })
@@ -4054,7 +4095,7 @@ function loadFighter(
         }
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, naturalIdleAction: null, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
+      onLoaded({ root, mixer, idleAction, runAction, naturalIdleAction: null, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, restPose: null, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -4372,7 +4413,7 @@ function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: Fighter
         deathAction.setEffectiveWeight(0);
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, naturalIdleAction: null, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
+      onLoaded({ root, mixer, idleAction, runAction, naturalIdleAction: null, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, restPose: null, materials });
     })
     .catch((err) => console.error("Failed to load bot model", err));
 }
@@ -6518,10 +6559,10 @@ function CombatArena({
       if (!rig.rightHand) return;
       loadGunPrototype().then((proto) => {
         rig.gun = createGunAttachment(rig.rightHand as THREE.Object3D, proto);
-        curlGunGripFingers(rig.rightFingers, 1);
-        curlGunGripFingers(rig.leftFingers, -1);
-        curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right);
-        curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left);
+        curlGunGripFingers(rig.rightFingers, 1, undefined, rig.restPose);
+        curlGunGripFingers(rig.leftFingers, -1, undefined, rig.restPose);
+        curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right, rig.restPose);
+        curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left, rig.restPose);
       });
     };
 
