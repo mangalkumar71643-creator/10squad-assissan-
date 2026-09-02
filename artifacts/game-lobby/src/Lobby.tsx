@@ -2603,6 +2603,40 @@ const REFERENCE_GUN_HEIGHT = 1.2;
 // foreshortens to almost nothing on screen.
 const REFERENCE_GUN_SIDE_FRACTION = 0.5;
 const REFERENCE_GUN_FORWARD_FRACTION = Math.sqrt(1 - REFERENCE_GUN_SIDE_FRACTION * REFERENCE_GUN_SIDE_FRACTION);
+// REFERENCE POSE's D-pad moves the gun as a raw world-space position with
+// no attachment/IK holding it near the hand (see nudgeGunGrip's own
+// referencePoseOn branch) — nothing stopped repeated nudges from pushing
+// it straight through the character's own torso. Measured directly off
+// the real player model (player.glb, torso-height mesh vertices only,
+// front-to-back real-world depth ≈0.28m) rather than guessed; this is the
+// minimum horizontal (XZ-plane) distance the gun is allowed to end up
+// from the root, a generous margin past that real depth so it clearly
+// reads as outside the body's silhouette rather than just grazing it.
+const GUN_BODY_EXCLUSION_RADIUS = 0.35;
+// Pushes `pos` radially outward (in the horizontal XZ plane only — Y is
+// left alone, so moving the gun straight up/down never gets vetoed by
+// this) until it's at least GUN_BODY_EXCLUSION_RADIUS from `center`, in
+// place. A perfectly-centered `pos` (zero horizontal offset, degenerate —
+// no direction to push in) falls back to pushing straight along
+// `fallbackDirXZ`, normalized.
+function clampAwayFromBodyXZ(pos: THREE.Vector3, center: THREE.Vector3, fallbackDirXZ: [number, number]) {
+  const dx = pos.x - center.x;
+  const dz = pos.z - center.z;
+  const horizDist = Math.hypot(dx, dz);
+  if (horizDist >= GUN_BODY_EXCLUSION_RADIUS) return;
+  let dirX: number;
+  let dirZ: number;
+  if (horizDist > 1e-4) {
+    dirX = dx / horizDist;
+    dirZ = dz / horizDist;
+  } else {
+    const fallbackLen = Math.hypot(fallbackDirXZ[0], fallbackDirXZ[1]) || 1;
+    dirX = fallbackDirXZ[0] / fallbackLen;
+    dirZ = fallbackDirXZ[1] / fallbackLen;
+  }
+  pos.x = center.x + dirX * GUN_BODY_EXCLUSION_RADIUS;
+  pos.z = center.z + dirZ * GUN_BODY_EXCLUSION_RADIUS;
+}
 // GUN ON/OFF's attach gate — turning GUN ON while it's sitting detached
 // far away from the hand (e.g. mid-calibration, nudged way out for a
 // clear look) used to just teleport it straight onto the hand no matter
@@ -6084,7 +6118,17 @@ function CombatArena({
             // explicitly meant to let the grip be tuned by eye, so the
             // D-pad has to actually move something while it's on.
             if (referencePoseOn) {
-              player?.gun?.position.add(worldDelta);
+              if (player?.gun) {
+                player.gun.position.add(worldDelta);
+                // Nothing else holds the reference-pose gun near the
+                // hand (see the comment above) — without this, enough
+                // LEFT/BACK/etc. presses walk it straight through the
+                // character's own torso. Falls back to pushing along
+                // worldRight if the gun ever lands dead-center (only
+                // possible if the base reference distance were changed
+                // to 0, which it never is — kept for safety anyway).
+                clampAwayFromBodyXZ(player.gun.position, player.root.position, [worldRight.x, worldRight.z]);
+              }
               return;
             }
             let handQuat: THREE.Quaternion | null = null;
