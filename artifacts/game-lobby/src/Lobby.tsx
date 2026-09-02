@@ -3161,6 +3161,29 @@ function createGunAttachment(hand: THREE.Object3D, prototype: THREE.Object3D): T
   return gun;
 }
 
+// REFERENCE POSE's own base placement (see toggleReferencePose's enter
+// branch, which this is extracted from) — a clean, known 1m diagonal
+// spot in front of the root, camera-relative so it lands on the visible
+// side of the screen (see REFERENCE_GUN_SIDE_FRACTION's own comment).
+// Shared with resetGun's reference-pose branch below, so RESET can put
+// the gun back here after D-pad nudges without duplicating this math.
+function applyReferenceGunBasePosition(rig: FighterRig, camFacingYaw: number) {
+  if (!rig.gun) return;
+  const forwardX = Math.sin(camFacingYaw);
+  const forwardZ = Math.cos(camFacingYaw);
+  const rightX = -forwardZ;
+  const rightZ = forwardX;
+  const diagX = forwardX * REFERENCE_GUN_FORWARD_FRACTION + rightX * REFERENCE_GUN_SIDE_FRACTION;
+  const diagZ = forwardZ * REFERENCE_GUN_FORWARD_FRACTION + rightZ * REFERENCE_GUN_SIDE_FRACTION;
+  rig.gun.position.set(
+    rig.root.position.x + diagX * REFERENCE_GUN_DISTANCE,
+    rig.root.position.y + REFERENCE_GUN_HEIGHT,
+    rig.root.position.z + diagZ * REFERENCE_GUN_DISTANCE,
+  );
+  rig.gun.quaternion.identity();
+  rig.gun.scale.setScalar(GUN_TARGET_LENGTH / GUN_RAW_LENGTH);
+}
+
 // Same position/rotation/scale math as applyCalibratedGunTransform above,
 // but composed straight into a world matrix instead of written onto a
 // real gun object — lets updateOffHandReach (below) target "where the
@@ -6047,6 +6070,23 @@ function CombatArena({
               .addScaledVector(worldRight, dx)
               .addScaledVector(worldUp, dy)
               .addScaledVector(worldForward, dz);
+            // REFERENCE POSE parks the gun at its own fixed world spot,
+            // entirely independent of gunGripOffset/gunGripRotation (see
+            // toggleReferencePose) — so this is the one place a D-pad
+            // press should move the GUN OBJECT ITSELF directly, by the
+            // same world-space amount every other case converts into
+            // gunGripOffset below, rather than touching that offset at
+            // all. Earlier this just no-op'd here to stop D-pad presses
+            // from corrupting the reference-pose gun's transform (see the
+            // now-removed updateDetachedGunPreview-against-a-stale-
+            // detachedHandMatrix bug) — safe, but also silently ate every
+            // D-pad press, which is its own bug: REFERENCE POSE is
+            // explicitly meant to let the grip be tuned by eye, so the
+            // D-pad has to actually move something while it's on.
+            if (referencePoseOn) {
+              player?.gun?.position.add(worldDelta);
+              return;
+            }
             let handQuat: THREE.Quaternion | null = null;
             if (gunDetached) {
               handQuat = new THREE.Quaternion();
@@ -6065,24 +6105,10 @@ function CombatArena({
               gunGripOffset.z += dz;
             }
             saveGunGripOffset();
-            // While REFERENCE POSE owns the gun (parked at its own fixed
-            // spot, not derived from gunGripOffset/gunGripRotation at
-            // all — see toggleReferencePose), updateDetachedGunPreview
-            // would recompute the gun's transform against
-            // detachedHandMatrix instead — which reference pose never
-            // keeps in sync (the tick loop's referencePoseOn branch
-            // skips updateDetachedGunAnchor entirely), so it's whatever
-            // was last left there (often the untouched identity matrix)
-            // — snapping the gun to a bogus, usually-invisible spot the
-            // instant any D-pad/slider/reset button was pressed. The
-            // offset itself still updates and saves normally above, so
-            // it's there waiting once reference pose is toggled back off.
-            if (!referencePoseOn) {
-              if (gunDetached && player?.gun) {
-                updateDetachedGunPreview(player.gun);
-              } else if (player?.gun && player.rightHand) {
-                applyCalibratedGunTransform(player.gun, player.rightHand);
-              }
+            if (gunDetached && player?.gun) {
+              updateDetachedGunPreview(player.gun);
+            } else if (player?.gun && player.rightHand) {
+              applyCalibratedGunTransform(player.gun, player.rightHand);
             }
           },
           // A slider's onChange always hands over the new ABSOLUTE value,
@@ -6144,13 +6170,16 @@ function CombatArena({
             saveGunGripOffset();
             gunGripRotation.set(0, 0, 0);
             saveGunGripRotation();
-            // See nudgeGunGrip's own comment — same reference-pose guard.
-            if (!referencePoseOn) {
-              if (!gunDetached && player?.gun && player.rightHand) {
-                applyCalibratedGunTransform(player.gun, player.rightHand);
-              } else if (gunDetached && player?.gun) {
-                updateDetachedGunPreview(player.gun);
-              }
+            if (referencePoseOn) {
+              // Doesn't touch gunGripOffset/gunGripRotation at all (see
+              // nudgeGunGrip's own comment) — puts the gun back at
+              // REFERENCE POSE's own base spot instead, undoing whatever
+              // D-pad nudging moved it away from.
+              if (player) applyReferenceGunBasePosition(player, cameraYaw.current);
+            } else if (!gunDetached && player?.gun && player.rightHand) {
+              applyCalibratedGunTransform(player.gun, player.rightHand);
+            } else if (gunDetached && player?.gun) {
+              updateDetachedGunPreview(player.gun);
             }
           },
           // RIGHT HAND / LEFT HAND tab's own RESET — just that one side's
@@ -6328,59 +6357,16 @@ function CombatArena({
                 gunDetached = true;
                 offHandFreezeArmed = true;
               }
-              if (player.gun) {
-                // Camera-relative, not player-relative — cameraYaw (the
-                // chase camera's own facing) rather than the player's own
-                // rotation, so the gun consistently lands on the same
-                // SCREEN side regardless of which way the character
-                // happens to be facing (player rotation and camera yaw
-                // only coincide by default; free-look can turn them
-                // apart). forward here is the direction the camera looks
-                // (matches camTargetPos's own -sin/-cos offset from the
-                // player, see the chase-cam branch below); right is
-                // forward × up (Y-up, right-handed), the real screen-
-                // right direction — NOT (forwardZ, -forwardX), which is
-                // screen-LEFT (caught by NDC-projecting the gun: that
-                // sign landed it at NDC.x ≈ -1.13, off the left edge, and
-                // squarely behind the GUN tab panel, which covers the
-                // screen's left half — exactly where this is being
-                // looked at from).
-                const camFacing = cameraYaw.current;
-                const forwardX = Math.sin(camFacing);
-                const forwardZ = Math.cos(camFacing);
-                const rightX = -forwardZ;
-                const rightZ = forwardX;
-                // Parked diagonally (mostly forward, partly to the side)
-                // — this chase camera sits close behind the player with a
-                // narrow horizontal FOV (portrait aspect), so a purely
-                // SIDEWAYS 1m offset pushes the gun clean off the edge of
-                // frame (verified via NDC projection — it landed past
-                // ±1), while a purely FORWARD offset moves it straight
-                // down the camera's own line of sight, which foreshortens
-                // almost to nothing on screen and reads as sitting right
-                // on the body (the original bug report) — an even 50/50
-                // diagonal split still clipped past the edge. REFERENCE_
-                // GUN_SIDE_FRACTION's 0.5/0.87 split (verified NDC.x
-                // ≈ 0.77, comfortably on the RIGHT side of frame, clear
-                // of the panel) keeps the real 1m distance intact but
-                // weights it toward forward: the larger forward share pushes the gun
-                // slightly deeper, which WIDENS the camera's visible
-                // frustum at that depth (it's a cone) — more headroom for
-                // the smaller sideways share, which is what actually
-                // reads as visible separation from the body's silhouette,
-                // since lateral motion (unlike forward motion) isn't
-                // foreshortened by a camera looking down that same
-                // forward axis.
-                const diagX = forwardX * REFERENCE_GUN_FORWARD_FRACTION + rightX * REFERENCE_GUN_SIDE_FRACTION;
-                const diagZ = forwardZ * REFERENCE_GUN_FORWARD_FRACTION + rightZ * REFERENCE_GUN_SIDE_FRACTION;
-                player.gun.position.set(
-                  player.root.position.x + diagX * REFERENCE_GUN_DISTANCE,
-                  player.root.position.y + REFERENCE_GUN_HEIGHT,
-                  player.root.position.z + diagZ * REFERENCE_GUN_DISTANCE,
-                );
-                player.gun.quaternion.identity();
-                player.gun.scale.setScalar(GUN_TARGET_LENGTH / GUN_RAW_LENGTH);
-              }
+              // Camera-relative, not player-relative — cameraYaw (the
+              // chase camera's own facing) rather than the player's own
+              // rotation, so the gun consistently lands on the same
+              // SCREEN side regardless of which way the character
+              // happens to be facing (player rotation and camera yaw
+              // only coincide by default; free-look can turn them
+              // apart). See applyReferenceGunBasePosition's own comment
+              // for the diagonal placement itself (also used by RESET,
+              // below, to put the gun back here after D-pad nudges).
+              applyReferenceGunBasePosition(player, cameraYaw.current);
               player.idleAction?.setEffectiveWeight(0);
               player.naturalIdleAction?.setEffectiveWeight(1);
               referencePoseOn = true;
