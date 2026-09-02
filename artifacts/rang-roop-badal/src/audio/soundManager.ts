@@ -1,4 +1,4 @@
-import { AudioPlayer, AudioSource, createAudioPlayer, setAudioModeAsync } from "expo-audio";
+import { AudioSource, createAudioPlayer, setAudioModeAsync } from "expo-audio";
 
 export type SfxKey =
   | "tap"
@@ -23,18 +23,13 @@ const SFX_SOURCES: Record<SfxKey, AudioSource> = {
   gameover: require("../../assets/audio/gameover.wav"),
 };
 
-const MUSIC_SOURCE: AudioSource = require("../../assets/audio/music_loop.wav");
-
 class SoundManager {
   private sfxEnabled = true;
-  private musicEnabled = true;
-  private musicPlayer: AudioPlayer | null = null;
   private initPromise: Promise<void> | null = null;
 
-  // Cached and awaited by play()/startMusic() so a player is never created
-  // before the audio mode is actually applied natively -- creating a player
-  // first can leave it stuck on the wrong (voice-call) audio stream. Also
-  // called eagerly on app mount (see useSoundSystem) to warm it up early.
+  // Cached and awaited by play() so a player is never created before the
+  // audio mode is actually applied natively. Also called eagerly on app
+  // mount (see useSoundSystem) to warm it up early.
   init(): Promise<void> {
     if (!this.initPromise) {
       this.initPromise = setAudioModeAsync({
@@ -52,15 +47,6 @@ class SoundManager {
     this.sfxEnabled = enabled;
   }
 
-  setMusicEnabled(enabled: boolean) {
-    this.musicEnabled = enabled;
-    if (!enabled) {
-      this.stopMusic();
-    } else {
-      this.startMusic();
-    }
-  }
-
   async play(key: SfxKey) {
     if (!this.sfxEnabled) return;
     await this.init();
@@ -76,30 +62,6 @@ class SoundManager {
       player.play();
     } catch {
       // Missing/unsupported asset — ignore so gameplay never crashes.
-    }
-  }
-
-  async startMusic() {
-    if (!this.musicEnabled) return;
-    await this.init();
-    try {
-      if (!this.musicPlayer) {
-        const player = createAudioPlayer(MUSIC_SOURCE);
-        player.loop = true;
-        player.volume = 0.35;
-        this.musicPlayer = player;
-      }
-      this.musicPlayer.play();
-    } catch {
-      // ignore
-    }
-  }
-
-  stopMusic() {
-    try {
-      this.musicPlayer?.pause();
-    } catch {
-      // ignore
     }
   }
 }

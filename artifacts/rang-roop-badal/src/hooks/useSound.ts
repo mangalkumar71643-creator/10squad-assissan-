@@ -5,7 +5,6 @@ import { useSettingsStore } from "@/store/settingsStore";
 
 export function useSoundSystem() {
   const sfxOn = useSettingsStore((s) => s.sfxOn);
-  const musicOn = useSettingsStore((s) => s.musicOn);
 
   useEffect(() => {
     soundManager.init();
@@ -14,10 +13,6 @@ export function useSoundSystem() {
   useEffect(() => {
     soundManager.setSfxEnabled(sfxOn);
   }, [sfxOn]);
-
-  useEffect(() => {
-    soundManager.setMusicEnabled(musicOn);
-  }, [musicOn]);
 }
 
 export function playSfx(key: SfxKey) {

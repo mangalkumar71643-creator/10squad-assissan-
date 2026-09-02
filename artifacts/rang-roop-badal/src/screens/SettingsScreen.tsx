@@ -49,7 +49,6 @@ export function SettingsScreen({ navigation }: Props) {
           <Text style={styles.header}>SETTINGS</Text>
           <ScrollView contentContainerStyle={styles.body}>
             <LinearGradient colors={theme.bg.card} style={styles.card}>
-              <SettingRow label="Music" value={settings.musicOn} onToggle={settings.toggleMusic} />
               <SettingRow label="Sound Effects" value={settings.sfxOn} onToggle={settings.toggleSfx} />
               <SettingRow label="Vibration" value={settings.vibrationOn} onToggle={settings.toggleVibration} />
               <SettingRow label="Show Tutorial" value={settings.tutorialOn} onToggle={settings.toggleTutorial} />

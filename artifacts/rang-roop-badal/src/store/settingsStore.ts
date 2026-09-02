@@ -5,13 +5,11 @@ import { GraphicsQuality } from "@/types";
 import { zustandStorage } from "@/storage/zustandStorage";
 
 interface SettingsState {
-  musicOn: boolean;
   sfxOn: boolean;
   vibrationOn: boolean;
   tutorialOn: boolean;
   graphics: GraphicsQuality;
   language: string;
-  toggleMusic: () => void;
   toggleSfx: () => void;
   toggleVibration: () => void;
   toggleTutorial: () => void;
@@ -22,13 +20,11 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      musicOn: true,
       sfxOn: true,
       vibrationOn: true,
       tutorialOn: true,
       graphics: "High",
       language: "English",
-      toggleMusic: () => set((s) => ({ musicOn: !s.musicOn })),
       toggleSfx: () => set((s) => ({ sfxOn: !s.sfxOn })),
       toggleVibration: () => set((s) => ({ vibrationOn: !s.vibrationOn })),
       toggleTutorial: () => set((s) => ({ tutorialOn: !s.tutorialOn })),
