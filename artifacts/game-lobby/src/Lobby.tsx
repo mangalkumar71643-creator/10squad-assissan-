@@ -2562,13 +2562,18 @@ const TRACER_TARGET_HEIGHT = 1.3;
 // target instead of a hand-tuned point.
 const GUN_GRIP_LOCAL = new THREE.Vector3(9.9, -113.6, 3.6);
 // Where the off-hand actually reaches for (see updateOffHandReach) — the
-// handguard, using the "metal_black" part's own bounding-box center
-// directly as the target (same technique GUN_GRIP_LOCAL uses for the main
-// grip), which sits well forward of the main grip's z 3.6 and noticeably
-// higher up — y 31.0 versus the grip's y -113.6 — matching how a rifle's
-// forend sits up near the barrel line rather than hanging below like the
-// pistol grip.
-const GUN_OFFHAND_TARGET_LOCAL = new THREE.Vector3(-8.0, 31.0, -116.8);
+// gun model actually has a real vertical foregrip hanging under the rail
+// (visible when the prototype is rendered in isolation), not just a flat
+// handguard tube; this is measured directly off THAT part's real position
+// (side + front orthographic renders of the isolated model, pixel-
+// calibrated against known points), not the "metal_black" mesh's own
+// bounding-box center (used previously) — that mesh bundles the ENTIRE
+// receiver/rail/barrel-shroud into one part, so its centroid landed on
+// the flat top rail near the gun's midpoint instead of on the actual
+// grip handle, which is what put the off-hand right up against the
+// dominant hand on the flat rail (they read as bunched together) rather
+// than down on the vertical grip, clearly spread out along the gun.
+const GUN_OFFHAND_TARGET_LOCAL = new THREE.Vector3(0.0, 58.0, -390.0);
 const GUN_MUZZLE_AXIS = new THREE.Vector3(0, 0, -1);
 // A real SCAR-17 (folding-stock rifle, not an SMG) is roughly this long;
 // the rest of the transform is derived from that, not guessed
@@ -2705,12 +2710,18 @@ function saveGunGripNudgeStep() {
 // picks up the new default fresh, same reasoning as the v1->v2->v3 bumps.
 const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation-v4";
 // Default pitch/yaw when nothing's saved yet. Re-calibrated by setting
-// this value directly and comparing screenshots — from a fixed, precise
-// front-on camera angle (forced via cameraYaw, not a hand-eyeballed
-// drag) — against the reference image the user supplied (a relaxed
-// two-handed rifle carry, muzzle down-forward at a shallow angle, held
-// out in front of the body).
-const GUN_GRIP_ROTATION_DEFAULT = { x: 0.4, y: 0, z: 0 };
+// this value directly and comparing screenshots against the reference
+// image the user supplied (an AK-style two-handed carry with the rifle
+// diagonal across the chest — grip low, muzzle angled up and across
+// toward the off-hand's side). v4's pitch-only value (x:0.4) held the
+// gun nearly level, pointing straight out to the character's side
+// instead of diagonally across the front — from directly behind the
+// player (the default chase-cam angle) that reads as barely separated
+// from the body at all, and even from the front it doesn't resemble a
+// natural rifle carry. Adding yaw swings the barrel up and across the
+// torso the way the reference (and a real two-handed carry) actually
+// holds it.
+const GUN_GRIP_ROTATION_DEFAULT = { x: 0.3, y: 0.5, z: 0 };
 function loadGunGripRotation(): THREE.Euler {
   try {
     const raw = localStorage.getItem(GUN_GRIP_ROTATION_STORAGE_KEY);
@@ -4774,6 +4785,10 @@ function CombatArena({
   // state via setGunGripRotation/setFingerCurl AND this mirror together
   // (see handleGunRotationSlider/handleGunCurlSlider).
   const [gunRotationUI, setGunRotationUI] = useState(() => ({ pitch: gunGripRotation.x, yaw: gunGripRotation.y, roll: gunGripRotation.z }));
+  // Same mirroring idea, for gunGripOffset — the D-pad's own live nudge
+  // total, purely for the VALUES panel's numeric readout (the D-pad
+  // itself needs no controlled value, so nothing displayed this before).
+  const [gunOffsetUI, setGunOffsetUI] = useState(() => ({ x: gunGripOffset.x, y: gunGripOffset.y, z: gunGripOffset.z }));
   // Same mirroring idea, for the GUN tab's own nudge-step slider (see
   // gunGripNudgeStep/handleGunGripNudge) — how far one D-pad tap moves
   // the gun, itself adjustable now instead of a single fixed value.
@@ -7767,12 +7782,14 @@ function CombatArena({
     const api = buildModeRef.current;
     if (!api) return;
     const s = gunGripNudgeStep;
-    if (dir === "up") api.nudgeGunGrip(0, s, 0);
-    else if (dir === "down") api.nudgeGunGrip(0, -s, 0);
-    else if (dir === "forward") api.nudgeGunGrip(0, 0, s);
-    else if (dir === "back") api.nudgeGunGrip(0, 0, -s);
-    else if (dir === "right") api.nudgeGunGrip(s, 0, 0);
-    else api.nudgeGunGrip(-s, 0, 0);
+    const [dx, dy, dz] =
+      dir === "up" ? [0, s, 0] :
+      dir === "down" ? [0, -s, 0] :
+      dir === "forward" ? [0, 0, s] :
+      dir === "back" ? [0, 0, -s] :
+      dir === "right" ? [s, 0, 0] : [-s, 0, 0];
+    api.nudgeGunGrip(dx, dy, dz);
+    setGunOffsetUI((prev) => ({ x: prev.x + dx, y: prev.y + dy, z: prev.z + dz }));
   };
   const handleGunRotationSlider = (axis: "pitch" | "yaw" | "roll", value: number) => {
     buildModeRef.current?.setGunGripRotation(axis, value);
@@ -8326,6 +8343,7 @@ function CombatArena({
   const applyImportedPose = (bundle: PoseBundle) => {
     buildModeRef.current?.restorePose(bundle);
     setGunRotationUI({ pitch: bundle.gunGripRotation.x, yaw: bundle.gunGripRotation.y, roll: bundle.gunGripRotation.z });
+    setGunOffsetUI({ x: bundle.gunGripOffset.x, y: bundle.gunGripOffset.y, z: bundle.gunGripOffset.z });
     setGunCurlUI({ right: { ...bundle.fingerCurlExtras.right }, left: { ...bundle.fingerCurlExtras.left } });
     setArmPoseUI({
       right: {
@@ -9116,6 +9134,31 @@ function CombatArena({
                   ))}
                 </div>
               ))}
+              {/* GUN — the weapon attachment's own live position/rotation
+                  offset (gunOffsetUI/gunRotationUI, the exact same state
+                  the GUN tab's D-pad/sliders already write to), separate
+                  from the per-hand joint numbers above. Position is in
+                  the calibrated grip's own local units (see
+                  computeGunLocalTransform), not meters. */}
+              <div>
+                <div style={{ color: "#8fd8ff", fontWeight: 700, letterSpacing: "0.06em", marginBottom: 2 }}>
+                  GUN
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ opacity: 0.75 }}>Position</span>
+                  <span>
+                    {(["x", "y", "z"] as const).map((axis) => gunOffsetUI[axis].toFixed(1)).join(" / ")}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ opacity: 0.75 }}>Rotation</span>
+                  <span>
+                    {(["pitch", "yaw", "roll"] as const)
+                      .map((axis) => `${Math.round((gunRotationUI[axis] * 180) / Math.PI)}°`)
+                      .join(" / ")}
+                  </span>
+                </div>
+              </div>
             </div>
           )}
           {(mapId === 4 || mapId === 5) && buildTopTab === "map" && (
@@ -10040,6 +10083,7 @@ function CombatArena({
                 if (buildLockedUI) return;
                 buildModeRef.current?.resetGun();
                 setGunRotationUI({ pitch: 0, yaw: 0, roll: 0 });
+                setGunOffsetUI({ x: 0, y: 0, z: 0 });
               }}
               disabled={buildLockedUI}
               aria-label="Reset gun grip"
