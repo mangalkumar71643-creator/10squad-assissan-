@@ -2606,36 +2606,31 @@ const REFERENCE_GUN_FORWARD_FRACTION = Math.sqrt(1 - REFERENCE_GUN_SIDE_FRACTION
 // REFERENCE POSE's D-pad moves the gun as a raw world-space position with
 // no attachment/IK holding it near the hand (see nudgeGunGrip's own
 // referencePoseOn branch) — nothing stopped repeated nudges from pushing
-// it straight through the character's own torso. Measured directly off
-// the real player model (player.glb, torso-height mesh vertices only,
-// front-to-back real-world depth ≈0.28m) rather than guessed; this is the
-// minimum horizontal (XZ-plane) distance the gun is allowed to end up
-// from the root, a generous margin past that real depth so it clearly
-// reads as outside the body's silhouette rather than just grazing it.
-const GUN_BODY_EXCLUSION_RADIUS = 0.35;
-// Pushes `pos` radially outward (in the horizontal XZ plane only — Y is
-// left alone, so moving the gun straight up/down never gets vetoed by
-// this) until it's at least GUN_BODY_EXCLUSION_RADIUS from `center`, in
-// place. A perfectly-centered `pos` (zero horizontal offset, degenerate —
-// no direction to push in) falls back to pushing straight along
-// `fallbackDirXZ`, normalized.
-function clampAwayFromBodyXZ(pos: THREE.Vector3, center: THREE.Vector3, fallbackDirXZ: [number, number]) {
-  const dx = pos.x - center.x;
-  const dz = pos.z - center.z;
-  const horizDist = Math.hypot(dx, dz);
-  if (horizDist >= GUN_BODY_EXCLUSION_RADIUS) return;
-  let dirX: number;
-  let dirZ: number;
-  if (horizDist > 1e-4) {
-    dirX = dx / horizDist;
-    dirZ = dz / horizDist;
-  } else {
-    const fallbackLen = Math.hypot(fallbackDirXZ[0], fallbackDirXZ[1]) || 1;
-    dirX = fallbackDirXZ[0] / fallbackLen;
-    dirZ = fallbackDirXZ[1] / fallbackLen;
-  }
-  pos.x = center.x + dirX * GUN_BODY_EXCLUSION_RADIUS;
-  pos.z = center.z + dirZ * GUN_BODY_EXCLUSION_RADIUS;
+// it into the character's own torso. This is the minimum horizontal
+// (XZ-plane) distance the gun must stay from the root — deliberately
+// small (a clearance gap, not a "stay far away" radius): just enough
+// that the gun visibly never touches the body, without preventing it
+// from being nudged right up against it for calibration.
+const GUN_BODY_EXCLUSION_RADIUS = 0.1;
+// True if the straight-line path from `prevPos` to `newPos` ever comes
+// closer than GUN_BODY_EXCLUSION_RADIUS to `center`, in the horizontal
+// (XZ) plane — Y is ignored, so vertical nudges are never affected by
+// this. Checking the whole swept segment (not just the endpoint) matters
+// because a single D-pad tap can move the gun by GUN_GRIP_NUDGE_STEP_MIN
+// (0.1m) or more — comparable to or bigger than the exclusion radius —
+// so one step can otherwise jump clean over the excluded zone and land
+// on the far side without either endpoint ever reading as "too close".
+function isPathTooCloseToBodyXZ(prevPos: THREE.Vector3, newPos: THREE.Vector3, center: THREE.Vector3): boolean {
+  const ax = prevPos.x;
+  const az = prevPos.z;
+  const abx = newPos.x - ax;
+  const abz = newPos.z - az;
+  const lenSq = abx * abx + abz * abz;
+  let t = lenSq > 1e-12 ? ((center.x - ax) * abx + (center.z - az) * abz) / lenSq : 0;
+  t = Math.min(1, Math.max(0, t));
+  const nearestX = ax + abx * t;
+  const nearestZ = az + abz * t;
+  return Math.hypot(nearestX - center.x, nearestZ - center.z) < GUN_BODY_EXCLUSION_RADIUS;
 }
 // GUN ON/OFF's attach gate — turning GUN ON while it's sitting detached
 // far away from the hand (e.g. mid-calibration, nudged way out for a
@@ -6119,15 +6114,21 @@ function CombatArena({
             // D-pad has to actually move something while it's on.
             if (referencePoseOn) {
               if (player?.gun) {
-                player.gun.position.add(worldDelta);
                 // Nothing else holds the reference-pose gun near the
                 // hand (see the comment above) — without this, enough
                 // LEFT/BACK/etc. presses walk it straight through the
-                // character's own torso. Falls back to pushing along
-                // worldRight if the gun ever lands dead-center (only
-                // possible if the base reference distance were changed
-                // to 0, which it never is — kept for safety anyway).
-                clampAwayFromBodyXZ(player.gun.position, player.root.position, [worldRight.x, worldRight.z]);
+                // character's own torso. Each press is single-axis (only
+                // one of dx/dy/dz is nonzero), so rejecting the whole move
+                // when it would land inside GUN_BODY_EXCLUSION_RADIUS is
+                // exactly "don't move along the axis that would breach
+                // it" — no partial/angled correction, so it can't drift
+                // the gun along an axis the player didn't press.
+                const prevPos = player.gun.position.clone();
+                player.gun.position.add(worldDelta);
+                if (isPathTooCloseToBodyXZ(prevPos, player.gun.position, player.root.position)) {
+                  player.gun.position.x = prevPos.x;
+                  player.gun.position.z = prevPos.z;
+                }
               }
               return;
             }
