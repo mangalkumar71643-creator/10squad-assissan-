@@ -2574,6 +2574,20 @@ const GUN_MUZZLE_AXIS = new THREE.Vector3(0, 0, -1);
 // the rest of the transform is derived from that, not guessed
 // independently.
 const GUN_TARGET_LENGTH = 0.65;
+// The gun-scar17.glb prototype's own raw (pre-scale) length along its
+// local Z (muzzle) axis — measured the same way GUN_GRIP_LOCAL was, off
+// the model's own bounding box, not guessed. Shared by
+// computeGunLocalTransform (the real, hand-relative attachment) and
+// toggleReferencePose (the fixed 1m preview spot below), so both always
+// scale the gun identically regardless of which one last touched it.
+const GUN_RAW_LENGTH = 1329.79;
+// REFERENCE POSE's fixed parking spot for the gun — straight out in front
+// of the root at roughly chest height, at a clean, known 1m distance
+// rather than wherever the calibrated grip happens to have it (see
+// toggleReferencePose) — meant purely as a side-by-side visual reference
+// for the body's own natural shape, not a real attachment point.
+const REFERENCE_GUN_DISTANCE = 1;
+const REFERENCE_GUN_HEIGHT = 1.2;
 // Where the muzzle should point, in RightHand-local space, at the idle
 // pose's frame 0 — measured directly (character-forward transformed into
 // RightHand's local frame at that pose). The direction from the grip hand
@@ -3090,11 +3104,7 @@ function getDrumCapMaterial(): THREE.MeshStandardMaterial {
 // (the detached preview used to compute this differently from the other
 // two).
 function computeGunLocalTransform(handWorldScaleX: number, outPos: THREE.Vector3, outQuat: THREE.Quaternion): number {
-  // The gun-scar17.glb prototype's own raw (pre-scale) length along its
-  // local Z (muzzle) axis — measured the same way GUN_GRIP_LOCAL was, off
-  // the model's own bounding box, not guessed.
-  const rawLength = 1329.79;
-  const scale = (GUN_TARGET_LENGTH / rawLength) / (handWorldScaleX || 1);
+  const scale = (GUN_TARGET_LENGTH / GUN_RAW_LENGTH) / (handWorldScaleX || 1);
   outQuat.copy(GUN_BASE_QUAT);
   outPos.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(outQuat).multiplyScalar(-1);
   outPos.add(gunGripOffset);
@@ -3707,6 +3717,12 @@ interface FighterRig {
   // the old hand-guessed sine/IK locomotion entirely.
   idleAction: THREE.AnimationAction | null;
   runAction: THREE.AnimationAction | null;
+  // A second, calmer idle (IdleBreathing — arms relaxed at the sides,
+  // nothing gun-shaped about the pose) crossfaded in over idleAction
+  // (RifleIdle) while the GUN tab's REFERENCE POSE is on, so the body can
+  // be seen in its natural stance instead of pre-bent for a two-handed
+  // grip — see toggleGunDetach's reference-pose branch.
+  naturalIdleAction: THREE.AnimationAction | null;
   // The real "RifleFire" mocap clip — reset and (re)started once per shot
   // (see the fire trigger sites in the tick loop), crossfaded against
   // idle/run every tick afterward while it plays out (see applyFirePose).
@@ -3752,6 +3768,7 @@ function createPlaceholderRig(scene: THREE.Scene): FighterRig {
     mixer: null,
     idleAction: null,
     runAction: null,
+    naturalIdleAction: null,
     fireAction: null,
     deathAction: null,
     rightArm: null,
@@ -3856,6 +3873,7 @@ function loadPlayerCharacter(scene: THREE.Scene, onLoaded: (rig: FighterRig) => 
       const mixer = new THREE.AnimationMixer(model);
       let idleAction: THREE.AnimationAction | null = null;
       let runAction: THREE.AnimationAction | null = null;
+      let naturalIdleAction: THREE.AnimationAction | null = null;
       let fireAction: THREE.AnimationAction | null = null;
       let deathAction: THREE.AnimationAction | null = null;
 
@@ -3863,6 +3881,17 @@ function loadPlayerCharacter(scene: THREE.Scene, onLoaded: (rig: FighterRig) => 
       if (idleClip) {
         idleAction = mixer.clipAction(retargetClip(idleClip, source.rest, restPlayer, posRatio));
         idleAction.play();
+      }
+      // A second, always-bound action for the calmer arms-at-the-sides
+      // clip — kept separate from idleAction (which is RifleIdle, chosen
+      // as the default above) purely so the GUN tab's REFERENCE POSE
+      // toggle has something to crossfade to that shows the body's actual
+      // natural stance instead of the pre-bent two-handed grip pose.
+      const naturalClip = source.clips.get("IdleBreathing");
+      if (naturalClip) {
+        naturalIdleAction = mixer.clipAction(retargetClip(naturalClip, source.rest, restPlayer, posRatio));
+        naturalIdleAction.play();
+        naturalIdleAction.setEffectiveWeight(0);
       }
       const runClip = source.clips.get("RifleRun") ?? source.clips.get("Running");
       if (runClip) {
@@ -3892,6 +3921,7 @@ function loadPlayerCharacter(scene: THREE.Scene, onLoaded: (rig: FighterRig) => 
         mixer,
         idleAction,
         runAction,
+        naturalIdleAction,
         fireAction,
         deathAction,
         rightArm,
@@ -4024,7 +4054,7 @@ function loadFighter(
         }
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
+      onLoaded({ root, mixer, idleAction, runAction, naturalIdleAction: null, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
     },
     undefined,
     (err) => console.error("Failed to load fighter model", err),
@@ -4342,7 +4372,7 @@ function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: Fighter
         deathAction.setEffectiveWeight(0);
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
+      onLoaded({ root, mixer, idleAction, runAction, naturalIdleAction: null, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, materials });
     })
     .catch((err) => console.error("Failed to load bot model", err));
 }
@@ -4546,6 +4576,7 @@ function CombatArena({
     resetGun: () => void;
     resetHand: (side: ArmSide) => void;
     toggleGunDetach: () => void;
+    toggleReferencePose: () => void;
     restorePose: (bundle: PoseBundle) => void;
     triggerFirePreview: () => void;
   } | null>(null);
@@ -4591,6 +4622,7 @@ function CombatArena({
   // buildItemCount mirroring customItemsRef. gunDetached === true means
   // the gun is OFF (not following the hand — see toggleGunDetach).
   const [gunDetachedUI, setGunDetachedUI] = useState(false);
+  const [referencePoseOnUI, setReferencePoseOnUI] = useState(false);
   // LOCK — disables every RIGHT/LEFT/GUN tab control (sliders, D-pad,
   // RESET, the GUN ON/OFF toggle) so an accidental mid-match mis-touch
   // can't move a value that took real tuning to get right. Persisted
@@ -6106,6 +6138,50 @@ function CombatArena({
               gunDetached = false;
             }
           },
+          // REFERENCE POSE — a clean, known starting point for figuring
+          // out the attachment from scratch, not the same thing as
+          // DETACH above (which keeps the gun exactly wherever the
+          // current calibration has it, for fine-nudging something
+          // already roughly right). Parks the gun at a fixed 1m in front
+          // of the root (REFERENCE_GUN_DISTANCE/REFERENCE_GUN_HEIGHT),
+          // upright and unrotated, and crossfades the body over to
+          // naturalIdleAction (IdleBreathing — arms relaxed at the
+          // sides) instead of the two-handed RifleIdle stance, so both
+          // the gun and the body's real shape are visible on their own,
+          // side by side, uncombined.
+          toggleReferencePose: () => {
+            if (!player) return;
+            if (!referencePoseOn) {
+              if (player.gun && !gunDetached) {
+                scene.add(player.gun);
+                gunDetached = true;
+                offHandFreezeArmed = true;
+              }
+              if (player.gun) {
+                const forwardX = Math.sin(player.root.rotation.y);
+                const forwardZ = Math.cos(player.root.rotation.y);
+                player.gun.position.set(
+                  player.root.position.x + forwardX * REFERENCE_GUN_DISTANCE,
+                  player.root.position.y + REFERENCE_GUN_HEIGHT,
+                  player.root.position.z + forwardZ * REFERENCE_GUN_DISTANCE,
+                );
+                player.gun.quaternion.identity();
+                player.gun.scale.setScalar(GUN_TARGET_LENGTH / GUN_RAW_LENGTH);
+              }
+              player.idleAction?.setEffectiveWeight(0);
+              player.naturalIdleAction?.setEffectiveWeight(1);
+              referencePoseOn = true;
+            } else {
+              if (player.gun && player.rightHand) {
+                player.rightHand.add(player.gun);
+                applyCalibratedGunTransform(player.gun, player.rightHand);
+              }
+              gunDetached = false;
+              player.naturalIdleAction?.setEffectiveWeight(0);
+              player.idleAction?.setEffectiveWeight(1);
+              referencePoseOn = false;
+            }
+          },
           // GUN tab's FIRE button: previews the recoil pose (applyFirePose,
           // driven by playerFireT below) without any of the actual combat
           // side effects a real shot has — no cooldown gate, no tracer, no
@@ -6422,6 +6498,16 @@ function CombatArena({
     // for why the freeze snapshot can't just be captured synchronously
     // inside the click handler.
     let offHandFreezeArmed = false;
+    // Whether the GUN tab's REFERENCE POSE is on — see
+    // buildModeRef.current.toggleReferencePose. Parks the gun a fixed 1m
+    // in front of the player (not tracking the calibrated grip at all)
+    // and crossfades to the natural, arms-relaxed idle (naturalIdleAction)
+    // instead of the two-handed RifleIdle stance, so both the body's real
+    // shape and the gun are visible on their own, uncombined, as a clean
+    // starting reference for figuring out where the grip should actually
+    // go — the normal DETACH toggle (gunDetached) is for fine-nudging an
+    // already-roughly-right attachment, not for this.
+    let referencePoseOn = false;
 
     // Purely visual now — the player carries the gun (see the spawnPlayer
     // call below), but nothing fires it: no FIRE button, no damage, no
@@ -6639,7 +6725,16 @@ function CombatArena({
       // same every-tick reasoning as updateOffHandReach just above, and
       // the same "skip once dead" guard.
       if (player && playerDeathT < 0) {
-        if (gunDetached) {
+        if (referencePoseOn) {
+          // Neither reaching (updateOffHandReach — there's nothing on the
+          // hand to reach for right now) nor frozen (applyOffHandFreeze —
+          // that would hold whatever bent pose was last active, not the
+          // relaxed one naturalIdleAction is meant to show): left
+          // entirely alone so naturalIdleAction's own baked arm pose
+          // shows through undisturbed, same reasoning as skipping
+          // updateDetachedGunAnchor here — the gun's fixed 1m spot (see
+          // toggleReferencePose) isn't meant to track anything either.
+        } else if (gunDetached) {
           if (offHandFreezeArmed) {
             updateOffHandReach(player);
             captureOffHandFreeze(player);
@@ -9817,6 +9912,50 @@ function CombatArena({
               }}
             >
               RESET
+            </button>
+            {/* REFERENCE POSE — parks the gun a fixed 1m out in front
+                (not the calibrated grip position) and shows the body in
+                its natural, arms-relaxed stance instead of RifleIdle's
+                pre-bent one (see toggleReferencePose) — a clean starting
+                point for figuring out where the grip should actually go,
+                separate from DETACH above (which fine-nudges an
+                already-roughly-right attachment from wherever it
+                currently sits). */}
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                if (buildLockedUI) return;
+                buildModeRef.current?.toggleReferencePose();
+                // toggleReferencePose always forces the gun detached while
+                // reference pose is ON and always reattaches it going OFF
+                // (see its own two branches) — so gunDetachedUI just
+                // mirrors the new referencePoseOnUI value directly here,
+                // not a separate blind flip, to actually stay in sync with
+                // the GUN ON/OFF button above regardless of whether the
+                // gun happened to already be detached beforehand.
+                setReferencePoseOnUI((prev) => {
+                  const next = !prev;
+                  setGunDetachedUI(next);
+                  return next;
+                });
+              }}
+              disabled={buildLockedUI}
+              aria-label="Toggle reference pose"
+              style={{
+                padding: "8px 18px",
+                borderRadius: 6,
+                background: referencePoseOnUI ? "rgba(255,190,90,0.3)" : "rgba(255,255,255,0.1)",
+                border: referencePoseOnUI ? "1px solid rgba(255,215,150,0.8)" : "1px solid rgba(200,220,240,0.4)",
+                color: "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                fontSize: 13,
+                cursor: buildLockedUI ? "not-allowed" : "pointer",
+                opacity: buildLockedUI ? 0.5 : 1,
+              }}
+            >
+              {referencePoseOnUI ? "🧍 REFERENCE: ON" : "🧍 REFERENCE POSE"}
             </button>
             {/* BACKUP/RESTORE POSE — same pair as RIGHT/LEFT's own tabs
                 (see renderHandTab), covers gun grip + both hands
