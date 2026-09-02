@@ -6022,10 +6022,48 @@ function CombatArena({
           // (or a fresh reload) would compute, never an incremental world-
           // space shove of the floating object that could drift out of
           // sync with the actual stored offset.
+          // dx/dy/dz arrive as RIGHT/UP/FORWARD amounts (character-right,
+          // world-up, character-forward — what the D-pad's labels actually
+          // promise), not raw local axis deltas — gunGripOffset itself is
+          // added straight into computeGunLocalTransform's output, which
+          // is the RightHand BONE's own local space, not any world-
+          // relative frame. That bone's local axes end up pointing
+          // wherever the two-handed grip pose happens to bend the wrist
+          // (nothing to do with world/character up-forward-right), so
+          // feeding dx/dy/dz in unconverted made UP visibly move the gun
+          // FORWARD and scrambled every other button the same way — this
+          // converts the character-relative amounts into the bone's
+          // actual local frame first (the frozen detached matrix's frame
+          // while detached, since that's what the preview is actually
+          // built from) so UP always reads as up, FORWARD as forward,
+          // etc., regardless of how the hand bone itself happens to be
+          // oriented.
           nudgeGunGrip: (dx, dy, dz) => {
-            gunGripOffset.x += dx;
-            gunGripOffset.y += dy;
-            gunGripOffset.z += dz;
+            const rootRotY = player?.root.rotation.y ?? 0;
+            const worldRight = new THREE.Vector3(Math.cos(rootRotY), 0, -Math.sin(rootRotY));
+            const worldUp = new THREE.Vector3(0, 1, 0);
+            const worldForward = new THREE.Vector3(Math.sin(rootRotY), 0, Math.cos(rootRotY));
+            const worldDelta = new THREE.Vector3()
+              .addScaledVector(worldRight, dx)
+              .addScaledVector(worldUp, dy)
+              .addScaledVector(worldForward, dz);
+            let handQuat: THREE.Quaternion | null = null;
+            if (gunDetached) {
+              handQuat = new THREE.Quaternion();
+              const pos = new THREE.Vector3();
+              const scl = new THREE.Vector3();
+              detachedHandMatrix.decompose(pos, handQuat, scl);
+            } else if (player?.rightHand) {
+              player.rightHand.updateWorldMatrix(true, false);
+              handQuat = player.rightHand.getWorldQuaternion(new THREE.Quaternion());
+            }
+            if (handQuat) {
+              gunGripOffset.add(worldDelta.applyQuaternion(handQuat.invert()));
+            } else {
+              gunGripOffset.x += dx;
+              gunGripOffset.y += dy;
+              gunGripOffset.z += dz;
+            }
             saveGunGripOffset();
             if (gunDetached && player?.gun) {
               updateDetachedGunPreview(player.gun);
