@@ -2588,6 +2588,16 @@ const GUN_RAW_LENGTH = 1329.79;
 // for the body's own natural shape, not a real attachment point.
 const REFERENCE_GUN_DISTANCE = 1;
 const REFERENCE_GUN_HEIGHT = 1.2;
+// GUN ON/OFF's attach gate — turning GUN ON while it's sitting detached
+// far away from the hand (e.g. mid-calibration, nudged way out for a
+// clear look) used to just teleport it straight onto the hand no matter
+// how far off it was, which read as the gun "auto-walking" itself back to
+// the body instead of actually snapping onto wherever it already visually
+// was. Now toggleGunDetach's attach branch measures the real distance
+// between the gun's current (detached) world position and the hand's
+// live world position first, and refuses to attach at all past this
+// distance — GUN stays OFF until it's manually nudged back within range.
+const GUN_ATTACH_MAX_DISTANCE = 0.5;
 // Where the muzzle should point, in RightHand-local space, at the idle
 // pose's frame 0 — measured directly (character-forward transformed into
 // RightHand's local frame at that pose). The direction from the grip hand
@@ -3187,6 +3197,10 @@ const detachedHandMatrix = new THREE.Matrix4();
 // detached carries the floating preview along for the ride instead of
 // leaving it behind.
 const detachedRootRelative = new THREE.Matrix4();
+// Scratch vectors for toggleGunDetach's attach-distance gate (see
+// GUN_ATTACH_MAX_DISTANCE) — reused every call instead of allocating.
+const gunAttachDistTmpHand = new THREE.Vector3();
+const gunAttachDistTmpGun = new THREE.Vector3();
 const detachedLocalPos = new THREE.Vector3();
 const detachedLocalQuat = new THREE.Quaternion();
 const detachedWorldMatrix = new THREE.Matrix4();
@@ -4616,7 +4630,11 @@ function CombatArena({
     setArmPose: (side: ArmSide, joint: ArmJoint, axis: "pitch" | "yaw" | "roll", value: number) => void;
     resetGun: () => void;
     resetHand: (side: ArmSide) => void;
-    toggleGunDetach: () => void;
+    // Returns the resulting gunDetached state (true = OFF/detached, false
+    // = ON/attached) — the attach branch can REFUSE to attach (see
+    // GUN_ATTACH_MAX_DISTANCE) and leave it detached, so callers need the
+    // real outcome back, not just an assumed flip.
+    toggleGunDetach: () => boolean;
     toggleReferencePose: () => void;
     restorePose: (bundle: PoseBundle) => void;
     triggerFirePreview: () => void;
@@ -6145,7 +6163,7 @@ function CombatArena({
           // sway, so there's no visible jump either way, walked somewhere
           // else or not.
           toggleGunDetach: () => {
-            if (!player?.gun) return;
+            if (!player?.gun) return gunDetached;
             const gun = player.gun;
             if (!gunDetached) {
               scene.add(gun);
@@ -6171,13 +6189,27 @@ function CombatArena({
               // place the bones are actually at the right baseline.
               offHandFreezeArmed = true;
               gunDetached = true;
-            } else {
-              if (player.rightHand) {
+            } else if (player.rightHand) {
+              // GUN ON should snap onto the hand only when the gun is
+              // already sitting close to it — otherwise this is the
+              // "gun teleports across the room onto the body" bug the
+              // distance gate exists to stop. Measured in real world
+              // space (not local/relative), since the whole point is
+              // "how far away does it currently LOOK".
+              player.rightHand.updateWorldMatrix(true, false);
+              const handWorldPos = gunAttachDistTmpHand.setFromMatrixPosition(player.rightHand.matrixWorld);
+              const gunWorldPos = gun.getWorldPosition(gunAttachDistTmpGun);
+              if (gunWorldPos.distanceTo(handWorldPos) <= GUN_ATTACH_MAX_DISTANCE) {
                 player.rightHand.add(gun);
                 applyCalibratedGunTransform(gun, player.rightHand);
+                gunDetached = false;
               }
+              // Too far — refuse the attach, gun stays exactly where it
+              // is and gunDetached stays true (still OFF).
+            } else {
               gunDetached = false;
             }
+            return gunDetached;
           },
           // REFERENCE POSE — a clean, known starting point for figuring
           // out the attachment from scratch, not the same thing as
@@ -8870,8 +8902,13 @@ function CombatArena({
                 onPointerDown={(e) => {
                   e.preventDefault();
                   if (buildLockedUI) return;
-                  buildModeRef.current?.toggleGunDetach();
-                  setGunDetachedUI((d) => !d);
+                  // Explicit SET from the real outcome, not a blind flip —
+                  // toggleGunDetach's attach branch can refuse (gun too far
+                  // from the hand, see GUN_ATTACH_MAX_DISTANCE) and stay
+                  // detached, so the button must reflect what actually
+                  // happened, not what was requested.
+                  const nowDetached = buildModeRef.current?.toggleGunDetach();
+                  if (typeof nowDetached === "boolean") setGunDetachedUI(nowDetached);
                 }}
                 disabled={buildLockedUI}
                 aria-label="Toggle gun detach"
