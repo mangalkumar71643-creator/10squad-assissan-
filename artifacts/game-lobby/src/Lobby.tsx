@@ -6180,13 +6180,22 @@ function CombatArena({
             const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
             gunGripRotation[key] = value;
             saveGunGripRotation();
-            // See nudgeGunGrip's own comment — same reference-pose guard.
-            if (!referencePoseOn) {
-              if (!gunDetached && player?.gun && player.rightHand) {
-                applyCalibratedGunTransform(player.gun, player.rightHand);
-              } else if (gunDetached && player?.gun) {
-                updateDetachedGunPreview(player.gun);
-              }
+            if (referencePoseOn) {
+              // Unlike the calibrated-attach case below, the reference
+              // gun has no GUN_BASE_QUAT baseline to layer this onto (it
+              // starts unrotated — see applyReferenceGunBasePosition) —
+              // just the raw PITCH/YAW/ROLL euler directly, so it visibly
+              // rotates right here instead of silently banking the value
+              // until REFERENCE POSE turns back off (which used to leave
+              // the sliders looking dead: they dragged fine, the number
+              // updated, but nothing on screen ever moved).
+              if (player?.gun) player.gun.quaternion.setFromEuler(gunGripRotation);
+              return;
+            }
+            if (!gunDetached && player?.gun && player.rightHand) {
+              applyCalibratedGunTransform(player.gun, player.rightHand);
+            } else if (gunDetached && player?.gun) {
+              updateDetachedGunPreview(player.gun);
             }
           },
           // Same idea for one finger's curl (see curlGunGripFingers'
@@ -6308,13 +6317,15 @@ function CombatArena({
               wristSideBend: bundle.armPoseExtras.left.wristSideBend ?? 0,
             };
             saveArmPoseExtras();
-            // See nudgeGunGrip's own comment — same reference-pose guard.
-            if (!referencePoseOn) {
-              if (!gunDetached && player?.gun && player.rightHand) {
-                applyCalibratedGunTransform(player.gun, player.rightHand);
-              } else if (gunDetached && player?.gun) {
-                updateDetachedGunPreview(player.gun);
-              }
+            // See setGunGripRotation's own comment — same reference-pose
+            // branch, so a RESTORE while calibrating in REFERENCE POSE
+            // shows the restored rotation immediately too.
+            if (referencePoseOn) {
+              if (player?.gun) player.gun.quaternion.setFromEuler(gunGripRotation);
+            } else if (!gunDetached && player?.gun && player.rightHand) {
+              applyCalibratedGunTransform(player.gun, player.rightHand);
+            } else if (gunDetached && player?.gun) {
+              updateDetachedGunPreview(player.gun);
             }
           },
           // REFERENCE POSE — a clean, known starting point for figuring
