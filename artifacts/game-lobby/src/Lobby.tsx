@@ -4656,7 +4656,6 @@ function CombatArena({
     setWristSideBend: (side: ArmSide, value: number) => void;
     resetGun: () => void;
     resetHand: (side: ArmSide) => void;
-    toggleGunAttach: () => void;
     restorePose: (bundle: PoseBundle) => void;
     triggerFirePreview: () => void;
   } | null>(null);
@@ -4695,14 +4694,8 @@ function CombatArena({
   // to the normal chase camera. Derived, not its own state: there's
   // nothing to get out of sync since the tab IS the on/off switch.
   const gunCamOn = buildTopTab === "gun";
-  // Mirrors the imperative gunDetached flag inside the scene effect
-  // (buildModeRef.current.toggleGunAttach) purely so the ATTACH/DETACH
-  // button's own label re-renders. Build Mode starts detached (see
-  // spawnPlayer/equipGun in the scene effect), so this starts true to
-  // match — there's no button press to react to yet on first render.
-  const [gunDetachedUI, setGunDetachedUI] = useState(() => mapId === 4 || mapId === 5);
   // LOCK — disables every RIGHT/LEFT/GUN tab control (sliders, D-pad,
-  // RESET, ATTACH/DETACH) so an accidental mid-match mis-touch
+  // RESET) so an accidental mid-match mis-touch
   // can't move a value that took real tuning to get right. Persisted
   // (unlike the other *UI mirrors above) since the whole point is
   // protection against fat-fingering — it should still be locked the
@@ -6231,53 +6224,6 @@ function CombatArena({
               applyCalibratedGunTransform(player.gun, player.rightHand);
             }
           },
-          // DETACH pulls the gun off the hand onto its own fixed spot —
-          // 1m out in front of the root (REFERENCE_GUN_DISTANCE/
-          // REFERENCE_GUN_HEIGHT), upright and unrotated — so the D-pad/
-          // PITCH/YAW/ROLL controls move and rotate it independently of
-          // the character (see nudgeGunGrip/setGunGripRotation's own
-          // gunDetached branches) instead of the calibrated grip. ATTACH
-          // re-parents it onto the hand at that calibration
-          // (gunGripOffset/gunGripRotation) so it follows the character
-          // again. The body's own pose is unaffected either way — see the
-          // tick loop, which always shows the relaxed naturalIdleAction
-          // stance in Build Mode regardless of whether the gun happens to
-          // be attached.
-          toggleGunAttach: () => {
-            if (!player?.gun) return;
-            if (gunDetached) {
-              if (player.rightHand) {
-                player.rightHand.add(player.gun);
-                applyCalibratedGunTransform(player.gun, player.rightHand);
-              }
-              gunDetached = false;
-            } else {
-              scene.add(player.gun);
-              // Camera-relative, not player-relative — cameraYaw (the
-              // chase camera's own facing) rather than the player's own
-              // rotation, so the gun consistently lands on the same
-              // SCREEN side regardless of which way the character
-              // happens to be facing (player rotation and camera yaw
-              // only coincide by default; free-look can turn them
-              // apart). See applyReferenceGunBasePosition's own comment
-              // for the diagonal placement itself (also used by RESET,
-              // below, to put the gun back here after D-pad nudges).
-              applyReferenceGunBasePosition(player, cameraYaw.current);
-              gunDetached = true;
-            }
-            // GUN CAM (active the whole time the GUN tab — the only place
-            // this button lives — is open) orbits a CACHED anchor point
-            // that normally only re-snaps once the player's ROOT moves
-            // more than 5cm (GUN_CAM_ANCHOR_ROOT_MOVE) — cheap insurance
-            // against idle-sway jitter. But toggling ATTACH moves the
-            // GUN, not the root, so without this the anchor stayed frozen
-            // exactly where the gun USED to be: the gun would jump to its
-            // new spot while the camera kept orbiting the old one, so the
-            // view showed empty space where the gun no longer was.
-            // Forcing a re-init here makes the very next tick's GUN CAM
-            // logic re-snap to the gun's ACTUAL current position.
-            gunCamAnchorInit = false;
-          },
           // GUN tab's FIRE button: previews the recoil pose (applyFirePose,
           // driven by playerFireT below) without any of the actual combat
           // side effects a real shot has — no cooldown gate, no tracer, no
@@ -6621,16 +6567,14 @@ function CombatArena({
     scene.add(debugGroup);
 
     let player: FighterRig | null = null;
-    // Whether the gun is currently pulled off the hand onto its own
-    // fixed spot (see buildModeRef.current.toggleGunAttach), moved and
-    // rotated independently of the character by the D-pad/PITCH/YAW/ROLL
-    // controls, instead of following the calibrated grip. DETACHED is
-    // the default for Build Mode (see spawnPlayer) — the body always
-    // shows its relaxed, arms-at-sides naturalIdleAction stance in Build
-    // Mode regardless of this (see the tick loop), so there's no
-    // separate "reference pose" toggle needed any more: DETACH/ATTACH is
-    // the only state, and it only ever affects the gun.
-    let gunDetached = false;
+    // The gun is always attached to the hand now — Build Mode used to
+    // start with it pulled off onto its own fixed spot (see the removed
+    // ATTACH/DETACH button), but the gun should always be on the
+    // character. Kept as a (permanently false) flag rather than deleted
+    // outright: nudgeGunGrip/setGunGripRotation/RESET below still branch
+    // on it, and with it always false those branches simply always take
+    // their "attached" path.
+    const gunDetached = false;
 
     // Purely visual now — the player carries the gun (see the spawnPlayer
     // call below), but nothing fires it: no FIRE button, no damage, no
@@ -6645,19 +6589,6 @@ function CombatArena({
         curlGunGripFingers(rig.leftFingers, -1, undefined, rig.restPose);
         curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right, rig.restPose);
         curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left, rig.restPose);
-        // Build Mode (Map 4/5) starts the gun DETACHED, on its own fixed
-        // spot rather than attached to the hand — see toggleGunAttach and
-        // the tick loop's own Build Mode body-pose comment for why. Only
-        // ever true for the player (equipGun also runs for bots, which
-        // never build-mode-detach), and only once `player` has actually
-        // been assigned — spawnPlayer sets it synchronously before
-        // calling equipGun, so it's already this exact rig by the time
-        // this promise resolves.
-        if (rig === player && (mapId === 4 || mapId === 5) && rig.gun) {
-          scene.add(rig.gun);
-          applyReferenceGunBasePosition(rig, cameraYaw.current);
-          gunDetached = true;
-        }
       });
     };
 
@@ -10123,40 +10054,6 @@ function CombatArena({
               }}
             >
               RESET
-            </button>
-            {/* ATTACH/DETACH — Build Mode starts DETACHED: the gun sits
-                on its own fixed 1m spot (not the calibrated grip
-                position), moved/rotated independently of the character
-                by the D-pad/sliders above, while the body always shows
-                its natural, arms-relaxed stance either way (see
-                toggleGunAttach and spawnPlayer's own body-pose setup).
-                ATTACH re-parents the gun onto the hand at the calibrated
-                grip so it follows the character from then on; pressing
-                it again pulls the gun back off onto its own spot. */}
-            <button
-              onPointerDown={(e) => {
-                e.preventDefault();
-                if (buildLockedUI) return;
-                buildModeRef.current?.toggleGunAttach();
-                setGunDetachedUI((prev) => !prev);
-              }}
-              disabled={buildLockedUI}
-              aria-label="Toggle gun attach"
-              style={{
-                padding: "8px 18px",
-                borderRadius: 6,
-                background: gunDetachedUI ? "rgba(255,190,90,0.3)" : "rgba(120,255,140,0.3)",
-                border: gunDetachedUI ? "1px solid rgba(255,215,150,0.8)" : "1px solid rgba(150,255,170,0.9)",
-                color: "#dce8f5",
-                fontFamily: "'Rajdhani', sans-serif",
-                fontWeight: 700,
-                letterSpacing: "0.06em",
-                fontSize: 13,
-                cursor: buildLockedUI ? "not-allowed" : "pointer",
-                opacity: buildLockedUI ? 0.5 : 1,
-              }}
-            >
-              {gunDetachedUI ? "🔗 ATTACH GUN" : "✋ DETACH GUN"}
             </button>
             {/* BACKUP/RESTORE POSE — same pair as RIGHT/LEFT's own tabs
                 (see renderHandTab), covers gun grip + both hands
