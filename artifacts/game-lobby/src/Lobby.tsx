@@ -3207,12 +3207,25 @@ function getDrumCapMaterial(): THREE.MeshStandardMaterial {
 // Shared by applyCalibratedGunTransform (attached) and
 // calibratedGripWorldMatrix (off-hand IK targeting) below, so neither
 // can ever drift out of sync with the other.
-function computeGunLocalTransform(handWorldScaleX: number, outPos: THREE.Vector3, outQuat: THREE.Quaternion): number {
+// `includeLiveGripAdjustment` (default true) folds in the GUN tab's own
+// live gunGripOffset/gunGripRotation nudge — on for the real gun mesh
+// (applyCalibratedGunTransform), off for the off-hand's own IK target
+// (calibratedGripWorldMatrix below), so nudging the gun in the GUN tab
+// moves only the gun, never drags the off-hand along with it, and moving
+// the off-hand (LEFT tab) never moves the gun.
+function computeGunLocalTransform(
+  handWorldScaleX: number,
+  outPos: THREE.Vector3,
+  outQuat: THREE.Quaternion,
+  includeLiveGripAdjustment = true,
+): number {
   const scale = (GUN_TARGET_LENGTH / GUN_RAW_LENGTH) / (handWorldScaleX || 1);
   outQuat.copy(GUN_BASE_QUAT);
   outPos.copy(GUN_GRIP_LOCAL).multiplyScalar(scale).applyQuaternion(outQuat).multiplyScalar(-1);
-  outPos.add(gunGripOffset);
-  outQuat.multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
+  if (includeLiveGripAdjustment) {
+    outPos.add(gunGripOffset);
+    outQuat.multiply(new THREE.Quaternion().setFromEuler(gunGripRotation));
+  }
   return scale;
 }
 function applyCalibratedGunTransform(gun: THREE.Object3D, hand: THREE.Object3D) {
@@ -3262,22 +3275,22 @@ function applyReferenceGunBasePosition(rig: FighterRig, camFacingYaw: number) {
 // real gun object — lets updateOffHandReach (below) target "where the
 // grip is" purely from the RightHand bone's own current transform,
 // independent of whether the actual gun mesh is attached there right
-// now or has been pulled off to its own floating DETACH spot (see
-// toggleGunAttach). Targeting the real gun object's matrixWorld used to
-// mean the off-hand followed the gun wherever it got moved, including
-// out to its parked spot — which visibly yanked the off-hand out of its
-// calibrated pose the instant it detached, and again the instant it
-// reattached. Targeting this instead never changes as long as the
-// calibration (gunGripOffset/gunGripRotation) and the RightHand bone
-// itself don't, so the off-hand now looks identical whether the gun
-// happens to be attached or detached.
+// now. Deliberately called with includeLiveGripAdjustment=false: the
+// off-hand's target is the BASE calibrated grip only, never the GUN
+// tab's own live gunGripOffset/gunGripRotation nudge — otherwise nudging
+// the gun's position in the GUN tab would drag the off-hand along with
+// it (it used to), and there'd be no way to adjust the gun's position
+// alone without the off-hand visibly chasing it. The off-hand only moves
+// when the RightHand bone itself moves (animation, or the RIGHT tab's
+// own shoulder/elbow/wrist correction) or when GUN_GRIP_LOCAL/
+// GUN_OFFHAND_TARGET_LOCAL themselves are recalibrated in source.
 const gripWorldScaleTmp = new THREE.Vector3();
 const gripLocalPosTmp = new THREE.Vector3();
 const gripLocalQuatTmp = new THREE.Quaternion();
 function calibratedGripWorldMatrix(hand: THREE.Object3D, out: THREE.Matrix4) {
   hand.updateWorldMatrix(true, false);
   hand.matrixWorld.decompose(gripLocalPosTmp, gripLocalQuatTmp, gripWorldScaleTmp);
-  const scale = computeGunLocalTransform(gripWorldScaleTmp.x, gripLocalPosTmp, gripLocalQuatTmp);
+  const scale = computeGunLocalTransform(gripWorldScaleTmp.x, gripLocalPosTmp, gripLocalQuatTmp, false);
   out.compose(gripLocalPosTmp, gripLocalQuatTmp, new THREE.Vector3(scale, scale, scale));
   out.premultiply(hand.matrixWorld);
 }
@@ -6565,6 +6578,7 @@ function CombatArena({
     const dbgElbowPole = mkDebugMarker(0xff33ff);
     debugGroup.add(dbgRightHand, dbgGunGrip, dbgOffhandTarget, dbgLeftHandActual, dbgElbowPole);
     scene.add(debugGroup);
+    const dbgOffhandTargetMatrix = new THREE.Matrix4();
 
     let player: FighterRig | null = null;
     // The gun is always attached to the hand now — Build Mode used to
@@ -6811,7 +6825,13 @@ function CombatArena({
       if (ikDebugRef.current && player && player.gun && player.rightHand && player.leftArm && player.leftForeArm && player.leftHand) {
         player.rightHand.getWorldPosition(dbgRightHand.position);
         player.gun.localToWorld(dbgGunGrip.position.copy(GUN_GRIP_LOCAL));
-        player.gun.localToWorld(dbgOffhandTarget.position.copy(GUN_OFFHAND_TARGET_LOCAL));
+        // The real IK target — matches updateOffHandReach's own
+        // foregripWorld exactly (calibratedGripWorldMatrix, not the live
+        // gun mesh), since the off-hand now targets the BASE calibrated
+        // grip and ignores the GUN tab's live gunGripOffset/gunGripRotation
+        // nudge (see calibratedGripWorldMatrix's own comment).
+        calibratedGripWorldMatrix(player.rightHand, dbgOffhandTargetMatrix);
+        dbgOffhandTarget.position.copy(GUN_OFFHAND_TARGET_LOCAL).applyMatrix4(dbgOffhandTargetMatrix);
         player.leftHand.getWorldPosition(dbgLeftHandActual.position);
         // Same pole computation updateOffHandReach itself just did this
         // tick (offHandPoleWorld is its module-scope scratch vector,
@@ -8536,8 +8556,11 @@ function CombatArena({
         aria-label="Toggle IK debug overlay"
         style={{
           position: "absolute",
+          // Not left:16 — that's the Build Mode tab row's own spot
+          // (MAP/RIGHT/LEFT/GUN, mapId 4/5 only) and would sit right on
+          // top of it.
           top: 16,
-          left: 16,
+          right: 100,
           padding: "6px 12px",
           background: ikDebugOn ? "rgba(107,216,255,0.3)" : "rgba(255,255,255,0.08)",
           border: "1px solid rgba(200,220,240,0.4)",
