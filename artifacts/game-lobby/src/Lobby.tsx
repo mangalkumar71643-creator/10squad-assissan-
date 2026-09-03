@@ -2573,7 +2573,27 @@ const GUN_GRIP_LOCAL = new THREE.Vector3(9.9, -113.6, 3.6);
 // grip handle, which is what put the off-hand right up against the
 // dominant hand on the flat rail (they read as bunched together) rather
 // than down on the vertical grip, clearly spread out along the gun.
-const GUN_OFFHAND_TARGET_LOCAL = new THREE.Vector3(0.0, 58.0, -390.0);
+//
+// Pulled back 7% of the way toward GUN_GRIP_LOCAL (was (0, 58, -390)) —
+// the true foregrip point sits physically outside the off-hand's reach on
+// this rig. Measured directly with the IK debug overlay (see debugGroup
+// in CombatArena and solveTwoBoneIK's law-of-cosines clamp): at the
+// original point, shoulder-to-target was 0.587m against a measured
+// upperArm+foreArm max reach of only 0.487m for this character — over
+// 10cm short, visibly seen as a gap between the cyan (actual hand) and
+// yellow (target) debug markers, with the hand stuck at full extension
+// short of the gun. Worse, the RIGHT-HAND GRIP point alone already sits
+// at 0.478m from the off-hand's shoulder (98% of max reach), leaving only
+// ~8.5mm of slack past the grip for the off-hand to reach ANY point
+// further down the barrel — so this pullback is close to the most the
+// off-hand can physically reach toward the true foregrip, not an
+// arbitrary tuning choice. If more visual separation between the two
+// hands is wanted, the grip itself needs to move closer to centerline
+// (see gunGripRotation/GUN_GRIP_ROTATION_DEFAULT) to free up more reach
+// budget — nudging this constant alone can't buy much more without
+// reintroducing the old "hands bunched together" look this exact point
+// was originally calibrated to avoid (see the comment above).
+const GUN_OFFHAND_TARGET_LOCAL = new THREE.Vector3(9.21, -101.59, -23.95);
 const GUN_MUZZLE_AXIS = new THREE.Vector3(0, 0, -1);
 // A real SCAR-17 (folding-stock rifle, not an SMG) is roughly this long;
 // the rest of the transform is derived from that, not guessed
@@ -4543,6 +4563,16 @@ function CombatArena({
   const lookTouchId = useRef<number | null>(null);
   const lookLastX = useRef(0);
   const lookLastY = useRef(0);
+
+  // TEMPORARY: weapon/hand IK debug overlay (see the debugGroup markers
+  // set up alongside `player` below) — a ref so the tick loop's closure
+  // (captured once, on mount) can read the live toggle state every frame,
+  // plus a bit of state purely so the on-screen button's own label
+  // re-renders. Remove this whole ikDebugRef/ikDebugOn pair, the
+  // IK_DEBUG_LABELS/debugGroup block below, and the "IK DBG" button once
+  // the weapon-hand system no longer needs visual verification.
+  const ikDebugRef = useRef(false);
+  const [ikDebugOn, setIkDebugOn] = useState(false);
 
   const [playerHp, setPlayerHp] = useState(100);
   // One HP percentage + floating bar ref per fighter — on Maps 1-3, index
@@ -6553,6 +6583,43 @@ function CombatArena({
     // no-stretch sizing as the door-3 hero panel.
     addWallDecal("/textures/wall-hero-panel-2.jpg", ROOM_WALL_HEIGHT * (1536 / 1024), ROOM_WALL_HEIGHT / 2, 55.9, SOUTH_WALL_Z, Math.PI, 1024 / 1536);
 
+    // TEMPORARY: weapon/hand IK debug overlay — five small unlit spheres,
+    // one per point called out in the debugging pass on updateOffHandReach/
+    // createGunAttachment, positioned fresh every tick (see the tick loop's
+    // own debugGroup block below) only while ikDebugRef is on. depthTest is
+    // off and renderOrder is high so they always draw on top of the body/
+    // gun mesh instead of getting hidden inside them.
+    const mkDebugMarker = (color: number) =>
+      new THREE.Mesh(
+        new THREE.SphereGeometry(0.035, 10, 10),
+        new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 }),
+      );
+    const debugGroup = new THREE.Group();
+    debugGroup.renderOrder = 999;
+    debugGroup.visible = false;
+    // Orange — RightHand bone's own world position (the actual attachment
+    // joint the gun and the IK's own two-bone chain both hang off of).
+    const dbgRightHand = mkDebugMarker(0xff8800);
+    // Red — GUN_GRIP_LOCAL, the point on the gun mesh itself that's meant
+    // to land exactly in the grip hand (a gap between this and the orange
+    // marker is exactly gunGripOffset, the PLAYER tab's manual nudge).
+    const dbgGunGrip = mkDebugMarker(0xff2222);
+    // Yellow — GUN_OFFHAND_TARGET_LOCAL, the foregrip point on the gun the
+    // off-hand IK solve targets. Also doubles as "the left-hand IK target"
+    // (the two are the exact same world point by construction — see
+    // updateOffHandReach's foregripWorld).
+    const dbgOffhandTarget = mkDebugMarker(0xffee00);
+    // Cyan — the LEFT HAND bone's own actual current world position, once
+    // the IK solve has run. Should sit right on top of the yellow marker;
+    // any visible gap is the IK solve failing to actually reach its target.
+    const dbgLeftHandActual = mkDebugMarker(0x22eaff);
+    // Magenta — the elbow pole/hint point solveTwoBoneIK's bend-axis math
+    // is aimed at (offHandPoleWorld), which is what decides which way the
+    // elbow bends rather than leaving it undefined.
+    const dbgElbowPole = mkDebugMarker(0xff33ff);
+    debugGroup.add(dbgRightHand, dbgGunGrip, dbgOffhandTarget, dbgLeftHandActual, dbgElbowPole);
+    scene.add(debugGroup);
+
     let player: FighterRig | null = null;
     // Whether the gun is currently pulled off the hand onto its own
     // fixed spot (see buildModeRef.current.toggleGunAttach), moved and
@@ -6802,6 +6869,24 @@ function CombatArena({
       if (player && playerDeathT < 0) {
         if (!gunDetached) updateOffHandReach(player);
         applyArmPoseCorrection(player);
+      }
+      // TEMPORARY: weapon/hand IK debug overlay — see debugGroup's own
+      // setup comment above. Only ever reads player (not bots: combatDisabled
+      // means bots never spawn in practice — see CombatArena's own
+      // combatDisabled comment). Positions every marker fresh each tick
+      // straight off the live rig, so it can never drift out of sync with
+      // what's actually on screen the way a one-time snapshot could.
+      debugGroup.visible = ikDebugRef.current;
+      if (ikDebugRef.current && player && player.gun && player.rightHand && player.leftArm && player.leftForeArm && player.leftHand) {
+        player.rightHand.getWorldPosition(dbgRightHand.position);
+        player.gun.localToWorld(dbgGunGrip.position.copy(GUN_GRIP_LOCAL));
+        player.gun.localToWorld(dbgOffhandTarget.position.copy(GUN_OFFHAND_TARGET_LOCAL));
+        player.leftHand.getWorldPosition(dbgLeftHandActual.position);
+        // Same pole computation updateOffHandReach itself just did this
+        // tick (offHandPoleWorld is its module-scope scratch vector,
+        // still holding the player's own value at this point — bots run
+        // after this block, and never run in practice anyway).
+        if (!gunDetached) dbgElbowPole.position.copy(offHandPoleWorld);
       }
       for (let i = 0; i < bots.length; i++) {
         const rig = bots[i];
@@ -8503,6 +8588,38 @@ function CombatArena({
         }}
       >
         {t(settings.language, "exit")}
+      </button>
+
+      {/* TEMPORARY: weapon/hand IK debug toggle — shows the debugGroup
+          markers set up in the main effect above (right-hand attach point,
+          GUN_GRIP_LOCAL, GUN_OFFHAND_TARGET_LOCAL/IK target, actual
+          left-hand position, elbow pole). Remove this button alongside
+          ikDebugRef/ikDebugOn and the debugGroup block once the
+          weapon-hand system no longer needs visual verification. */}
+      <button
+        onClick={() => {
+          const next = !ikDebugRef.current;
+          ikDebugRef.current = next;
+          setIkDebugOn(next);
+        }}
+        aria-label="Toggle IK debug overlay"
+        style={{
+          position: "absolute",
+          top: 16,
+          left: 16,
+          padding: "6px 12px",
+          background: ikDebugOn ? "rgba(107,216,255,0.3)" : "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(200,220,240,0.4)",
+          borderRadius: 4,
+          color: "#dce8f5",
+          fontFamily: "'Rajdhani', sans-serif",
+          fontWeight: 700,
+          letterSpacing: "0.06em",
+          fontSize: 11,
+          cursor: "pointer",
+        }}
+      >
+        IK DBG
       </button>
 
       {exitConfirmOpen && (
