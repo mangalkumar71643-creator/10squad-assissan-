@@ -50,5 +50,10 @@ Thumbs.db
 .vercel
 .env*
 
-# Temporary APK download-hosting files (not part of the repo)
-artifacts/game-lobby/public/*.apk
+# Built APK, stashed here (NOT in public/) so `vite build`/`cap sync`
+# never bundle it into the web assets synced into the Android project —
+# doing that self-embeds the previous release's APK inside the next one,
+# doubling its size every rebuild. Copied into dist/ only as the very
+# last step before deploying (see the release pipeline). Not part of the
+# repo.
+artifacts/game-lobby/release/*.apk
