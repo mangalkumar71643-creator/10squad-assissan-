@@ -6623,14 +6623,17 @@ function CombatArena({
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
       rig.root.rotation.y = Math.PI; // face into the facility at the start
       player = rig;
-      // Build Mode always shows the relaxed, arms-at-sides natural idle
-      // instead of the two-handed RifleIdle stance — see the tick loop,
-      // which (unlike everything else about the gun's DETACH state) never
-      // touches this, so it has to be set once, here, up front.
-      if (mapId === 4 || mapId === 5) {
-        rig.idleAction?.setEffectiveWeight(0);
-        rig.naturalIdleAction?.setEffectiveWeight(1);
-      }
+      // Build Mode used to force the relaxed, arms-at-sides natural idle
+      // here, back when its gun started DETACHED (nothing held, so the
+      // two-handed RifleIdle stance had nothing to justify it). Now the
+      // gun is always attached everywhere (see equipGun below), so
+      // idleAction (RifleIdle) — the default every rig already loads
+      // with, same as Maps 1-3 — stays in effect: the off-hand's IK
+      // reach (updateOffHandReach, which also runs unconditionally now)
+      // is calibrated against that pose, not the relaxed one, so forcing
+      // naturalIdleAction here left the left arm visibly wrenched off
+      // its natural line reaching for a gun the relaxed pose was never
+      // meant to hold.
       equipGun(rig);
     };
     // `player` stays null (every read site already guards with `if
@@ -6803,11 +6806,9 @@ function CombatArena({
       // updateOffHandReach) — has to run every tick, not just once at
       // equip time, since the idle/run mocap clip keeps re-driving the
       // same arm bones on every mixer.update just above, which would
-      // otherwise immediately undo a one-time snap. Skipped for the
-      // player while the gun is detached: there's nothing on the hand to
-      // reach for, and naturalIdleAction's own baked (relaxed, arms-at-
-      // sides) arm pose is what Build Mode wants showing through anyway
-      // — see the tick loop's own body-pose setup at spawn.
+      // otherwise immediately undo a one-time snap. gunDetached is a
+      // permanently-false flag now (the gun is always attached — see
+      // spawnPlayer), so this always runs.
       // PLAYER tab's shoulder/elbow/wrist correction (see armPoseExtra) —
       // same every-tick reasoning as updateOffHandReach just above, and
       // the same "skip once dead" guard.
@@ -7108,17 +7109,14 @@ function CombatArena({
 
         // How far into Idle -> Running the real mocap clips are blended,
         // continuously off actual speed so there's no hard on/off cut.
-        // Skipped in Build Mode (Map 4/5) — spawnPlayer sets idleAction
-        // to 0 / naturalIdleAction to 1 there as a one-time crossfade so
-        // the relaxed, arms-at-sides stance always shows instead of the
-        // two-handed RifleIdle grip, but this runs every tick regardless
-        // of that: while stationary (the normal case in Build Mode),
-        // speedFrac is 0 and this would set idleAction straight back to
-        // 1 on the very next frame, fighting naturalIdleAction at full
-        // weight too — both playing at once instead of the clean single
-        // pose Build Mode is meant to show.
+        // Used to be skipped in Build Mode (Map 4/5) back when spawnPlayer
+        // forced naturalIdleAction to full weight there (see spawnPlayer's
+        // own comment) — this would've fought that every tick. Now that
+        // Build Mode shows the same idleAction/runAction blend as Maps
+        // 1-3 (the gun's always attached everywhere, so there's no reason
+        // for its body pose to differ), this runs unconditionally too.
         const speedFrac = clamp(playerSpeedNow / playerMaxSpeedForMatch, 0, 1.15);
-        if (!(mapId === 4 || mapId === 5)) updateLocomotionAnim(player, speedFrac, playerSpeedNow);
+        updateLocomotionAnim(player, speedFrac, playerSpeedNow);
 
         // While stationary, the player's body keeps whatever facing it had
         // from its last movement — free-look camera drags orbit the view
