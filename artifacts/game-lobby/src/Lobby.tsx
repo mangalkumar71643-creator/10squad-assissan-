@@ -3310,6 +3310,12 @@ const reachParentWorldQuat = new THREE.Quaternion();
 const reachBoneWorldQuat = new THREE.Quaternion();
 const reachBonePos = new THREE.Vector3();
 const reachChildPos = new THREE.Vector3();
+// Build Mode's relaxed-arm aim (see the tick loop's own comment) — how
+// far below the shoulder/elbow the straight-down aim point sits. Only
+// the direction matters to pointBoneToward, not the exact distance, so
+// this is just "clearly below," not a measured body-part length.
+const RELAXED_ARM_HANG_LENGTH = 1;
+const relaxedArmTarget = new THREE.Vector3();
 function pointBoneToward(bone: THREE.Object3D, child: THREE.Object3D, targetWorld: THREE.Vector3) {
   bone.updateWorldMatrix(true, false);
   child.updateWorldMatrix(true, false);
@@ -6822,6 +6828,31 @@ function CombatArena({
       if (player && playerDeathT < 0) {
         if (!gunDetached && !isNoCombatMap) updateOffHandReach(player);
         applyArmPoseCorrection(player);
+        // Build Mode's naturalIdleAction ("IdleBreathing") clip isn't a
+        // neutral relaxed pose on this rig — measured directly (a one-off
+        // diagnostic dump): the left shoulder sits ~72° off its own bind
+        // orientation every frame, swinging the arm up and out to the
+        // side, fist away from the body. The model's own bind/rest pose
+        // (tried first, from captureRestPose) turned out to be a full
+        // T-pose — arm straight out horizontally — which looks worse, not
+        // better, so that's not usable as "neutral" either. Instead this
+        // aims the arm straight down geometrically every tick, same
+        // pointBoneToward technique updateOffHandReach already uses to
+        // aim the off-hand at the gun, just aimed at a fixed point below
+        // the shoulder/elbow instead — genuinely hanging at the side
+        // regardless of what the animation clip or bind pose do. mixer.
+        // update re-drives the bones every tick same as any other baked
+        // bone, so this has to reapply every tick too. Left arm only:
+        // the right hand is holding the gun regardless of pose, so its
+        // own naturalIdleAction shape doesn't show the same problem.
+        if (isNoCombatMap && player.leftArm && player.leftForeArm && player.leftHand) {
+          player.leftArm.getWorldPosition(relaxedArmTarget);
+          relaxedArmTarget.y -= RELAXED_ARM_HANG_LENGTH;
+          pointBoneToward(player.leftArm, player.leftForeArm, relaxedArmTarget);
+          player.leftForeArm.getWorldPosition(relaxedArmTarget);
+          relaxedArmTarget.y -= RELAXED_ARM_HANG_LENGTH;
+          pointBoneToward(player.leftForeArm, player.leftHand, relaxedArmTarget);
+        }
       }
       // TEMPORARY: weapon/hand IK debug overlay — see debugGroup's own
       // setup comment above. Only ever reads player (not bots: combatDisabled
