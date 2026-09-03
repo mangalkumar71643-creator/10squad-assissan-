@@ -6623,17 +6623,19 @@ function CombatArena({
       rig.root.position.set(playerSpawnPos.x, 0, playerSpawnPos.z);
       rig.root.rotation.y = Math.PI; // face into the facility at the start
       player = rig;
-      // Build Mode used to force the relaxed, arms-at-sides natural idle
-      // here, back when its gun started DETACHED (nothing held, so the
-      // two-handed RifleIdle stance had nothing to justify it). Now the
-      // gun is always attached everywhere (see equipGun below), so
-      // idleAction (RifleIdle) — the default every rig already loads
-      // with, same as Maps 1-3 — stays in effect: the off-hand's IK
-      // reach (updateOffHandReach, which also runs unconditionally now)
-      // is calibrated against that pose, not the relaxed one, so forcing
-      // naturalIdleAction here left the left arm visibly wrenched off
-      // its natural line reaching for a gun the relaxed pose was never
-      // meant to hold.
+      // Build Mode shows the relaxed, arms-at-sides natural idle instead
+      // of the two-handed RifleIdle stance — normal standing, not a
+      // gun-ready pose, even though the gun is always attached to the
+      // hand now (see equipGun below). The tick loop's own off-hand-reach
+      // call skips the IK bend that goes with this (gated on
+      // isNoCombatMap there) — otherwise the left arm would still get
+      // pulled toward the gun's foregrip every tick regardless of which
+      // clip the rest of the body is playing, wrenching it off the
+      // relaxed pose's own natural line.
+      if (mapId === 4 || mapId === 5) {
+        rig.idleAction?.setEffectiveWeight(0);
+        rig.naturalIdleAction?.setEffectiveWeight(1);
+      }
       equipGun(rig);
     };
     // `player` stays null (every read site already guards with `if
@@ -6808,12 +6810,17 @@ function CombatArena({
       // same arm bones on every mixer.update just above, which would
       // otherwise immediately undo a one-time snap. gunDetached is a
       // permanently-false flag now (the gun is always attached — see
-      // spawnPlayer), so this always runs.
+      // spawnPlayer), but Build Mode (isNoCombatMap) still skips this:
+      // its body shows the relaxed, arms-at-sides natural idle (see
+      // spawnPlayer), and this IK would otherwise pull the left arm off
+      // that pose's own natural line reaching for a gun the relaxed
+      // stance was never meant to hold, even though the gun itself stays
+      // attached to (and just hangs from) the right hand either way.
       // PLAYER tab's shoulder/elbow/wrist correction (see armPoseExtra) —
       // same every-tick reasoning as updateOffHandReach just above, and
       // the same "skip once dead" guard.
       if (player && playerDeathT < 0) {
-        if (!gunDetached) updateOffHandReach(player);
+        if (!gunDetached && !isNoCombatMap) updateOffHandReach(player);
         applyArmPoseCorrection(player);
       }
       // TEMPORARY: weapon/hand IK debug overlay — see debugGroup's own
@@ -6837,8 +6844,11 @@ function CombatArena({
         // Same pole computation updateOffHandReach itself just did this
         // tick (offHandPoleWorld is its module-scope scratch vector,
         // still holding the player's own value at this point — bots run
-        // after this block, and never run in practice anyway).
-        if (!gunDetached) dbgElbowPole.position.copy(offHandPoleWorld);
+        // after this block, and never run in practice anyway). Only
+        // meaningful when updateOffHandReach actually ran this tick
+        // (see its own gunDetached/isNoCombatMap gate above) — stale
+        // otherwise, so left untouched rather than shown misleadingly.
+        if (!gunDetached && !isNoCombatMap) dbgElbowPole.position.copy(offHandPoleWorld);
       }
       for (let i = 0; i < bots.length; i++) {
         const rig = bots[i];
@@ -7109,14 +7119,19 @@ function CombatArena({
 
         // How far into Idle -> Running the real mocap clips are blended,
         // continuously off actual speed so there's no hard on/off cut.
-        // Used to be skipped in Build Mode (Map 4/5) back when spawnPlayer
-        // forced naturalIdleAction to full weight there (see spawnPlayer's
-        // own comment) — this would've fought that every tick. Now that
-        // Build Mode shows the same idleAction/runAction blend as Maps
-        // 1-3 (the gun's always attached everywhere, so there's no reason
-        // for its body pose to differ), this runs unconditionally too.
+        // Skipped in Build Mode (Map 4/5) — spawnPlayer sets idleAction
+        // to 0 / naturalIdleAction to 1 there as a one-time crossfade so
+        // the relaxed, arms-at-sides stance always shows instead of the
+        // two-handed RifleIdle grip, but this runs every tick regardless
+        // of that: while stationary (the normal case in Build Mode),
+        // speedFrac is 0 and this would set idleAction straight back to
+        // 1 on the very next frame, fighting naturalIdleAction at full
+        // weight too — both playing at once instead of the clean single
+        // pose Build Mode is meant to show. updateLocomotionAnim doesn't
+        // touch naturalIdleAction at all, so this can't crossfade toward
+        // it either — nothing to do here while it's the active pose.
         const speedFrac = clamp(playerSpeedNow / playerMaxSpeedForMatch, 0, 1.15);
-        updateLocomotionAnim(player, speedFrac, playerSpeedNow);
+        if (!isNoCombatMap) updateLocomotionAnim(player, speedFrac, playerSpeedNow);
 
         // While stationary, the player's body keeps whatever facing it had
         // from its last movement — free-look camera drags orbit the view
