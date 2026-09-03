@@ -2781,12 +2781,16 @@ interface ArmPoseExtra {
   shoulder: ArmAxisExtra;
   elbow: ArmAxisExtra;
   wrist: ArmAxisExtra;
+  // A 4th, wrist-only control alongside PITCH/YAW/ROLL — see
+  // WRIST_SIDE_BEND_AXIS for why PITCH/ROLL alone can't cleanly give a
+  // left/right swing on this rig.
+  wristSideBend: number;
 }
 function zeroArmAxisExtra(): ArmAxisExtra {
   return { x: 0, y: 0, z: 0 };
 }
 function zeroArmPoseExtra(): ArmPoseExtra {
-  return { shoulder: zeroArmAxisExtra(), elbow: zeroArmAxisExtra(), wrist: zeroArmAxisExtra() };
+  return { shoulder: zeroArmAxisExtra(), elbow: zeroArmAxisExtra(), wrist: zeroArmAxisExtra(), wristSideBend: 0 };
 }
 // v2: per-side (right AND left) instead of right-arm-only — the RIGHT
 // HAND / LEFT HAND Build tabs each get their own independent
@@ -2815,15 +2819,17 @@ const ARM_POSE_EXTRAS_DEFAULT: { right: ArmPoseExtra; left: ArmPoseExtra } = {
     shoulder: { x: 0, y: 0, z: 0 },
     elbow: { x: 0, y: 0, z: 0 },
     wrist: { x: 0, y: 0, z: 0 },
+    wristSideBend: 0,
   },
   left: {
     shoulder: { x: 0, y: 0, z: 0 },
     elbow: { x: 0, y: 0, z: 0 },
     wrist: { x: 0, y: 0, z: 0 },
+    wristSideBend: 0,
   },
 };
 function cloneArmPoseExtra(extra: ArmPoseExtra): ArmPoseExtra {
-  return { shoulder: { ...extra.shoulder }, elbow: { ...extra.elbow }, wrist: { ...extra.wrist } };
+  return { shoulder: { ...extra.shoulder }, elbow: { ...extra.elbow }, wrist: { ...extra.wrist }, wristSideBend: extra.wristSideBend };
 }
 function loadArmPoseExtras(): { right: ArmPoseExtra; left: ArmPoseExtra } {
   const fallback = { right: cloneArmPoseExtra(ARM_POSE_EXTRAS_DEFAULT.right), left: cloneArmPoseExtra(ARM_POSE_EXTRAS_DEFAULT.left) };
@@ -2832,6 +2838,8 @@ function loadArmPoseExtras(): { right: ArmPoseExtra; left: ArmPoseExtra } {
     if (!raw) return fallback;
     const parsed = JSON.parse(raw);
     for (const side of ["right", "left"] as const) {
+      const sideBend = parsed?.[side]?.wristSideBend;
+      if (typeof sideBend === "number") fallback[side].wristSideBend = sideBend;
       for (const joint of ["shoulder", "elbow", "wrist"] as const) {
         for (const axis of ["x", "y", "z"] as const) {
           const v = parsed?.[side]?.[joint]?.[axis];
@@ -2850,6 +2858,24 @@ function saveArmPoseExtras() {
 }
 const armPoseQuat = new THREE.Quaternion();
 const armPoseEuler = new THREE.Euler();
+// WRIST's own 4th control (wristSideBend, alongside PITCH/YAW/ROLL) — a
+// fixed local axis per side, each a mix of the wrist bone's own local X
+// and Z, measured directly against the RifleIdle rest pose (via a debug
+// probe projecting the muzzle/fingertip's rotation-induced swing onto the
+// camera's own right/up basis) so that rotating around THIS axis gives a
+// clean camera-horizontal (left/right) swing. PITCH (X) and ROLL (Z)
+// alone can't do this cleanly on this rig: the forearm's own twist in
+// this held-out grip pose leaves neither bone-local axis aligned with
+// screen up/down or left/right on its own — ROLL in particular came out
+// almost entirely vertical on the right wrist (matching the exact bug
+// reported: "roll moves up/down just like pitch instead of left/right").
+// Still a rigid rotation of the wrist bone itself, exactly like PITCH/
+// YAW/ROLL, so the hand can never visually detach from the arm — it
+// just bends at the wrist around a different axis than the other three.
+const WRIST_SIDE_BEND_AXIS: { right: THREE.Vector3; left: THREE.Vector3 } = {
+  right: new THREE.Vector3(-0.8985, 0, 0.4391),
+  left: new THREE.Vector3(0.7120, 0, -0.7022),
+};
 // Called every tick, right after updateOffHandReach (same "the mixer
 // keeps re-driving these bones, a one-time snap won't stick" reasoning)
 // — multiplies each joint's own extra rotation on top of whatever this
@@ -2872,6 +2898,15 @@ function applyArmPoseCorrection(rig: FighterRig) {
     if (!bone || (extra.x === 0 && extra.y === 0 && extra.z === 0)) continue;
     armPoseEuler.set(extra.x, extra.y, extra.z, "XYZ");
     armPoseQuat.setFromEuler(armPoseEuler);
+    bone.quaternion.multiply(armPoseQuat);
+  }
+  const sideBends: [THREE.Object3D | null, number, THREE.Vector3][] = [
+    [rig.rightHand, armPoseExtras.right.wristSideBend, WRIST_SIDE_BEND_AXIS.right],
+    [rig.leftHand, armPoseExtras.left.wristSideBend, WRIST_SIDE_BEND_AXIS.left],
+  ];
+  for (const [bone, angle, axis] of sideBends) {
+    if (!bone || angle === 0) continue;
+    armPoseQuat.setFromAxisAngle(axis, angle);
     bone.quaternion.multiply(armPoseQuat);
   }
 }
@@ -4687,6 +4722,7 @@ function CombatArena({
     setGunGripRotation: (axis: "pitch" | "yaw" | "roll", value: number) => void;
     setFingerCurl: (side: "left" | "right", finger: FingerName, value: number) => void;
     setArmPose: (side: ArmSide, joint: ArmJoint, axis: "pitch" | "yaw" | "roll", value: number) => void;
+    setWristSideBend: (side: ArmSide, value: number) => void;
     resetGun: () => void;
     resetHand: (side: ArmSide) => void;
     toggleReferencePose: () => void;
@@ -4823,8 +4859,8 @@ function CombatArena({
   // Same mirroring idea, for armPoseExtras' shoulder/elbow/wrist sliders —
   // one copy per side now, shown on the RIGHT HAND / LEFT HAND tabs.
   const [armPoseUI, setArmPoseUI] = useState(() => ({
-    right: { shoulder: { ...armPoseExtras.right.shoulder }, elbow: { ...armPoseExtras.right.elbow }, wrist: { ...armPoseExtras.right.wrist } },
-    left: { shoulder: { ...armPoseExtras.left.shoulder }, elbow: { ...armPoseExtras.left.elbow }, wrist: { ...armPoseExtras.left.wrist } },
+    right: { shoulder: { ...armPoseExtras.right.shoulder }, elbow: { ...armPoseExtras.right.elbow }, wrist: { ...armPoseExtras.right.wrist }, wristSideBend: armPoseExtras.right.wristSideBend },
+    left: { shoulder: { ...armPoseExtras.left.shoulder }, elbow: { ...armPoseExtras.left.elbow }, wrist: { ...armPoseExtras.left.wrist }, wristSideBend: armPoseExtras.left.wristSideBend },
   }));
   const [buildHasSelection, setBuildHasSelection] = useState(false);
   // Mirrors customItemsRef.current.length purely so REMOVE's disabled
@@ -6180,6 +6216,13 @@ function CombatArena({
             armPoseExtras[side][joint][axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z"] = value;
             saveArmPoseExtras();
           },
+          // WRIST's 4th control (see WRIST_SIDE_BEND_AXIS) — same
+          // "re-applied every tick anyway" reasoning as setArmPose above,
+          // nothing to actively undo here either.
+          setWristSideBend: (side, value) => {
+            armPoseExtras[side].wristSideBend = value;
+            saveArmPoseExtras();
+          },
           // GUN tab's own RESET — just the grip position/rotation
           // calibration, not the hands' finger curl or arm pose (each
           // hand tab has its own separate RESET for those, see
@@ -6256,11 +6299,13 @@ function CombatArena({
               shoulder: { ...bundle.armPoseExtras.right.shoulder },
               elbow: { ...bundle.armPoseExtras.right.elbow },
               wrist: { ...bundle.armPoseExtras.right.wrist },
+              wristSideBend: bundle.armPoseExtras.right.wristSideBend ?? 0,
             };
             armPoseExtras.left = {
               shoulder: { ...bundle.armPoseExtras.left.shoulder },
               elbow: { ...bundle.armPoseExtras.left.elbow },
               wrist: { ...bundle.armPoseExtras.left.wrist },
+              wristSideBend: bundle.armPoseExtras.left.wristSideBend ?? 0,
             };
             saveArmPoseExtras();
             // See nudgeGunGrip's own comment — same reference-pose guard.
@@ -7847,6 +7892,16 @@ function CombatArena({
     const key = axis === "pitch" ? "x" : axis === "yaw" ? "y" : "z";
     handleArmPoseSlider(side, joint, axis, clamp(armPoseExtras[side][joint][key] + delta, GUN_GRIP_ROTATION_MIN, GUN_GRIP_ROTATION_MAX));
   };
+  // WRIST's 4th control (see WRIST_SIDE_BEND_AXIS) — same shape as
+  // handleArmPoseSlider/handleArmPoseNudge above, just for the one extra
+  // scalar instead of a full x/y/z triple.
+  const handleWristSideBendSlider = (side: ArmSide, value: number) => {
+    buildModeRef.current?.setWristSideBend(side, value);
+    setArmPoseUI((prev) => ({ ...prev, [side]: { ...prev[side], wristSideBend: value } }));
+  };
+  const handleWristSideBendNudge = (side: ArmSide, delta: number) => {
+    handleWristSideBendSlider(side, clamp(armPoseExtras[side].wristSideBend + delta, GUN_GRIP_ROTATION_MIN, GUN_GRIP_ROTATION_MAX));
+  };
   // One <input type="range"> + label-value header row, same shape as the
   // LOOK SENSITIVITY slider in the settings panel — shared by the GUN /
   // RIGHT HAND / LEFT HAND tabs below instead of three separate copies.
@@ -8066,7 +8121,7 @@ function CombatArena({
           if (buildLockedUI) return;
           buildModeRef.current?.resetHand(side);
           setGunCurlUI((prev) => ({ ...prev, [side]: zeroFingerCurlExtra() }));
-          setArmPoseUI((prev) => ({ ...prev, [side]: { shoulder: zeroArmAxisExtra(), elbow: zeroArmAxisExtra(), wrist: zeroArmAxisExtra() } }));
+          setArmPoseUI((prev) => ({ ...prev, [side]: { shoulder: zeroArmAxisExtra(), elbow: zeroArmAxisExtra(), wrist: zeroArmAxisExtra(), wristSideBend: 0 } }));
         }}
         disabled={buildLockedUI}
         aria-label={`Reset ${side} hand`}
@@ -8170,6 +8225,21 @@ function CombatArena({
               (delta) => handleArmPoseNudge(side, joint, axis, delta),
             );
           }),
+          // WRIST's own 4th control, alongside its PITCH/YAW/ROLL above —
+          // see WRIST_SIDE_BEND_AXIS for why a dedicated left/right bend
+          // is needed rather than trying to repurpose PITCH or ROLL.
+          ...(joint === "wrist" ? [renderSliderRow(
+            `${side}-wrist-sidebend`,
+            "LEFT/RIGHT",
+            armPoseUI[side].wristSideBend,
+            GUN_GRIP_ROTATION_MIN,
+            GUN_GRIP_ROTATION_MAX,
+            0.01,
+            Math.PI / 180,
+            `${Math.round((armPoseUI[side].wristSideBend * 180) / Math.PI)}°`,
+            (v) => handleWristSideBendSlider(side, v),
+            (delta) => handleWristSideBendNudge(side, delta),
+          )] : []),
         ])}
         {renderSectionHeader("FINGERS")}
         {FINGER_NAMES.map((finger) => {
@@ -8292,11 +8362,13 @@ function CombatArena({
           shoulder: { ...armPoseExtras.right.shoulder },
           elbow: { ...armPoseExtras.right.elbow },
           wrist: { ...armPoseExtras.right.wrist },
+          wristSideBend: armPoseExtras.right.wristSideBend,
         },
         left: {
           shoulder: { ...armPoseExtras.left.shoulder },
           elbow: { ...armPoseExtras.left.elbow },
           wrist: { ...armPoseExtras.left.wrist },
+          wristSideBend: armPoseExtras.left.wristSideBend,
         },
       },
     };
@@ -8349,11 +8421,13 @@ function CombatArena({
         shoulder: { ...bundle.armPoseExtras.right.shoulder },
         elbow: { ...bundle.armPoseExtras.right.elbow },
         wrist: { ...bundle.armPoseExtras.right.wrist },
+        wristSideBend: bundle.armPoseExtras.right.wristSideBend ?? 0,
       },
       left: {
         shoulder: { ...bundle.armPoseExtras.left.shoulder },
         elbow: { ...bundle.armPoseExtras.left.elbow },
         wrist: { ...bundle.armPoseExtras.left.wrist },
+        wristSideBend: bundle.armPoseExtras.left.wristSideBend ?? 0,
       },
     });
     setPoseImportOpen(false);
@@ -9086,6 +9160,10 @@ function CombatArena({
                       </span>
                     </div>
                   ))}
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ opacity: 0.75 }}>Wrist L/R</span>
+                    <span>{Math.round((armPoseUI[side].wristSideBend * 180) / Math.PI)}°</span>
+                  </div>
                   {FINGER_NAMES.map((finger) => (
                     <div key={finger} style={{ display: "flex", justifyContent: "space-between" }}>
                       <span style={{ opacity: 0.75 }}>{finger}</span>
