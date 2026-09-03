@@ -2617,10 +2617,11 @@ const GUN_BODY_EXCLUSION_RADIUS = 0.1;
 // closer than GUN_BODY_EXCLUSION_RADIUS to `center`, in the horizontal
 // (XZ) plane — Y is ignored, so vertical nudges are never affected by
 // this. Checking the whole swept segment (not just the endpoint) matters
-// because a single D-pad tap can move the gun by GUN_GRIP_NUDGE_STEP_MIN
-// (0.1m) or more — comparable to or bigger than the exclusion radius —
-// so one step can otherwise jump clean over the excluded zone and land
-// on the far side without either endpoint ever reading as "too close".
+// because a single D-pad tap can move the gun by GUN_GRIP_NUDGE_STEP_MAX
+// (3m) or, at the default step (0.5m), still comparable to or bigger
+// than the exclusion radius — so one step can otherwise jump clean over
+// the excluded zone and land on the far side without either endpoint
+// ever reading as "too close".
 function isPathTooCloseToBodyXZ(prevPos: THREE.Vector3, newPos: THREE.Vector3, center: THREE.Vector3): boolean {
   const ax = prevPos.x;
   const az = prevPos.z;
@@ -2683,13 +2684,13 @@ function saveGunGripOffset() {
 // rig, not derived from a real-world unit. GUN_MUZZLE_TARGET_LOCAL's
 // components (~0.2-0.83) are the natural reference point: at the MAX end
 // (3) a single tap swings the gun several times its own hand-to-muzzle
-// length, for fast coarse repositioning; at the MIN end (0.1) it's a
+// length, for fast coarse repositioning; at the MIN end (0.05) it's a
 // small fraction of that, for fine-tuning the last bit of precision.
 // Adjustable now (a GUN-tab slider — see gunNudgeStepUI/
 // handleGunNudgeStepSlider) instead of a single fixed value, since a
 // step that's comfortable for coarse placement is far too coarse once
 // you're just fine-tuning, and vice versa.
-const GUN_GRIP_NUDGE_STEP_MIN = 0.1;
+const GUN_GRIP_NUDGE_STEP_MIN = 0.05;
 const GUN_GRIP_NUDGE_STEP_MAX = 3;
 const GUN_GRIP_NUDGE_STEP_DEFAULT = 0.5;
 const GUN_GRIP_NUDGE_STEP_STORAGE_KEY = "10sa-gun-grip-nudge-step";
