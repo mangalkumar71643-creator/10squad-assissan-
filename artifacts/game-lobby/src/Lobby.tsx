@@ -2577,8 +2577,9 @@ const GUN_OFFHAND_TARGET_LOCAL = new THREE.Vector3(0.0, 58.0, -390.0);
 const GUN_MUZZLE_AXIS = new THREE.Vector3(0, 0, -1);
 // A real SCAR-17 (folding-stock rifle, not an SMG) is roughly this long;
 // the rest of the transform is derived from that, not guessed
-// independently.
-const GUN_TARGET_LENGTH = 0.65;
+// independently. Bumped 10% past the real-world length (0.65 -> 0.715)
+// per request, for a chunkier, more visible gun.
+const GUN_TARGET_LENGTH = 0.715;
 // The gun-scar17.glb prototype's own raw (pre-scale) length along its
 // local Z (muzzle) axis — measured the same way GUN_GRIP_LOCAL was, off
 // the model's own bounding box, not guessed. Shared by
