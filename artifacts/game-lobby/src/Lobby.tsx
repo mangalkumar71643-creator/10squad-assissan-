@@ -7207,8 +7207,16 @@ function CombatArena({
 
         // How far into Idle -> Running the real mocap clips are blended,
         // continuously off actual speed so there's no hard on/off cut.
+        // Skipped while REFERENCE POSE is on — toggleReferencePose sets
+        // idleAction to 0 / naturalIdleAction to 1 as a one-time crossfade
+        // (see its own comment), but this runs every tick regardless of
+        // that: while stationary (the normal case for calibrating a
+        // pose), speedFrac is 0 and this would set idleAction straight
+        // back to 1 on the very next frame, fighting naturalIdleAction at
+        // full weight too — both playing at once instead of the clean
+        // single pose the feature is meant to show.
         const speedFrac = clamp(playerSpeedNow / playerMaxSpeedForMatch, 0, 1.15);
-        updateLocomotionAnim(player, speedFrac, playerSpeedNow);
+        if (!referencePoseOn) updateLocomotionAnim(player, speedFrac, playerSpeedNow);
 
         // While stationary, the player's body keeps whatever facing it had
         // from its last movement — free-look camera drags orbit the view
