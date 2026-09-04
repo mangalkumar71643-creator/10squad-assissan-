@@ -3526,6 +3526,23 @@ function updateLocomotionAnim(rig: FighterRig, runWeight: number, actualSpeed: n
   rig.runAction.setEffectiveWeight(w);
   rig.runAction.timeScale = clamp(actualSpeed / RUN_REFERENCE_SPEED, RUN_CLIP_MIN_TIMESCALE, RUN_CLIP_MAX_TIMESCALE);
 }
+// Build Mode's own version of updateLocomotionAnim above — blends
+// naturalIdleAction (the relaxed, arms-at-sides stance) into runAction
+// instead of idleAction (the two-handed RifleIdle grip), since Build
+// Mode always keeps idleAction pinned at 0 (see spawnPlayer). Without
+// this, movement in Build Mode never blended in runAction at all — the
+// plain updateLocomotionAnim call was skipped there entirely (it only
+// knows about idleAction, which would've fought the relaxed pose — see
+// its own call site's comment), so the run clip's weight stayed at its
+// initial 0 forever and the character just slid along the floor still
+// playing the idle clip no matter how fast it moved.
+function updateLocomotionAnimRelaxed(rig: FighterRig, runWeight: number, actualSpeed: number) {
+  if (!rig.naturalIdleAction || !rig.runAction) return;
+  const w = clamp(runWeight, 0, 1);
+  rig.naturalIdleAction.setEffectiveWeight(1 - w);
+  rig.runAction.setEffectiveWeight(w);
+  rig.runAction.timeScale = clamp(actualSpeed / RUN_REFERENCE_SPEED, RUN_CLIP_MIN_TIMESCALE, RUN_CLIP_MAX_TIMESCALE);
+}
 
 // A bot's movement is otherwise just "walk straight at the target" — with
 // no awareness of the level's own geometry, that reads as mindless the
@@ -6908,17 +6925,19 @@ function CombatArena({
 
         // How far into Idle -> Running the real mocap clips are blended,
         // continuously off actual speed so there's no hard on/off cut.
-        // Skipped in Build Mode (Map 4/5) — spawnPlayer sets idleAction
-        // to 0 / naturalIdleAction to 1 there as a one-time crossfade so
-        // the relaxed, arms-at-sides stance always shows instead of the
-        // two-handed RifleIdle grip, but this runs every tick regardless
-        // of that: while stationary (the normal case in Build Mode),
-        // speedFrac is 0 and this would set idleAction straight back to
-        // 1 on the very next frame, fighting naturalIdleAction at full
-        // weight too — both playing at once instead of the clean single
-        // pose Build Mode is meant to show.
+        // Build Mode (Map 4/5) uses updateLocomotionAnimRelaxed instead
+        // of the plain version — spawnPlayer sets idleAction to 0 /
+        // naturalIdleAction to 1 there as a one-time crossfade so the
+        // relaxed, arms-at-sides stance always shows instead of the
+        // two-handed RifleIdle grip, so the run blend needs to fade
+        // FROM naturalIdleAction (not idleAction, which must stay at 0)
+        // as speed picks up.
         const speedFrac = clamp(playerSpeedNow / playerMaxSpeedForMatch, 0, 1.15);
-        if (!(mapId === 4 || mapId === 5)) updateLocomotionAnim(player, speedFrac, playerSpeedNow);
+        if (!(mapId === 4 || mapId === 5)) {
+          updateLocomotionAnim(player, speedFrac, playerSpeedNow);
+        } else {
+          updateLocomotionAnimRelaxed(player, speedFrac, playerSpeedNow);
+        }
 
         // While stationary, the player's body keeps whatever facing it had
         // from its last movement — free-look camera drags orbit the view
