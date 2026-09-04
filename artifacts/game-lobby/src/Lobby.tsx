@@ -3421,6 +3421,25 @@ function curlGunGripFingers(
     }
   }
 }
+// Snaps every finger joint straight back to its captured bind-pose
+// quaternion (open hand) — unlike curlGunGripFingers(scale=0), which
+// would just skip every joint (see its `if (!jointScale) continue`) and
+// leave whatever mixer.update just drove those joints to. Used every
+// tick in Build Mode so the idle clip's own baked finger curl (joints
+// 1-3 — see curlGunGripFingers' own comment) never sticks: the gun is
+// only visually attached there, positioned by hand via the GUN tab, so
+// the hand should read as open/relaxed rather than already gripping
+// something.
+function resetFingersToRest(
+  fingers: Record<string, THREE.Object3D>,
+  restPose?: Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }> | null,
+) {
+  if (!restPose) return;
+  for (const bone of Object.values(fingers)) {
+    const rest = restPose.get(bone.name);
+    if (rest) bone.quaternion.copy(rest.quat);
+  }
+}
 
 // A point roughly at the gun's muzzle tip, in the raw (unscaled, unrotated)
 // mesh's own local space — the silencer's front face, at the mesh's own
@@ -6387,10 +6406,18 @@ function CombatArena({
       if (!rig.rightHand) return;
       loadGunPrototype().then((proto) => {
         rig.gun = createGunAttachment(rig.rightHand as THREE.Object3D, proto);
-        curlGunGripFingers(rig.rightFingers, 1, undefined, rig.restPose);
-        curlGunGripFingers(rig.leftFingers, -1, undefined, rig.restPose);
-        curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right, rig.restPose);
-        curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left, rig.restPose);
+        // Build Mode (Map 4/5) keeps the fingers in their own baked rest
+        // pose — same reasoning as the off-hand-reach/body-pose skips
+        // above: the gun is only visually attached there and positioned
+        // by hand via the GUN tab, so a forced full grip curl would look
+        // like the hand is clenched around nothing while it's being
+        // dragged into place.
+        if (!(mapId === 4 || mapId === 5)) {
+          curlGunGripFingers(rig.rightFingers, 1, undefined, rig.restPose);
+          curlGunGripFingers(rig.leftFingers, -1, undefined, rig.restPose);
+          curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right, rig.restPose);
+          curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left, rig.restPose);
+        }
       });
     };
 
@@ -6602,7 +6629,14 @@ function CombatArena({
       // same every-tick reasoning as updateOffHandReach just above, and
       // the same "skip once dead" guard.
       if (player && playerDeathT < 0) {
-        if (!(mapId === 4 || mapId === 5)) updateOffHandReach(player);
+        if (!(mapId === 4 || mapId === 5)) {
+          updateOffHandReach(player);
+        } else {
+          resetFingersToRest(player.rightFingers, player.restPose);
+          resetFingersToRest(player.leftFingers, player.restPose);
+          curlGunGripFingers(player.rightFingers, 1, fingerCurlExtras.right, player.restPose);
+          curlGunGripFingers(player.leftFingers, -1, fingerCurlExtras.left, player.restPose);
+        }
         applyArmPoseCorrection(player);
       }
       for (let i = 0; i < bots.length; i++) {
