@@ -6425,6 +6425,25 @@ function CombatArena({
     addWallDecal("/textures/wall-hero-panel-2.jpg", ROOM_WALL_HEIGHT * (1536 / 1024), ROOM_WALL_HEIGHT / 2, 55.9, SOUTH_WALL_Z, Math.PI, 1024 / 1536);
 
     let player: FighterRig | null = null;
+    // Build Mode's calibrated "both hands on the gun" pose (armPoseExtras)
+    // is a fixed RELATIVE correction on top of whatever mixer.update just
+    // set that tick (see applyArmPoseCorrection's own bone.quaternion.
+    // multiply) — it only lines up right when the base pose underneath it
+    // is the one it was calibrated against (naturalIdleAction, standing
+    // still). Once updateLocomotionAnimRelaxed blends runAction in while
+    // moving, the base arm pose swings through the run clip's own cycle
+    // instead, and the same fixed correction on top of a moving target
+    // lands wherever the swing happens to be that frame — including, at
+    // the extreme of the swing, the gun ending up jammed into the neck
+    // and the off-hand nowhere near the foregrip it's calibrated to grip.
+    // Captured once (below, on Build Mode's first tick — before running
+    // ever starts, so runWeight is still 0 and naturalIdleAction alone is
+    // driving these bones) and reset to every tick before
+    // applyArmPoseCorrection runs, so the whole calibrated carry pose —
+    // both hands included — stays locked in place regardless of
+    // movement/run blending, while the legs (untouched by this) still
+    // play the run clip normally.
+    const naturalArmPose = new Map<THREE.Object3D, THREE.Quaternion>();
     // Purely visual now — the player carries the gun (see the spawnPlayer
     // call below), but nothing fires it: no FIRE button, no damage, no
     // bots (see combatDisabled, still fully in effect for all of that).
@@ -6660,6 +6679,20 @@ function CombatArena({
         if (!(mapId === 4 || mapId === 5)) {
           updateOffHandReach(player);
         } else {
+          const armBones = [
+            player.rightArm, player.rightForeArm, player.rightHand,
+            player.leftArm, player.leftForeArm, player.leftHand,
+          ];
+          if (naturalArmPose.size === 0) {
+            for (const bone of armBones) {
+              if (bone) naturalArmPose.set(bone, bone.quaternion.clone());
+            }
+          } else {
+            for (const bone of armBones) {
+              const q = bone && naturalArmPose.get(bone);
+              if (bone && q) bone.quaternion.copy(q);
+            }
+          }
           resetFingersToRest(player.rightFingers, player.restPose);
           resetFingersToRest(player.leftFingers, player.restPose);
           curlGunGripFingers(player.rightFingers, 1, fingerCurlExtras.right, player.restPose);
