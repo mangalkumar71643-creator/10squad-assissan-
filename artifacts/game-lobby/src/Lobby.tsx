@@ -2607,19 +2607,25 @@ const GUN_BASE_QUAT = new THREE.Quaternion().setFromUnitVectors(GUN_MUZZLE_AXIS,
 // in the hand without editing GUN_GRIP_LOCAL itself, and so the fix
 // applies to every fighter (player and bots share this same rig/
 // attachment code) on every future load, not just this session.
-const GUN_GRIP_OFFSET_STORAGE_KEY = "10sa-gun-grip-offset";
+// v2: baked in the player's own always-attached-gun calibration (BACKUP
+// code K3VCRS) as the default instead of zero, so a fresh device starts
+// from the same manually-placed grip rather than the raw un-nudged
+// GUN_GRIP_LOCAL. Bumped so every device picks up the new default fresh,
+// same reasoning as GUN_GRIP_ROTATION_DEFAULT's own version bumps below.
+const GUN_GRIP_OFFSET_STORAGE_KEY = "10sa-gun-grip-offset-v2";
+const GUN_GRIP_OFFSET_DEFAULT = { x: -0.45902453186922587, y: 17.76179917684873, z: -4.734871660827188 };
 function loadGunGripOffset(): THREE.Vector3 {
   try {
     const raw = localStorage.getItem(GUN_GRIP_OFFSET_STORAGE_KEY);
-    if (!raw) return new THREE.Vector3();
+    if (!raw) return new THREE.Vector3(GUN_GRIP_OFFSET_DEFAULT.x, GUN_GRIP_OFFSET_DEFAULT.y, GUN_GRIP_OFFSET_DEFAULT.z);
     const parsed = JSON.parse(raw);
     return new THREE.Vector3(
-      typeof parsed.x === "number" ? parsed.x : 0,
-      typeof parsed.y === "number" ? parsed.y : 0,
-      typeof parsed.z === "number" ? parsed.z : 0,
+      typeof parsed.x === "number" ? parsed.x : GUN_GRIP_OFFSET_DEFAULT.x,
+      typeof parsed.y === "number" ? parsed.y : GUN_GRIP_OFFSET_DEFAULT.y,
+      typeof parsed.z === "number" ? parsed.z : GUN_GRIP_OFFSET_DEFAULT.z,
     );
   } catch {
-    return new THREE.Vector3();
+    return new THREE.Vector3(GUN_GRIP_OFFSET_DEFAULT.x, GUN_GRIP_OFFSET_DEFAULT.y, GUN_GRIP_OFFSET_DEFAULT.z);
   }
 }
 // Read once at module load (not per-attach) and mutated in place by the
@@ -2679,7 +2685,10 @@ function saveGunGripNudgeStep() {
 // forward carry, muzzle only slightly below level), since the same
 // rotation displaces a longer barrel more. Bumped again so every device
 // picks up the new default fresh, same reasoning as the v1->v2->v3 bumps.
-const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation-v4";
+// v5: baked in the player's own always-attached-gun calibration (BACKUP
+// code K3VCRS) as the default. Bumped so every device picks up it fresh,
+// same reasoning as the v1->v2->v3->v4 bumps above.
+const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation-v5";
 // Default pitch/yaw when nothing's saved yet. Re-calibrated by setting
 // this value directly and comparing screenshots against the reference
 // image the user supplied (an AK-style two-handed carry with the rifle
@@ -2692,7 +2701,7 @@ const GUN_GRIP_ROTATION_STORAGE_KEY = "10sa-gun-grip-rotation-v4";
 // natural rifle carry. Adding yaw swings the barrel up and across the
 // torso the way the reference (and a real two-handed carry) actually
 // holds it.
-const GUN_GRIP_ROTATION_DEFAULT = { x: 0.3, y: 0.5, z: 0 };
+const GUN_GRIP_ROTATION_DEFAULT = { x: 0.528407346410207, y: 0.458407346410207, z: -1.56159265358979 };
 function loadGunGripRotation(): THREE.Euler {
   try {
     const raw = localStorage.getItem(GUN_GRIP_ROTATION_STORAGE_KEY);
@@ -2761,23 +2770,22 @@ function zeroArmPoseExtra(): ArmPoseExtra {
 // landed in a different pose for the same slider value from one run to
 // the next. Bumped so every device picks up zero fresh, same reasoning as
 // the v1->v2 bump.
-const ARM_POSE_STORAGE_KEY = "10sa-arm-pose-v3";
-// Default shoulder/elbow/wrist correction when nothing's saved yet — all
-// zero now (see the v3 migration note above), so with nothing saved the
-// character just shows its own baked idle animation pose untouched,
-// instead of a rifle-holding correction with no rifle to hold.
+// v4: baked in the player's own always-attached-gun calibration (BACKUP
+// code K3VCRS) as the default instead of zero. Bumped so every device
+// picks up it fresh, same reasoning as the v1->v2->v3 bumps above.
+const ARM_POSE_STORAGE_KEY = "10sa-arm-pose-v4";
 const ARM_POSE_EXTRAS_DEFAULT: { right: ArmPoseExtra; left: ArmPoseExtra } = {
   right: {
-    shoulder: { x: 0, y: 0, z: 0 },
-    elbow: { x: 0, y: 0, z: 0 },
-    wrist: { x: 0, y: 0, z: 0 },
+    shoulder: { x: -1.00159265358979, y: 0.358407346410207, z: -0.811592653589793 },
+    elbow: { x: 0.148407346410207, y: 0.888407346410207, z: -0.201592653589793 },
+    wrist: { x: 1.34840734641021, y: 0, z: 0 },
     wristSideBend: 0,
   },
   left: {
-    shoulder: { x: 0, y: 0, z: 0 },
-    elbow: { x: 0, y: 0, z: 0 },
-    wrist: { x: 0, y: 0, z: 0 },
-    wristSideBend: 0,
+    shoulder: { x: -0.671592653589793, y: -1.14159265358979, z: 0.398407346410207 },
+    elbow: { x: 0.998407346410207, y: -0.731592653589793, z: 0.498407346410207 },
+    wrist: { x: 0.428407346410207, y: -0.391592653589793, z: -0.061592653589793 },
+    wristSideBend: -0.201592653589793,
   },
 };
 function cloneArmPoseExtra(extra: ArmPoseExtra): ArmPoseExtra {
@@ -2879,13 +2887,16 @@ type FingerCurlExtra = Record<FingerName, number>;
 function zeroFingerCurlExtra(): FingerCurlExtra {
   return { Thumb: 0, Index: 0, Middle: 0, Ring: 0, Pinky: 0 };
 }
-const GUN_FINGER_CURL_STORAGE_KEY = "10sa-gun-finger-curl-v2";
+// v3: baked in the player's own always-attached-gun calibration (BACKUP
+// code K3VCRS) as the default. Bumped so every device picks up it fresh,
+// same reasoning as the v1->v2 bump above.
+const GUN_FINGER_CURL_STORAGE_KEY = "10sa-gun-finger-curl-v3";
 // Default per-finger curl when nothing's saved yet — same already-
 // calibrated pose baked in as ARM_POSE_EXTRAS_DEFAULT above, from the
 // same BACKUP code.
 const FINGER_CURL_EXTRAS_DEFAULT: { right: FingerCurlExtra; left: FingerCurlExtra } = {
   right: { Thumb: 0, Index: 0, Middle: 0, Ring: 0, Pinky: 0 },
-  left: { Thumb: 0, Index: 0, Middle: -0.04, Ring: 0, Pinky: 0 },
+  left: { Thumb: 1.58, Index: 0.18, Middle: 0.18, Ring: 0.06, Pinky: 0 },
 };
 function loadFingerCurlExtras(): { right: FingerCurlExtra; left: FingerCurlExtra } {
   const fallback = { right: { ...FINGER_CURL_EXTRAS_DEFAULT.right }, left: { ...FINGER_CURL_EXTRAS_DEFAULT.left } };
