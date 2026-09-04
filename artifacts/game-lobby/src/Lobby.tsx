@@ -6679,9 +6679,20 @@ function CombatArena({
         if (!(mapId === 4 || mapId === 5)) {
           updateOffHandReach(player);
         } else {
+          // Includes each arm's shoulder/clavicle PARENT bone (one level
+          // above rightArm/leftArm in the rig), not just the arm chain
+          // itself — the "Running" clip's own arm swing turned out to be
+          // baked into that shoulder bone as much as into the upper
+          // arm/forearm/hand: locking only the latter three left the
+          // shoulder bone free to keep swinging every tick, dragging the
+          // whole (correctly locked-relative-to-it) arm+gun assembly
+          // through world space right along with it — confirmed by
+          // logging mixamorigRightShoulder's own quaternion drifting
+          // every frame while rightArm/rightForeArm/rightHand stayed
+          // exactly constant.
           const armBones = [
-            player.rightArm, player.rightForeArm, player.rightHand,
-            player.leftArm, player.leftForeArm, player.leftHand,
+            player.rightArm?.parent ?? null, player.rightArm, player.rightForeArm, player.rightHand,
+            player.leftArm?.parent ?? null, player.leftArm, player.leftForeArm, player.leftHand,
           ];
           if (naturalArmPose.size === 0) {
             for (const bone of armBones) {
