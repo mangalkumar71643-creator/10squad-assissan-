@@ -6730,6 +6730,26 @@ function CombatArena({
               const q = bone && naturalArmPose.get(bone);
               if (bone && q) bone.quaternion.copy(q);
             }
+          } else {
+            // playerFireT >= 0 — the fire preview's RifleFire clip is
+            // driving the right arm (and the gun rigidly with it, since
+            // it's the gun's own parent bone) through its own recoil kick,
+            // left deliberately unlocked above so that kick actually
+            // shows. But RifleFire's own baked LEFT arm keyframes were
+            // never retargeted against this specific gun's calibrated
+            // grip point, so the off-hand drifted away from the foregrip
+            // mid-recoil instead of staying gripped — confirmed by
+            // measuring the gap between leftHand and the foregrip target
+            // (calibratedGripWorldMatrix + GUN_OFFHAND_TARGET_LOCAL): ~0.16
+            // standing still, jumping to ~0.33-0.67 during the fire
+            // preview. updateOffHandReach already exists for exactly this
+            // — the same two-bone IK that keeps the off-hand glued to the
+            // foregrip on combat maps — so just running it here for the
+            // fire window snaps the left hand back onto the gun regardless
+            // of wherever RifleFire's own pose put the right arm that
+            // frame, without touching the right arm/gun's own recoil at
+            // all.
+            updateOffHandReach(player);
           }
           if (playerFireT < 0) {
             resetFingersToRest(player.rightFingers, player.restPose);
