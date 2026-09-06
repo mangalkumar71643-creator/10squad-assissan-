@@ -6460,10 +6460,16 @@ function CombatArena({
         // like the hand is clenched around nothing while it's being
         // dragged into place.
         if (!(mapId === 4 || mapId === 5)) {
+          // Base grip curl only — NOT fingerCurlExtras. That extra curl is
+          // calibrated on top of Build Mode's naturalIdleAction-based hand
+          // pose (an open hand becoming a grip), not RifleIdle's, which
+          // this rig (and every bot — see loadBotFighter) actually uses
+          // here; RifleIdle already curls the fingers around the grip
+          // correctly on its own, so the same extra on top over-curled
+          // them for no reason. See applyArmPoseCorrection's own call site
+          // for the identical issue on the arm pose.
           curlGunGripFingers(rig.rightFingers, 1, undefined, rig.restPose);
           curlGunGripFingers(rig.leftFingers, -1, undefined, rig.restPose);
-          curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right, rig.restPose);
-          curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left, rig.restPose);
         }
       });
     };
@@ -6708,14 +6714,25 @@ function CombatArena({
           resetFingersToRest(player.leftFingers, player.restPose);
           curlGunGripFingers(player.rightFingers, 1, fingerCurlExtras.right, player.restPose);
           curlGunGripFingers(player.leftFingers, -1, fingerCurlExtras.left, player.restPose);
+          // armPoseExtras (RIGHT/LEFT tab's shoulder/elbow/wrist correction)
+          // is calibrated as a correction ON TOP of naturalIdleAction's own
+          // relaxed, arms-at-sides base pose — the only base pose Build
+          // Mode ever uses. Combat maps (and every bot, which never has a
+          // naturalIdleAction at all — see loadBotFighter) use idleAction
+          // (RifleIdle) instead, a completely different base pose that
+          // already holds the gun correctly on its own (see the comment by
+          // this rig's mixer setup). The same correction applied on top of
+          // THAT base landed nowhere near where it was tuned for — the
+          // exact "arm raised up oddly, gun swung out of place" look
+          // reported on Map 1. Scoped here, inside the Build-Mode-only
+          // branch, instead of unconditionally like it was before.
+          applyArmPoseCorrection(player);
         }
-        applyArmPoseCorrection(player);
       }
       for (let i = 0; i < bots.length; i++) {
         const rig = bots[i];
         if (rig && botStates[i].deathT < 0) {
           updateOffHandReach(rig);
-          applyArmPoseCorrection(rig);
         }
       }
       updateTracers(tracers, dt);
