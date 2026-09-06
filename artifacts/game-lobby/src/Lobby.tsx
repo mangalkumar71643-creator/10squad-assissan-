@@ -3479,6 +3479,17 @@ function applyFirePose(rig: FighterRig, t: number) {
   rig.fireAction.setEffectiveWeight(w);
   if (rig.idleAction) rig.idleAction.setEffectiveWeight(rig.idleAction.getEffectiveWeight() * (1 - w));
   if (rig.runAction) rig.runAction.setEffectiveWeight(rig.runAction.getEffectiveWeight() * (1 - w));
+  // naturalIdleAction (Build Mode's relaxed, arms-at-sides idle — see
+  // spawnPlayer) was missing here even though this function predates it:
+  // idleAction stays pinned at 0 throughout Build Mode, so scaling it down
+  // was always a no-op there, while naturalIdleAction stayed at its own
+  // weight (1 while standing still) completely unscaled — meaning
+  // fireAction and naturalIdleAction were BOTH near full weight at once,
+  // and THREE.js blends multiple simultaneously-weighted actions together
+  // rather than one replacing the other. The fire preview showed a wash
+  // between "RifleFire's own recoil pose" and "arms hanging relaxed at
+  // the sides" instead of a clean recoil.
+  if (rig.naturalIdleAction) rig.naturalIdleAction.setEffectiveWeight(rig.naturalIdleAction.getEffectiveWeight() * (1 - w));
 }
 
 // A short-lived bright line from the gun's muzzle to whatever it just hit
@@ -6704,29 +6715,45 @@ function CombatArena({
             for (const bone of armBones) {
               if (bone) naturalArmPose.set(bone, bone.quaternion.clone());
             }
-          } else {
+          } else if (playerFireT < 0) {
+            // Skipped while the GUN tab's "Preview fire pose" recoil is
+            // playing (playerFireT >= 0 — see triggerFirePreview/
+            // applyFirePose): that recoil is a real RifleFire mocap clip
+            // blended in via fireAction's own weight, driving these exact
+            // bones (shoulder/arm/forearm/hand) to show a visible kick.
+            // Resetting them back to the static calibrated baseline every
+            // tick — needed the rest of the time to stop the run clip's
+            // swing from dragging the gun around — was undoing that kick
+            // the instant mixer.update applied it, so the fire preview
+            // never visibly did anything at all.
             for (const bone of armBones) {
               const q = bone && naturalArmPose.get(bone);
               if (bone && q) bone.quaternion.copy(q);
             }
           }
-          resetFingersToRest(player.rightFingers, player.restPose);
-          resetFingersToRest(player.leftFingers, player.restPose);
-          curlGunGripFingers(player.rightFingers, 1, fingerCurlExtras.right, player.restPose);
-          curlGunGripFingers(player.leftFingers, -1, fingerCurlExtras.left, player.restPose);
-          // armPoseExtras (RIGHT/LEFT tab's shoulder/elbow/wrist correction)
-          // is calibrated as a correction ON TOP of naturalIdleAction's own
-          // relaxed, arms-at-sides base pose — the only base pose Build
-          // Mode ever uses. Combat maps (and every bot, which never has a
-          // naturalIdleAction at all — see loadBotFighter) use idleAction
-          // (RifleIdle) instead, a completely different base pose that
-          // already holds the gun correctly on its own (see the comment by
-          // this rig's mixer setup). The same correction applied on top of
-          // THAT base landed nowhere near where it was tuned for — the
-          // exact "arm raised up oddly, gun swung out of place" look
-          // reported on Map 1. Scoped here, inside the Build-Mode-only
-          // branch, instead of unconditionally like it was before.
-          applyArmPoseCorrection(player);
+          if (playerFireT < 0) {
+            resetFingersToRest(player.rightFingers, player.restPose);
+            resetFingersToRest(player.leftFingers, player.restPose);
+            curlGunGripFingers(player.rightFingers, 1, fingerCurlExtras.right, player.restPose);
+            curlGunGripFingers(player.leftFingers, -1, fingerCurlExtras.left, player.restPose);
+            // armPoseExtras (RIGHT/LEFT tab's shoulder/elbow/wrist
+            // correction) is calibrated as a correction ON TOP of
+            // naturalIdleAction's own relaxed, arms-at-sides base pose —
+            // the only base pose Build Mode ever uses outside a fire
+            // preview. Combat maps (and every bot, which never has a
+            // naturalIdleAction at all — see loadBotFighter) use
+            // idleAction (RifleIdle) instead, a completely different base
+            // pose that already holds the gun correctly on its own (see
+            // the comment by this rig's mixer setup). The same correction
+            // applied on top of THAT base landed nowhere near where it
+            // was tuned for — the exact "arm raised up oddly, gun swung
+            // out of place" look reported on Map 1. Scoped here, inside
+            // the Build-Mode-only branch, instead of unconditionally like
+            // it was before — and, same as the arm-bone reset above,
+            // skipped during the fire-preview window so it doesn't fight
+            // RifleFire's own pose either.
+            applyArmPoseCorrection(player);
+          }
         }
       }
       for (let i = 0; i < bots.length; i++) {
@@ -7216,7 +7243,16 @@ function CombatArena({
 
         if (playerFireT >= 0) {
           applyFirePose(player, playerFireT);
-          playerFireT = playerFireT + dt > FIRE_ANIM_DURATION ? -1 : playerFireT + dt;
+          const done = playerFireT + dt > FIRE_ANIM_DURATION;
+          playerFireT = done ? -1 : playerFireT + dt;
+          // FIRE_FADE_OUT's own fade curve doesn't necessarily reach
+          // exactly 0 on the very last tick before this flips to -1 (it's
+          // whatever w happens to be at that dt boundary) — applyFirePose
+          // is never called again once playerFireT goes negative, so
+          // without this, fireAction is left sitting at that small
+          // leftover weight forever, blending a faint trace of the fire
+          // pose into every future pose indefinitely.
+          if (done) player.fireAction?.setEffectiveWeight(0);
         }
 
         if (playerHpLocal <= 0) {
