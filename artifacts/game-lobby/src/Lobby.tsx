@@ -4635,7 +4635,7 @@ function CombatArena({
   // how the weapon sits in the hand without having to hand-tune the
   // underlying GUN_GRIP_LOCAL constant blind. Only one tab's own controls
   // render at a time.
-  const [buildTopTab, setBuildTopTab] = useState<"map" | "right" | "left" | "gun">("map");
+  const [buildTopTab, setBuildTopTab] = useState<"map" | "right" | "left" | "gun" | "play">("map");
   // GUN CAM (see gunCamYaw/gunCamPitch/gunCamDist/gunCamOnRef above) is
   // tied directly to the GUN tab now, the same way Map View's own camera
   // switch is tied to its own button — selecting GUN switches straight
@@ -8753,15 +8753,21 @@ function CombatArena({
             />
           </div>
 
-          {!combatDisabled && !isNoCombatMap && (
+          {((!combatDisabled && !isNoCombatMap) || (isNoCombatMap && buildTopTab === "play")) && (
             <>
               {/* Fire button — auto-fires for as long as it's held down (see the
                   attackRequested consumption in the tick loop), not just once per
                   tap. setPointerCapture keeps the up/cancel events firing on this
                   button even if the finger slides off it while held, so a drag-off
-                  reliably stops the fire instead of leaving it stuck on. Map 4/5 have
-                  no bots to shoot, so this (and RUN) don't show there — they put
-                  SELECT and PLACE in their slots instead (see isNoCombatMap above). */}
+                  reliably stops the fire instead of leaving it stuck on. Map 4/5
+                  (Build Mode) normally put SELECT and PLACE in this same corner
+                  spot instead (see isNoCombatMap above) — except on the PLAY tab,
+                  which exists purely so the calibrated pose/grip can be tried out
+                  with the same FIRE/RUN controls a combat map would show, reusing
+                  this exact block rather than a separate one. combatDisabled is
+                  true everywhere right now, so canHitBot's bot lookup below always
+                  misses and this just plays the recoil + a straight tracer with no
+                  damage — same as any other unarmed miss. */}
               <button
                 onPointerDown={(e) => {
                   e.preventDefault();
@@ -8873,7 +8879,7 @@ function CombatArena({
                 maxWidth: "calc(100vw - 90px)",
               }}
             >
-              {(["map", "right", "left", "gun"] as const).map((tab) => (
+              {(["map", "right", "left", "gun", "play"] as const).map((tab) => (
                 <button
                   key={tab}
                   onPointerDown={(e) => {
@@ -8894,7 +8900,7 @@ function CombatArena({
                     cursor: "pointer",
                   }}
                 >
-                  {tab === "map" ? "MAP" : tab === "right" ? "RIGHT" : tab === "left" ? "LEFT" : "GUN"}
+                  {tab === "map" ? "MAP" : tab === "right" ? "RIGHT" : tab === "left" ? "LEFT" : tab === "gun" ? "GUN" : "PLAY"}
                 </button>
               ))}
             </div>
