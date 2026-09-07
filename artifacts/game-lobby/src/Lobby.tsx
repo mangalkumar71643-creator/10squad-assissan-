@@ -2401,6 +2401,28 @@ function pickRoomPatrolTarget(roomIndex: number): { x: number; z: number } {
   return { x: BOT_SPAWNS[roomIndex].x, z: BOT_SPAWNS[roomIndex].z };
 }
 
+// Map 4's own test bots (see MAP4_TEST_BOT_COUNT) have no designed rooms
+// to patrol — every one of them just roams a flat circle of radius
+// MAP4_PATROL_RADIUS around the house's own center (map4DynamicSpawn, the
+// average position of everything placed — see its own definition), same
+// shape as pickRoomPatrolTarget's retry-if-blocked loop above but against
+// a circle instead of a room rectangle, and checking ACTIVE_OBSTACLES
+// directly instead of a fixed stairs band since Build Mode's walls/crates
+// are whatever the player has actually placed.
+const MAP4_TEST_BOT_COUNT = 20;
+const MAP4_PATROL_RADIUS = 12;
+function pickHousePatrolTarget(centerX: number, centerZ: number, radius: number): { x: number; z: number } {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.random() * radius;
+    const x = centerX + Math.cos(angle) * dist;
+    const z = centerZ + Math.sin(angle) * dist;
+    const blocked = ACTIVE_OBSTACLES.some((ob) => segmentHitsObstacle(x, z, x, z, ob));
+    if (!blocked) return { x, z };
+  }
+  return { x: centerX, z: centerZ };
+}
+
 const PLAYER_ATTACK_COOLDOWN = 0.55;
 const LOOK_SENSITIVITY_BASE = 0.009;
 const LOOK_SENSITIVITY_MIN = 0.4;
@@ -4525,12 +4547,15 @@ function CombatArena({
 
   const [playerHp, setPlayerHp] = useState(100);
   // One HP percentage + floating bar ref per fighter — on Maps 1-3, index
-  // 0-4 are the five room guards and index 5 is the Boss. Map 4 has no
-  // fighters at all — it's a combat-free build/explore canvas (mapId is
-  // fixed for this component's whole mount, so sizing the initial state
-  // off it is safe).
-  const [botHps, setBotHps] = useState<number[]>(() => new Array(combatDisabled || isNoCombatMap ? 0 : 6).fill(100));
-  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>(new Array(combatDisabled || isNoCombatMap ? 0 : 6).fill(null));
+  // 0-4 are the five room guards and index 5 is the Boss. Map 4 has
+  // MAP4_TEST_BOT_COUNT plain guards, no boss (mapId is fixed for this
+  // component's whole mount, so sizing the initial state off it is safe).
+  const [botHps, setBotHps] = useState<number[]>(() =>
+    new Array(mapId === 4 ? MAP4_TEST_BOT_COUNT : combatDisabled || isNoCombatMap ? 0 : 6).fill(100),
+  );
+  const botHpBarRefs = useRef<(HTMLDivElement | null)[]>(
+    new Array(mapId === 4 ? MAP4_TEST_BOT_COUNT : combatDisabled || isNoCombatMap ? 0 : 6).fill(null),
+  );
   const [result, setResult] = useState<"playing" | "win" | "lose">("playing");
   // Counts bot deaths this match, for the profile progress system's XP
   // award — read once when `result` leaves "playing" (see the effect
@@ -4636,6 +4661,15 @@ function CombatArena({
   // underlying GUN_GRIP_LOCAL constant blind. Only one tab's own controls
   // render at a time.
   const [buildTopTab, setBuildTopTab] = useState<"map" | "right" | "left" | "gun" | "play">("map");
+  // Live mirror of buildTopTab for the tick loop's closure (created once
+  // when the scene effect runs, same reasoning as joystickVec/
+  // attackRequested being refs rather than state) — lets Map 4's test
+  // bots below know whether the PLAY tab is the one currently showing
+  // without needing the whole scene effect to re-run on every tab switch.
+  const buildTopTabRef = useRef(buildTopTab);
+  useEffect(() => {
+    buildTopTabRef.current = buildTopTab;
+  }, [buildTopTab]);
   // GUN CAM (see gunCamYaw/gunCamPitch/gunCamDist/gunCamOnRef above) is
   // tied directly to the GUN tab now, the same way Map View's own camera
   // switch is tied to its own button — selecting GUN switches straight
@@ -6525,19 +6559,26 @@ function CombatArena({
     // map's boss room) — all loaded from the same rig/model, just spawned
     // at different posts and the Boss additionally scaled up and tinted
     // (see tintBossFighter).
-    // Map 4 spawns no fighters at all — it's a combat-free build/explore
-    // canvas, not a level to fight through.
-    const botSpawns = combatDisabled
-      ? []
-      : mapId === 2
-        ? MAP2_BOT_SPAWNS
-        : mapId === 3
-          ? MAP3_BOT_SPAWNS
-          : isNoCombatMap
-            ? []
-            : BOT_SPAWNS;
+    // Map 4 gets its own MAP4_TEST_BOT_COUNT of test bots, scattered
+    // within MAP4_PATROL_RADIUS of the house's own center (see
+    // pickHousePatrolTarget) instead of designed room spawn points —
+    // only shown/active while the PLAY tab is selected (see
+    // buildTopTabRef, checked in the tick loop below). Map 5 stays a
+    // combat-free build/explore canvas, same as Map 4 used to be.
+    const botSpawns =
+      mapId === 4
+        ? Array.from({ length: MAP4_TEST_BOT_COUNT }, () => pickHousePatrolTarget(map4DynamicSpawn.x, map4DynamicSpawn.z, MAP4_PATROL_RADIUS))
+        : combatDisabled
+          ? []
+          : mapId === 2
+            ? MAP2_BOT_SPAWNS
+            : mapId === 3
+              ? MAP3_BOT_SPAWNS
+              : isNoCombatMap
+                ? []
+                : BOT_SPAWNS;
     const bossSpawn = mapId === 2 ? MAP2_BOSS_SPAWN : mapId === 3 ? MAP3_BOSS_SPAWN : BOSS_SPAWN;
-    const bots: (FighterRig | null)[] = new Array(combatDisabled || isNoCombatMap ? 0 : 6).fill(null);
+    const bots: (FighterRig | null)[] = new Array(mapId === 4 ? MAP4_TEST_BOT_COUNT : combatDisabled || isNoCombatMap ? 0 : 6).fill(null);
     for (let i = 0; i < botSpawns.length; i++) {
       const spawn = botSpawns[i];
       loadBotFighter(scene, "/characters/bot-2.glb", (rig) => {
@@ -6623,17 +6664,22 @@ function CombatArena({
     // Maps 1-3: index 0-4 are the five room guards, one per ROOM_POSITIONS
     // entry (see roomIndex); index 5 is the Boss — tougher, and isBoss
     // skips the patrol/chase behavior entirely in favor of holding its
-    // ground. Map 4 has no fighters at all.
-    const botMaxHps = combatDisabled || isNoCombatMap ? [] : [100, 100, 100, 100, 100, BOSS_HP];
+    // ground. Map 4 has MAP4_TEST_BOT_COUNT plain guards, no boss.
+    const botMaxHps =
+      mapId === 4
+        ? new Array(MAP4_TEST_BOT_COUNT).fill(100)
+        : combatDisabled || isNoCombatMap
+          ? []
+          : [100, 100, 100, 100, 100, BOSS_HP];
     const botStates = botMaxHps.map((hp, i) => ({
       hp,
       cooldown: 0,
       fireT: -1,
       deathT: -1,
       dead: false,
-      isBoss: i === 5,
+      isBoss: mapId !== 4 && i === 5,
       roomIndex: i, // only meaningful for guards; Boss ignores it
-      awake: i === 5, // the Boss has no guard/patrol behavior to wait on
+      awake: mapId !== 4 && i === 5, // the Boss has no guard/patrol behavior to wait on
       alertT: -1,
       patrolTarget: null as { x: number; z: number } | null,
       stuckT: 0,
@@ -6660,7 +6706,12 @@ function CombatArena({
         st.deathT = 0;
         killCountRef.current += 1;
         startDeath(rig);
-        if (botStates.every((s) => s.dead)) {
+        // Map 4's test bots are a sandbox for trying out the calibrated
+        // pose/grip against something that shoots back, not a real match
+        // — clearing all of them (or, below, taking enough damage to hit
+        // 0 HP) shouldn't kick the player out to a VICTORY/DEFEAT screen
+        // and back to the lobby mid-build.
+        if (mapId !== 4 && botStates.every((s) => s.dead)) {
           ended = true;
           pendingResult = "win";
         }
@@ -6802,7 +6853,7 @@ function CombatArena({
         }
         const barEl = botHpBarRefs.current[i];
         if (barEl) {
-          if (!topDownViewRef.current && rig && !st.dead && st.hp / botMaxHps[i] <= 0.5) {
+          if (!topDownViewRef.current && rig && rig.root.visible && !st.dead && st.hp / botMaxHps[i] <= 0.5) {
             const markPoint = rig.root.position.clone();
             markPoint.y += st.isBoss ? 2.6 : 1.95;
             markPoint.project(camera);
@@ -7070,10 +7121,17 @@ function CombatArena({
         // player's own auto-aim target.
         let nearestIdx = -1;
         let nearestDist = Infinity;
+        // Map 4's test bots only patrol/chase/fire (and only render) while
+        // the PLAY tab is the one showing — building/calibrating on MAP/
+        // RIGHT/LEFT/GUN stays exactly as distraction-free as it was
+        // before this feature existed. Always true for every other map.
+        const map4BotsActive = mapId !== 4 || buildTopTabRef.current === "play";
         for (let i = 0; i < bots.length; i++) {
           const rig = bots[i];
           const st = botStates[i];
-          if (!rig || st.dead) continue;
+          if (!rig) continue;
+          rig.root.visible = map4BotsActive;
+          if (!map4BotsActive || st.dead) continue;
 
           let botDx = player.root.position.x - rig.root.position.x;
           let botDz = player.root.position.z - rig.root.position.z;
@@ -7134,7 +7192,13 @@ function CombatArena({
                 st.stuckT > STUCK_AVOID_FLIP_DELAY * 2
               ) {
                 st.patrolTarget =
-                  mapId === 2 ? pickMap2ZoneTarget(st.roomIndex) : mapId === 3 ? pickMap3ZoneTarget(st.roomIndex) : pickRoomPatrolTarget(st.roomIndex);
+                  mapId === 2
+                    ? pickMap2ZoneTarget(st.roomIndex)
+                    : mapId === 3
+                      ? pickMap3ZoneTarget(st.roomIndex)
+                      : mapId === 4
+                        ? pickHousePatrolTarget(map4DynamicSpawn.x, map4DynamicSpawn.z, MAP4_PATROL_RADIUS)
+                        : pickRoomPatrolTarget(st.roomIndex);
                 st.stuckT = 0;
               }
               const pdx = st.patrolTarget.x - rig.root.position.x;
@@ -7275,7 +7339,9 @@ function CombatArena({
           if (done) player.fireAction?.setEffectiveWeight(0);
         }
 
-        if (playerHpLocal <= 0) {
+        // See damageBot's own comment — Map 4's test bots don't end the
+        // session even at 0 HP, same reasoning.
+        if (playerHpLocal <= 0 && mapId !== 4) {
           ended = true;
           playerDeathT = 0;
           startDeath(player);
@@ -8404,8 +8470,11 @@ function CombatArena({
 
       {/* Health bar — hidden in Map View (nothing but the level on screen),
           and hidden everywhere now that combat is gone (see
-          combatDisabled): HP never changes without anything to fight. */}
-      {!combatDisabled && !topDownView && (
+          combatDisabled): HP never changes without anything to fight.
+          Except Map 4's own PLAY tab test bots, which do actually damage
+          the player — see mapId !== 4's own skip on the lose condition
+          in the tick loop for why that never ends the session. */}
+      {((!combatDisabled && mapId !== 4) || (mapId === 4 && buildTopTab === "play")) && !topDownView && (
         <div style={{ position: "absolute", top: 16, left: 16, width: "min(38%, 260px)" }}>
           <div style={{ color: "#dce8f5", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", marginBottom: 4 }}>
             {t(settings.language, "you")}
@@ -8419,49 +8488,53 @@ function CombatArena({
       {/* Each fighter's own health bar floats directly above its head
           in-world (see the screen-projection block in the tick loop),
           not fixed to a screen corner, so it stays pinned to whichever
-          bot it belongs to. Index 5 is the Boss — wider bar, own label.
-          Map 4 never renders any of these (botHps is always empty there). */}
-      {botHps.map((hp, i) => (
-        <div
-          key={i}
-          ref={(el) => {
-            botHpBarRefs.current[i] = el;
-          }}
-          style={{
-            position: "absolute",
-            width: i === 5 ? 110 : 90,
-            marginLeft: i === 5 ? -55 : -45,
-            marginTop: -30,
-            display: "none",
-            pointerEvents: "none",
-          }}
-        >
+          bot it belongs to. Index 5 is the Boss on Maps 1-3 — wider bar,
+          own label; Map 4's test bots have no boss, so index 5 there is
+          just its 6th plain guard like any other. */}
+      {botHps.map((hp, i) => {
+        const isBossBar = i === 5 && mapId !== 4;
+        return (
           <div
+            key={i}
+            ref={(el) => {
+              botHpBarRefs.current[i] = el;
+            }}
             style={{
-              color: i === 5 ? "#ff8a8a" : "#dce8f5",
-              fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              fontSize: 10,
-              letterSpacing: "0.08em",
-              marginBottom: 2,
-              textAlign: "center",
-              textShadow: "0 0 4px rgba(0,0,0,0.9)",
+              position: "absolute",
+              width: isBossBar ? 110 : 90,
+              marginLeft: isBossBar ? -55 : -45,
+              marginTop: -30,
+              display: "none",
+              pointerEvents: "none",
             }}
           >
-            {i === 5 ? "BOSS" : `GUARD ${i + 1}`}
-          </div>
-          <div style={{ height: i === 5 ? 8 : 6, borderRadius: 3, background: "rgba(255,255,255,0.18)", overflow: "hidden" }}>
             <div
               style={{
-                height: "100%",
-                width: `${hp}%`,
-                background: i === 5 ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff6b5e,#ff9a4d)",
-                transition: "width 150ms ease-out",
+                color: isBossBar ? "#ff8a8a" : "#dce8f5",
+                fontFamily: "'Rajdhani', sans-serif",
+                fontWeight: 700,
+                fontSize: 10,
+                letterSpacing: "0.08em",
+                marginBottom: 2,
+                textAlign: "center",
+                textShadow: "0 0 4px rgba(0,0,0,0.9)",
               }}
-            />
+            >
+              {isBossBar ? "BOSS" : `GUARD ${i + 1}`}
+            </div>
+            <div style={{ height: isBossBar ? 8 : 6, borderRadius: 3, background: "rgba(255,255,255,0.18)", overflow: "hidden" }}>
+              <div
+                style={{
+                  height: "100%",
+                  width: `${hp}%`,
+                  background: isBossBar ? "linear-gradient(90deg,#ff3b3b,#8a0000)" : "linear-gradient(90deg,#ff6b5e,#ff9a4d)",
+                  transition: "width 150ms ease-out",
+                }}
+              />
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       <button
         onClick={() => setExitConfirmOpen(true)}
