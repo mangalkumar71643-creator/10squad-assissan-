@@ -2402,15 +2402,37 @@ function pickRoomPatrolTarget(roomIndex: number): { x: number; z: number } {
 }
 
 // Map 4's own test bots (see MAP4_TEST_BOT_COUNT) have no designed rooms
-// to patrol — every one of them just roams a flat circle of radius
-// MAP4_PATROL_RADIUS around the house's own center (map4DynamicSpawn, the
-// average position of everything placed — see its own definition), same
-// shape as pickRoomPatrolTarget's retry-if-blocked loop above but against
-// a circle instead of a room rectangle, and checking ACTIVE_OBSTACLES
+// to patrol — every one of them just roams a flat circle around the
+// house's own center (map4DynamicSpawn, the average position of
+// everything placed — see its own definition), same shape as
+// pickRoomPatrolTarget's retry-if-blocked loop above but against a
+// circle instead of a room rectangle, and checking ACTIVE_OBSTACLES
 // directly instead of a fixed stairs band since Build Mode's walls/crates
-// are whatever the player has actually placed.
+// are whatever the player has actually placed. The radius itself isn't
+// this fixed default — see map4PatrolRadius (computed once per house from
+// how far its own placed pieces actually reach, so a small house doesn't
+// give bots a huge empty patrol loop and vice versa); this is only the
+// starting-point fallback for a still-empty canvas.
 const MAP4_TEST_BOT_COUNT = 20;
-const MAP4_PATROL_RADIUS = 12;
+const MAP4_PATROL_RADIUS_DEFAULT = 12;
+// map4PatrolRadius = clamp(furthest placed piece from center + this
+// margin, MIN, MAX) — the margin gives bots a little room to patrol just
+// past the outermost wall instead of grazing it exactly; MIN keeps a tiny
+// house from squeezing them into a near-stationary loop; MAX keeps a huge
+// sprawling house from sending them on absurdly long patrols.
+const MAP4_PATROL_RADIUS_MARGIN = 3;
+const MAP4_PATROL_RADIUS_MIN = 6;
+const MAP4_PATROL_RADIUS_MAX = 30;
+// How far apart (world units) two test bots' spawn points must land —
+// without this, 20 random points in a modest-radius circle regularly
+// landed right on top of each other.
+const MAP4_BOT_SPAWN_GAP = 2.5;
+// Test bots move noticeably slower than Maps 1-3's own guards (BOT_SPEED/
+// PATROL_SPEED below) — a dedicated pair instead of touching those shared
+// constants, so this stays scoped to Map 4 without changing the balance
+// combat maps would use if they were ever turned back on.
+const MAP4_BOT_SPEED = 2.2;
+const MAP4_PATROL_SPEED = MAP4_BOT_SPEED * 0.9;
 function pickHousePatrolTarget(centerX: number, centerZ: number, radius: number): { x: number; z: number } {
   for (let attempt = 0; attempt < 8; attempt++) {
     const angle = Math.random() * Math.PI * 2;
@@ -2421,6 +2443,25 @@ function pickHousePatrolTarget(centerX: number, centerZ: number, radius: number)
     if (!blocked) return { x, z };
   }
   return { x: centerX, z: centerZ };
+}
+// Picks MAP4_TEST_BOT_COUNT spawn points the same way (pickHousePatrolTarget,
+// retried against walls/crates) but also rejects a candidate within
+// MAP4_BOT_SPAWN_GAP of any bot already placed, so the squad starts out
+// visibly spread across the house instead of stacked in a pile. Gives up
+// and accepts the last candidate after enough tries rather than looping
+// forever if the house is too small to fit everyone with room to spare.
+function pickHouseBotSpawns(centerX: number, centerZ: number, radius: number, count: number): { x: number; z: number }[] {
+  const spawns: { x: number; z: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    let candidate = pickHousePatrolTarget(centerX, centerZ, radius);
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const tooClose = spawns.some((s) => Math.hypot(s.x - candidate.x, s.z - candidate.z) < MAP4_BOT_SPAWN_GAP);
+      if (!tooClose) break;
+      candidate = pickHousePatrolTarget(centerX, centerZ, radius);
+    }
+    spawns.push(candidate);
+  }
+  return spawns;
 }
 
 const PLAYER_ATTACK_COOLDOWN = 0.55;
@@ -5182,6 +5223,11 @@ function CombatArena({
     // back to MAP4_PLAYER_SPAWN itself (shared by both, since it's just the
     // canvas's own origin) only for a still-empty canvas.
     let map4DynamicSpawn = MAP4_PLAYER_SPAWN;
+    // How far the test bots (see MAP4_TEST_BOT_COUNT) actually patrol —
+    // recomputed right alongside map4DynamicSpawn below, from how far this
+    // specific house's own placed pieces reach, not a fixed guess (see
+    // MAP4_PATROL_RADIUS_MARGIN/MIN/MAX's own comment).
+    let map4PatrolRadius = MAP4_PATROL_RADIUS_DEFAULT;
 
     // Everything from here through the "EXTRA_CRATES' own visuals" comment
     // below is Map 1's own bespoke room/corridor/tunnel geometry, entirely
@@ -5588,6 +5634,11 @@ function CombatArena({
         const sumX = customItemsRef.current.reduce((s, it) => s + it.x, 0);
         const sumZ = customItemsRef.current.reduce((s, it) => s + it.z, 0);
         map4DynamicSpawn = { x: sumX / customItemsRef.current.length, z: sumZ / customItemsRef.current.length };
+        const furthestPiece = customItemsRef.current.reduce(
+          (m, it) => Math.max(m, Math.hypot(it.x - map4DynamicSpawn.x, it.z - map4DynamicSpawn.z)),
+          0,
+        );
+        map4PatrolRadius = clamp(furthestPiece + MAP4_PATROL_RADIUS_MARGIN, MAP4_PATROL_RADIUS_MIN, MAP4_PATROL_RADIUS_MAX);
       }
       // Group meshes (doors, stairs) return a THREE.Group as their single
       // Object3D — removeMesh below just calls scene.remove on whatever
@@ -6560,14 +6611,15 @@ function CombatArena({
     // at different posts and the Boss additionally scaled up and tinted
     // (see tintBossFighter).
     // Map 4 gets its own MAP4_TEST_BOT_COUNT of test bots, scattered
-    // within MAP4_PATROL_RADIUS of the house's own center (see
-    // pickHousePatrolTarget) instead of designed room spawn points —
-    // only shown/active while the PLAY tab is selected (see
-    // buildTopTabRef, checked in the tick loop below). Map 5 stays a
-    // combat-free build/explore canvas, same as Map 4 used to be.
+    // within map4PatrolRadius of the house's own center (see
+    // pickHouseBotSpawns, which also keeps them from all landing on top of
+    // each other) instead of designed room spawn points — only shown/
+    // active while the PLAY tab is selected (see buildTopTabRef, checked
+    // in the tick loop below). Map 5 stays a combat-free build/explore
+    // canvas, same as Map 4 used to be.
     const botSpawns =
       mapId === 4
-        ? Array.from({ length: MAP4_TEST_BOT_COUNT }, () => pickHousePatrolTarget(map4DynamicSpawn.x, map4DynamicSpawn.z, MAP4_PATROL_RADIUS))
+        ? pickHouseBotSpawns(map4DynamicSpawn.x, map4DynamicSpawn.z, map4PatrolRadius, MAP4_TEST_BOT_COUNT)
         : combatDisabled
           ? []
           : mapId === 2
@@ -7126,6 +7178,10 @@ function CombatArena({
         // RIGHT/LEFT/GUN stays exactly as distraction-free as it was
         // before this feature existed. Always true for every other map.
         const map4BotsActive = mapId !== 4 || buildTopTabRef.current === "play";
+        // Map 4's test bots patrol/chase slower than the real Map 1-3
+        // guards — this is a friendlier sandbox, not a full firefight.
+        const patrolSpeedNow = mapId === 4 ? MAP4_PATROL_SPEED : PATROL_SPEED;
+        const chaseSpeedNow = mapId === 4 ? MAP4_BOT_SPEED : BOT_SPEED;
         for (let i = 0; i < bots.length; i++) {
           const rig = bots[i];
           const st = botStates[i];
@@ -7197,7 +7253,7 @@ function CombatArena({
                     : mapId === 3
                       ? pickMap3ZoneTarget(st.roomIndex)
                       : mapId === 4
-                        ? pickHousePatrolTarget(map4DynamicSpawn.x, map4DynamicSpawn.z, MAP4_PATROL_RADIUS)
+                        ? pickHousePatrolTarget(map4DynamicSpawn.x, map4DynamicSpawn.z, map4PatrolRadius)
                         : pickRoomPatrolTarget(st.roomIndex);
                 st.stuckT = 0;
               }
@@ -7205,9 +7261,9 @@ function CombatArena({
               const pdz = st.patrolTarget.z - rig.root.position.z;
               const pdist = Math.hypot(pdx, pdz);
               if (pdist > 0.0001) {
-                moveWithAvoidance(rig, st, pdx / pdist, pdz / pdist, PATROL_SPEED, dt);
+                moveWithAvoidance(rig, st, pdx / pdist, pdz / pdist, patrolSpeedNow, dt);
                 rig.root.rotation.y = Math.atan2(pdx, pdz);
-                updateLocomotionAnim(rig, PATROL_RUN_WEIGHT, PATROL_SPEED);
+                updateLocomotionAnim(rig, PATROL_RUN_WEIGHT, patrolSpeedNow);
               }
               if (
                 botDist <= DETECTION_RANGE &&
@@ -7228,11 +7284,18 @@ function CombatArena({
             // real bullet, so being "in range" by distance alone isn't
             // enough.
             const canSeePlayer = hasLineOfSight(rig.root.position.x, rig.root.position.z, player.root.position.x, player.root.position.z);
-            if (canSeePlayer) {
+            // Map 4's bots are territorial guards, not hunters — once the
+            // player steps outside the house's patrol territory the guard
+            // gives up immediately (no LOSE_SIGHT_GIVEUP grace period),
+            // even if it can still technically see them across the yard.
+            const outOfPatrolRange =
+              mapId === 4 &&
+              Math.hypot(player.root.position.x - map4DynamicSpawn.x, player.root.position.z - map4DynamicSpawn.z) > map4PatrolRadius;
+            if (canSeePlayer && !outOfPatrolRange) {
               st.loseSightT = 0;
             } else {
               st.loseSightT += dt;
-              if (st.loseSightT > LOSE_SIGHT_GIVEUP) {
+              if (outOfPatrolRange || st.loseSightT > LOSE_SIGHT_GIVEUP) {
                 // Genuinely lost them (they ran out of the room, around
                 // several corners, whatever) — stop chasing and go back to
                 // patrolling instead of walking at their last known spot
@@ -7247,8 +7310,8 @@ function CombatArena({
             }
             if (st.awake) {
               if (botDist > GUN_RANGE * 0.85 || !canSeePlayer) {
-                moveWithAvoidance(rig, st, botDx / botDist, botDz / botDist, BOT_SPEED, dt);
-                updateLocomotionAnim(rig, 1, BOT_SPEED);
+                moveWithAvoidance(rig, st, botDx / botDist, botDz / botDist, chaseSpeedNow, dt);
+                updateLocomotionAnim(rig, 1, chaseSpeedNow);
               } else {
                 updateLocomotionAnim(rig, 0, 0);
               }
