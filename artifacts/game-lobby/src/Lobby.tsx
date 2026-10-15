@@ -2034,6 +2034,42 @@ function isTopOfStairChain(item: Map4Stairs, allItems: Map4Item[]): boolean {
   }
   return true;
 }
+// Build Mode's ground height under `pos` — a stairs tread (lerped up the
+// riser as they climb), a floor tile, or the flat y=0 base ground. Shared
+// by the player and Map 4's test bots so a bot standing on a floor tile or
+// walking up a staircase is held at the same height the player would be,
+// instead of staying pinned at y=0 with its legs buried in the tread/tile.
+// See the call site in the tick loop for the full reasoning behind each
+// tolerance check (the "touch it and fly up" bugs they each fixed).
+function map4GroundY(pos: THREE.Vector3, items: Map4Item[]): number {
+  for (const item of items) {
+    if (item.kind !== "stairs") continue;
+    const dx = pos.x - item.x;
+    const dz = pos.z - item.z;
+    const along = dx * item.dirX + dz * item.dirZ;
+    const perp = dz * item.dirX - dx * item.dirZ;
+    if (Math.abs(perp) >= MAP4_STAIRS_WIDTH / 2) continue;
+    const margin = isTopOfStairChain(item, items) ? MAP4_STAIRS_EDGE_MARGIN : 0;
+    if (along < -0.3 || along > MAP4_STAIRS_DEPTH + margin) continue;
+    const rank = computeStairRank(item, items);
+    const baseY = item.baseY ?? 0;
+    if (Math.abs(pos.y - (baseY + rank * MAP4_STAIRS_RISE)) >= MAP4_ELEVATION_SNAP_TOLERANCE) continue;
+    const progress = clamp(along / MAP4_STAIRS_DEPTH, 0, 1);
+    return THREE.MathUtils.lerp(baseY + rank * MAP4_STAIRS_RISE, baseY + (rank + 1) * MAP4_STAIRS_RISE, progress);
+  }
+  for (const item of items) {
+    if (item.kind !== "floorTile") continue;
+    const tileY = item.y ?? 0;
+    if (
+      Math.abs(pos.x - item.x) < MAP4_FLOOR_TILE_SIZE / 2 + MAP4_FLOOR_TILE_EDGE_MARGIN &&
+      Math.abs(pos.z - item.z) < MAP4_FLOOR_TILE_SIZE / 2 + MAP4_FLOOR_TILE_EDGE_MARGIN &&
+      Math.abs(pos.y - tileY) < MAP4_ELEVATION_SNAP_TOLERANCE
+    ) {
+      return tileY;
+    }
+  }
+  return 0;
+}
 // Which item indices AIM should move together when nudging the one at
 // pickedIdx — every other kind is just itself (nudging one wall doesn't
 // need to drag any other wall along), but a stairs step is one piece of
@@ -3257,6 +3293,154 @@ function calibratedGripWorldMatrix(hand: THREE.Object3D, out: THREE.Matrix4) {
   out.premultiply(hand.matrixWorld);
 }
 
+// Bots get their own grip instead of the player's calibration above:
+// gunGripOffset/gunGripRotation were hand-tuned against the player's
+// relaxed Build Mode stance, so on a bot playing RifleIdle/RifleRun the
+// same numbers left the rifle jutting out sideways at face height. This
+// measures the bot's own RifleIdle frame once and parents the gun so its
+// pistol grip sits in the right palm with the barrel pointing straight
+// ahead of the body (a Free Fire-style ready carry), tipped down by
+// BOT_GUN_MUZZLE_PITCH. Because the mocap actor held a real rifle the
+// same way while running, that one hand-local transform keeps the gun
+// lined up through RifleRun too (firing doesn't use RifleFire on a bot —
+// see applyBotRecoil), and the off-hand IK (see updateOffHandReach)
+// brings the left hand onto the handguard.
+const BOT_GUN_MUZZLE_PITCH = THREE.MathUtils.degToRad(8);
+// How far into the palm (from the RightHand bone toward the middle
+// finger's base knuckle) the pistol grip's center sits.
+const BOT_GUN_PALM_DEPTH = 0.6;
+function computeBotGunMount(rig: FighterRig): THREE.Matrix4 | null {
+  const hand = rig.rightHand;
+  const knuckle = rig.rightFingers["Middle1"];
+  if (!hand || !rig.mixer || !rig.idleAction) return null;
+  // Evaluate the pure RifleIdle pose (whatever weights this fighter happens
+  // to have right now are restored right after; the next tick's
+  // mixer.update re-applies its real blend anyway).
+  const actions = [rig.idleAction, rig.runAction, rig.fireAction, rig.deathAction];
+  const saved = actions.map((a) => a?.getEffectiveWeight() ?? 0);
+  actions.forEach((a, i) => a?.setEffectiveWeight(i === 0 ? 1 : 0));
+  rig.mixer.update(0);
+  rig.root.updateMatrixWorld(true);
+
+  const palm = hand.getWorldPosition(new THREE.Vector3());
+  if (knuckle) palm.lerp(knuckle.getWorldPosition(new THREE.Vector3()), BOT_GUN_PALM_DEPTH);
+  const rootQuat = rig.root.getWorldQuaternion(new THREE.Quaternion());
+  // Raw gun model: muzzle along -Z, pistol grip hanging toward -Y (see
+  // GUN_GRIP_LOCAL). Yaw it 180° so the muzzle faces the body's +Z
+  // (forward), tip the muzzle down, then carry that into world space.
+  const gunQuat = new THREE.Quaternion()
+    .setFromAxisAngle(new THREE.Vector3(1, 0, 0), BOT_GUN_MUZZLE_PITCH)
+    .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI))
+    .premultiply(rootQuat);
+  const s = GUN_TARGET_LENGTH / GUN_RAW_LENGTH;
+  const gunPos = palm.sub(GUN_GRIP_LOCAL.clone().multiplyScalar(s).applyQuaternion(gunQuat));
+  const gunWorld = new THREE.Matrix4().compose(gunPos, gunQuat, new THREE.Vector3(s, s, s));
+
+  actions.forEach((a, i) => a?.setEffectiveWeight(saved[i]));
+  return hand.matrixWorld.clone().invert().multiply(gunWorld);
+}
+
+// A bot's support (left) hand on its rifle: where the wrist goes and how
+// the hand is turned, so the palm cups the handguard from underneath with
+// the fingers wrapping up over its far side — the usual two-handed rifle
+// hold. (The player's OFFHAND_WRIST_ROLL is a hand-tuned number for the
+// player's own calibrated gun; on a bot it left the fingers sticking
+// straight up above the barrel.) The orientation is built from the hand's
+// OWN geometry — the fingers run from the wrist bone toward the middle
+// knuckle, the index/pinky knuckles give the palm's width — rather than
+// assuming any particular bone-axis convention.
+//
+// Position: the vertical foregrip (GUN_OFFHAND_TARGET_LOCAL) when the arm
+// can reach it, otherwise the farthest point it CAN reach sliding back
+// along the handguard toward the receiver — the bot's arms are short for
+// this rifle, so aiming straight at the foregrip left the arm locked
+// fully straight with the hand hanging short of the gun.
+const BOT_HANDGUARD_NEAR_LOCAL = new THREE.Vector3(GUN_OFFHAND_TARGET_LOCAL.x, GUN_OFFHAND_TARGET_LOCAL.y, -230);
+// Palm center relative to the wrist joint (fraction of the wrist->middle
+// knuckle distance), and how far below the handguard's centerline it sits.
+const BOT_SUPPORT_PALM_ALONG = 0.55;
+const BOT_SUPPORT_PALM_BELOW = 0.03;
+const supportGunAxes = { x: new THREE.Vector3(), y: new THREE.Vector3(), z: new THREE.Vector3() };
+const supportPalmN = new THREE.Vector3();
+const supportFingerDir = new THREE.Vector3();
+const supportNearTmp = new THREE.Vector3();
+const supportFarTmp = new THREE.Vector3();
+const supportOffsetTmp = new THREE.Vector3();
+const supportShoulderTmp = new THREE.Vector3();
+const supportElbowTmp = new THREE.Vector3();
+const supportWristTmp = new THREE.Vector3();
+const supportLocalF = new THREE.Vector3();
+const supportLocalS = new THREE.Vector3();
+const supportLocalN = new THREE.Vector3();
+const supportBasisLocal = new THREE.Matrix4();
+const supportBasisWorld = new THREE.Matrix4();
+const supportGunQuat = new THREE.Quaternion();
+function botSupportGrip(rig: FighterRig, gunWorld: THREE.Matrix4, outQuat: THREE.Quaternion): THREE.Vector3 {
+  const hand = rig.leftHand!;
+  const middle = rig.leftFingers["Middle1"];
+  const index = rig.leftFingers["Index1"];
+  const pinky = rig.leftFingers["Pinky1"];
+  const out = new THREE.Vector3();
+
+  // Gun axes in world: +X = the bot's right, +Y = up, -Z = the muzzle.
+  gunWorld.extractBasis(supportGunAxes.x, supportGunAxes.y, supportGunAxes.z);
+  supportGunAxes.x.normalize();
+  supportGunAxes.y.normalize();
+  supportGunAxes.z.normalize();
+  // Palm faces up and a little toward the gun's right side (the hand comes
+  // in from below-left); fingers run across toward the right, angled a bit
+  // forward, so a curl closes them up and over the handguard.
+  supportPalmN.copy(supportGunAxes.y).multiplyScalar(0.85).addScaledVector(supportGunAxes.x, 0.5).normalize();
+  supportFingerDir.copy(supportGunAxes.x).addScaledVector(supportGunAxes.z, -0.35);
+  supportFingerDir.addScaledVector(supportPalmN, -supportFingerDir.dot(supportPalmN)).normalize();
+
+  if (middle && index && pinky) {
+    // Hand-local finger/palm axes straight from the bone offsets (each
+    // knuckle bone's .position is already in the hand's own frame).
+    supportLocalF.copy(middle.position).normalize();
+    supportLocalS.copy(index.position).sub(pinky.position);
+    supportLocalS.addScaledVector(supportLocalF, -supportLocalS.dot(supportLocalF)).normalize();
+    // Left hand: fingers x thumb-side = palm normal.
+    supportLocalN.crossVectors(supportLocalF, supportLocalS).normalize();
+    supportLocalS.crossVectors(supportLocalF, supportLocalN);
+    supportOffsetTmp.crossVectors(supportFingerDir, supportPalmN);
+    supportBasisLocal.makeBasis(supportLocalF, supportLocalN, supportLocalS);
+    supportBasisWorld.makeBasis(supportFingerDir, supportPalmN, supportOffsetTmp);
+    // world = Q * local  =>  Q = basisWorld * basisLocal^T
+    outQuat.setFromRotationMatrix(supportBasisWorld.multiply(supportBasisLocal.transpose()));
+  } else {
+    gunWorld.decompose(supportWristTmp, supportGunQuat, supportOffsetTmp);
+    outQuat.copy(supportGunQuat);
+  }
+
+  // Wrist = palm point minus the palm-center offset along the fingers and
+  // the gap below the handguard.
+  hand.updateWorldMatrix(true, false);
+  const palmAlong = middle ? middle.getWorldPosition(supportWristTmp).distanceTo(hand.getWorldPosition(out)) * BOT_SUPPORT_PALM_ALONG : 0.05;
+  supportOffsetTmp.copy(supportFingerDir).multiplyScalar(-palmAlong).addScaledVector(supportPalmN, -BOT_SUPPORT_PALM_BELOW);
+  supportNearTmp.copy(BOT_HANDGUARD_NEAR_LOCAL).applyMatrix4(gunWorld).add(supportOffsetTmp);
+  supportFarTmp.copy(GUN_OFFHAND_TARGET_LOCAL).applyMatrix4(gunWorld).add(supportOffsetTmp);
+
+  if (!rig.leftArm || !rig.leftForeArm) return out.copy(supportFarTmp);
+  rig.leftArm.getWorldPosition(supportShoulderTmp);
+  rig.leftForeArm.getWorldPosition(supportElbowTmp);
+  hand.getWorldPosition(supportWristTmp);
+  const reach = 0.97 * (supportShoulderTmp.distanceTo(supportElbowTmp) + supportElbowTmp.distanceTo(supportWristTmp));
+  if (supportShoulderTmp.distanceTo(supportFarTmp) <= reach) return out.copy(supportFarTmp);
+  // Distance from the shoulder grows from near to far along this segment
+  // (it points away from the body), so a short bisection finds the
+  // farthest reachable point.
+  let lo = 0;
+  let hi = 1;
+  for (let k = 0; k < 10; k++) {
+    const mid = (lo + hi) / 2;
+    out.lerpVectors(supportNearTmp, supportFarTmp, mid);
+    if (supportShoulderTmp.distanceTo(out) <= reach) lo = mid;
+    else hi = mid;
+  }
+  return out.lerpVectors(supportNearTmp, supportFarTmp, lo);
+}
+
 // Rotates `bone` (in place, preserving its parent's current orientation)
 // so the ray from `bone` to `child` points at `targetWorld` instead of
 // wherever the baked animation clip currently has it — a single-joint
@@ -3384,8 +3568,15 @@ function updateOffHandReach(rig: FighterRig) {
   // its current transform — see calibratedGripWorldMatrix above for why
   // the target itself no longer comes from the gun object at all.
   if (!rig.gun || !rig.rightHand || !rig.leftArm || !rig.leftForeArm || !rig.leftHand) return;
-  calibratedGripWorldMatrix(rig.rightHand, offHandGripMatrix);
-  const foregripWorld = GUN_OFFHAND_TARGET_LOCAL.clone().applyMatrix4(offHandGripMatrix);
+  let foregripWorld: THREE.Vector3;
+  if (rig.gunMount) {
+    rig.rightHand.updateWorldMatrix(true, false);
+    offHandGripMatrix.multiplyMatrices(rig.rightHand.matrixWorld, rig.gunMount);
+    foregripWorld = botSupportGrip(rig, offHandGripMatrix, offHandGripQuat);
+  } else {
+    calibratedGripWorldMatrix(rig.rightHand, offHandGripMatrix);
+    foregripWorld = GUN_OFFHAND_TARGET_LOCAL.clone().applyMatrix4(offHandGripMatrix);
+  }
   rig.leftArm.updateWorldMatrix(true, false);
   rig.leftArm.getWorldPosition(offHandPoleWorld);
   offHandForward.set(Math.sin(rig.root.rotation.y), 0, Math.cos(rig.root.rotation.y));
@@ -3395,13 +3586,17 @@ function updateOffHandReach(rig: FighterRig) {
   offHandPoleWorld.addScaledVector(offHandForward, 0.3);
   solveTwoBoneIK(rig.leftArm, rig.leftForeArm, rig.leftHand, foregripWorld, offHandPoleWorld);
 
-  // Wrist roll (see OFFHAND_WRIST_ROLL above) — applied in the gun's own
-  // local frame: take the gun's world orientation, add the roll, convert
-  // back into rig.leftHand's own parent (forearm) frame.
-  offHandGripMatrix.decompose(offHandGripPos, offHandGripQuat, offHandGripScale);
-  offHandWristEuler.set(OFFHAND_WRIST_ROLL.x, OFFHAND_WRIST_ROLL.y, OFFHAND_WRIST_ROLL.z, "XYZ");
-  offHandWristQuat.setFromEuler(offHandWristEuler);
-  offHandGripQuat.multiply(offHandWristQuat);
+  if (!rig.gunMount) {
+    // Wrist roll (see OFFHAND_WRIST_ROLL above) — applied in the gun's own
+    // local frame: take the gun's world orientation, add the roll, convert
+    // back into rig.leftHand's own parent (forearm) frame.
+    offHandGripMatrix.decompose(offHandGripPos, offHandGripQuat, offHandGripScale);
+    offHandWristEuler.set(OFFHAND_WRIST_ROLL.x, OFFHAND_WRIST_ROLL.y, OFFHAND_WRIST_ROLL.z, "XYZ");
+    offHandWristQuat.setFromEuler(offHandWristEuler);
+    offHandGripQuat.multiply(offHandWristQuat);
+  }
+  // (A bot's botSupportGrip already wrote its palm-under-the-handguard
+  // orientation into offHandGripQuat.)
   rig.leftHand.parent!.getWorldQuaternion(offHandParentQuat);
   rig.leftHand.quaternion.copy(offHandParentQuat.invert().multiply(offHandGripQuat));
 
@@ -3416,6 +3611,9 @@ function updateOffHandReach(rig: FighterRig) {
   // sticks.
   curlGunGripFingers(rig.rightFingers, 1, GUN_GRIP_CURL_SCALE, rig.restPose);
   curlGunGripFingers(rig.leftFingers, -1, GUN_GRIP_CURL_SCALE, rig.restPose);
+  // The per-finger extras are the player's own hand calibration — a bot
+  // (gunMount set) just keeps the base grip curl above.
+  if (rig.gunMount) return;
   curlGunGripFingers(rig.rightFingers, 1, fingerCurlExtras.right, rig.restPose);
   curlGunGripFingers(rig.leftFingers, -1, fingerCurlExtras.left, rig.restPose);
 }
@@ -3471,10 +3669,9 @@ const fingerCurlQuat = new THREE.Quaternion();
 // frame with nothing ever pulling it back, and after long enough
 // play kept spinning until it wound up fully twisted (the "fingers look
 // like they're rotating/glitching" bug). Falls back to the old
-// multiply-onto-current behavior when no rest data is available (bots,
-// which never actually spawn — see combatDisabled — so this path is
-// dead in practice, kept only so the function still works if that
-// changes).
+// multiply-onto-current behavior when no rest data is available (only the
+// legacy loadFighter rig now — Map 4's test bots hit this same winding
+// bug until loadBotFighter started passing its rest pose too).
 function curlGunGripFingers(
   fingers: Record<string, THREE.Object3D>,
   mirror: 1 | -1,
@@ -3520,6 +3717,32 @@ function resetFingersToRest(
 // most-negative-Z extent (see the muzzle-axis measurement above).
 const MUZZLE_TIP_LOCAL = new THREE.Vector3(0, 0, -31.4);
 
+// A bot's shot is a short procedural kick instead of the RifleFire clip:
+// retargeted onto bot-2, RifleFire swings the right hand (and the rifle
+// rigidly with it) ~45° off to the bot's right, so a bot squarely facing
+// the player would visibly fire sideways. Pitching the upper spine back
+// for an instant moves both arms and the gun together, keeping the barrel
+// on target while still reading as recoil.
+const BOT_RECOIL_ANGLE = THREE.MathUtils.degToRad(-7);
+const BOT_RECOIL_RISE = 0.04;
+const BOT_RECOIL_FALL = 0.22;
+const botRecoilQuat = new THREE.Quaternion();
+const botRecoilAxis = new THREE.Vector3(1, 0, 0);
+const botSpineCache = new WeakMap<FighterRig, THREE.Object3D | null>();
+function applyBotRecoil(rig: FighterRig, t: number) {
+  let spine = botSpineCache.get(rig);
+  if (spine === undefined) {
+    spine = rig.root.getObjectByName("mixamorigSpine2") ?? null;
+    botSpineCache.set(rig, spine);
+  }
+  if (!spine) return;
+  const w = t < BOT_RECOIL_RISE ? t / BOT_RECOIL_RISE : clamp(1 - (t - BOT_RECOIL_RISE) / BOT_RECOIL_FALL, 0, 1);
+  if (w <= 0) return;
+  // Same local +X pitch axis RUN_LEAN_BONES lean forward around; negative
+  // tips the chest (and everything it carries) back.
+  spine.quaternion.multiply(botRecoilQuat.setFromAxisAngle(botRecoilAxis, BOT_RECOIL_ANGLE * w));
+}
+
 // Blends in the real "RifleFire" mocap clip (see the merge that grafted it
 // into the glb) over whatever idle/run weights updateLocomotionAnim just
 // set for this frame — replaces the old hand-tuned axis-angle recoil kick
@@ -3532,6 +3755,10 @@ const MUZZLE_TIP_LOCAL = new THREE.Vector3(0, 0, -31.4);
 // normalized (summing to ~1) regardless of whether the fighter happens to
 // be standing still or mid-run when the shot goes off.
 function applyFirePose(rig: FighterRig, t: number) {
+  if (rig.gunMount) {
+    applyBotRecoil(rig, t);
+    return;
+  }
   if (!rig.fireAction) return;
   const w =
     t < FIRE_FADE_IN
@@ -3833,10 +4060,94 @@ interface FighterRig {
   // (restQuat*curlDelta) instead of nudging whatever the bone's current
   // value happens to be, which is what actually makes calling it every
   // tick safe on joints no animation clip ever touches (see that
-  // function's own comment for the bug this fixes). Only ever populated
-  // for the player (loadPlayerCharacter) — null everywhere else.
+  // function's own comment for the bug this fixes). Populated by
+  // loadPlayerCharacter and loadBotFighter; null only on the placeholder
+  // and legacy loadFighter rigs.
   restPose: Map<string, { pos: THREE.Vector3; quat: THREE.Quaternion }> | null;
   materials: THREE.MeshStandardMaterial[];
+  // Bots only (see computeBotGunMount): the gun's fixed RightHand-local
+  // transform, measured off this fighter's OWN idle pose. When set, the
+  // player's hand-tuned calibration (gunGripOffset/gunGripRotation/
+  // fingerCurlExtras — tuned against the player's relaxed Build Mode
+  // stance, not a bot's rifle-ready mocap) is never applied to it.
+  gunMount?: THREE.Matrix4 | null;
+  // Bots only (see setupFootGrounding/groundFighterFeet).
+  grounding?: FootGrounding | null;
+}
+
+// Retargeted mocap doesn't keep a differently-proportioned rig's feet on
+// the floor: char-1's clips move the Hips by the source actor's own
+// heights, so on bot-2 (longer legs, different hip height) RifleIdle
+// floated ~7cm above the ground while RifleRun's stride and the death
+// collapse pushed the soles/body several cm INTO it. Instead of
+// hand-tuning a per-clip offset, the model (root's only child) is shifted
+// vertically every tick so its actual lowest skinned vertex rests on the
+// ground — measured off a small fixed sample of vertices, not the whole
+// 56k-vertex mesh: the soles while alive (cheap, and it's always a foot
+// touching the ground), a sparse whole-body set while dying (the back/
+// head/hands end up lowest once the body is lying down).
+interface FootGrounding {
+  model: THREE.Object3D;
+  samples: { mesh: THREE.SkinnedMesh; sole: number[]; body: number[] }[];
+}
+// Rest-pose height (above the soles) below which a vertex counts as part
+// of a sole, and how many of each sample set to keep per mesh.
+const FOOT_SOLE_SAMPLE_HEIGHT = 0.05;
+const FOOT_SOLE_SAMPLE_MAX = 160;
+const FOOT_BODY_SAMPLE_MAX = 900;
+// Matches the floor tile's own +0.02 z-fight lift (see the floorTile mesh
+// in the Build Mode scene setup), so a bot standing on one isn't sunk
+// into its surface — invisible on the bare ground.
+const FOOT_GROUND_CLEARANCE = 0.02;
+const groundVertexTmp = new THREE.Vector3();
+function pickEvenly(indices: number[], max: number): number[] {
+  if (indices.length <= max) return indices;
+  const stride = indices.length / max;
+  const out: number[] = [];
+  for (let k = 0; k < max; k++) out.push(indices[Math.floor(k * stride)]);
+  return out;
+}
+// Must run while the rig is still in its bind/rest pose (right after load,
+// before any mixer.update) with `model` already positioned so its soles
+// sit at root-local y=0.
+function setupFootGrounding(root: THREE.Object3D, model: THREE.Object3D): FootGrounding {
+  root.updateMatrixWorld(true);
+  const rootInv = root.matrixWorld.clone().invert();
+  const samples: FootGrounding["samples"] = [];
+  model.traverse((o) => {
+    const mesh = o as THREE.SkinnedMesh;
+    if (!mesh.isSkinnedMesh) return;
+    const count = mesh.geometry.attributes.position.count;
+    const sole: number[] = [];
+    const all: number[] = [];
+    for (let k = 0; k < count; k++) {
+      mesh.getVertexPosition(k, groundVertexTmp).applyMatrix4(mesh.matrixWorld).applyMatrix4(rootInv);
+      if (groundVertexTmp.y < FOOT_SOLE_SAMPLE_HEIGHT) sole.push(k);
+      all.push(k);
+    }
+    samples.push({ mesh, sole: pickEvenly(sole, FOOT_SOLE_SAMPLE_MAX), body: pickEvenly(all, FOOT_BODY_SAMPLE_MAX) });
+  });
+  return { model, samples };
+}
+// Shifts rig.grounding.model so the lowest sampled vertex sits at the
+// root's own y (+FOOT_GROUND_CLEARANCE). Run after every bone-driving step
+// of the tick (mixer.update, off-hand IK) so it measures the final pose.
+function groundFighterFeet(rig: FighterRig, dying: boolean) {
+  const g = rig.grounding;
+  if (!g || !rig.root.visible) return;
+  rig.root.updateMatrixWorld(true);
+  let lowest = Infinity;
+  for (const s of g.samples) {
+    for (const k of dying ? s.body : s.sole) {
+      s.mesh.getVertexPosition(k, groundVertexTmp).applyMatrix4(s.mesh.matrixWorld);
+      if (groundVertexTmp.y < lowest) lowest = groundVertexTmp.y;
+    }
+  }
+  if (!Number.isFinite(lowest)) return;
+  // root only ever yaws (plus the Boss's uniform BOSS_SCALE), so a world-Y
+  // difference maps straight onto model.position.y once divided back out
+  // of root's own scale.
+  g.model.position.y += (rig.root.position.y + FOOT_GROUND_CLEARANCE - lowest) / rig.root.scale.y;
 }
 
 // The old character models (char-1.glb, bot-2.glb) are gone — removed
@@ -4426,6 +4737,9 @@ function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: Fighter
       const root = new THREE.Group();
       root.add(model);
       scene.add(root);
+      // Still in the bind pose here (no clip has played yet) — exactly what
+      // setupFootGrounding needs to find the soles.
+      const grounding = setupFootGrounding(root, model);
 
       let mixer: THREE.AnimationMixer | null = null;
       let idleAction: THREE.AnimationAction | null = null;
@@ -4464,7 +4778,11 @@ function loadBotFighter(scene: THREE.Scene, url: string, onLoaded: (rig: Fighter
         deathAction.setEffectiveWeight(0);
       }
 
-      onLoaded({ root, mixer, idleAction, runAction, naturalIdleAction: null, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, restPose: null, materials });
+      // restPose lets curlGunGripFingers set an absolute grip curl every
+      // tick — without it the fallback multiplied onto whatever the bone
+      // already held, and the finger joints no clip animates kept winding
+      // further every frame.
+      onLoaded({ root, mixer, idleAction, runAction, naturalIdleAction: null, fireAction, deathAction, rightArm, rightForeArm, rightHand, leftArm, leftForeArm, leftHand, gun: null, rightFingers, leftFingers, restPose: restNewbot, materials, grounding });
     })
     .catch((err) => console.error("Failed to load bot model", err));
 }
@@ -6569,6 +6887,21 @@ function CombatArena({
         }
       });
     };
+    // Bots' rifle sits at a grip measured off their own RifleIdle pose (see
+    // computeBotGunMount), not the player's calibration that equipGun uses.
+    const equipBotGun = (rig: FighterRig) => {
+      if (!rig.rightHand) return;
+      loadGunPrototype().then((proto) => {
+        if (disposed) return;
+        const mount = computeBotGunMount(rig);
+        if (!mount) return;
+        const gun = proto.clone(true);
+        mount.decompose(gun.position, gun.quaternion, gun.scale);
+        rig.rightHand!.add(gun);
+        rig.gunMount = mount;
+        rig.gun = gun;
+      });
+    };
 
     // The player spawns as whichever character was picked in Character
     // Selection (persisted under SELECTED_CARD_STORAGE_KEY) instead of
@@ -6637,7 +6970,7 @@ function CombatArena({
         if (disposed) return;
         rig.root.position.set(spawn.x, 0, spawn.z);
         bots[i] = rig;
-        equipGun(rig);
+        equipBotGun(rig);
       });
     }
     if (!combatDisabled && !isNoCombatMap) {
@@ -6647,7 +6980,7 @@ function CombatArena({
         rig.root.scale.setScalar(BOSS_SCALE);
         tintBossFighter(rig);
         bots[5] = rig;
-        equipGun(rig);
+        equipBotGun(rig);
       });
     }
     const resize = () => {
@@ -7059,40 +7392,7 @@ function CombatArena({
         // floating, the same "flying" bug the old Map 5 had to solve with
         // a full guard-rail.
         if (mapId === 4 || mapId === 5) {
-          let grounded = false;
-          for (const item of customItemsRef.current) {
-            if (item.kind !== "stairs") continue;
-            const dx = player.root.position.x - item.x;
-            const dz = player.root.position.z - item.z;
-            const along = dx * item.dirX + dz * item.dirZ;
-            const perp = dz * item.dirX - dx * item.dirZ;
-            if (Math.abs(perp) >= MAP4_STAIRS_WIDTH / 2) continue;
-            const margin = isTopOfStairChain(item, customItemsRef.current) ? MAP4_STAIRS_EDGE_MARGIN : 0;
-            if (along < -0.3 || along > MAP4_STAIRS_DEPTH + margin) continue;
-            const rank = computeStairRank(item, customItemsRef.current);
-            const baseY = item.baseY ?? 0;
-            if (Math.abs(player.root.position.y - (baseY + rank * MAP4_STAIRS_RISE)) >= MAP4_ELEVATION_SNAP_TOLERANCE) continue;
-            const progress = clamp(along / MAP4_STAIRS_DEPTH, 0, 1);
-            player.root.position.y = THREE.MathUtils.lerp(baseY + rank * MAP4_STAIRS_RISE, baseY + (rank + 1) * MAP4_STAIRS_RISE, progress);
-            grounded = true;
-            break;
-          }
-          if (!grounded) {
-            for (const item of customItemsRef.current) {
-              if (item.kind !== "floorTile") continue;
-              const tileY = item.y ?? 0;
-              if (
-                Math.abs(player.root.position.x - item.x) < MAP4_FLOOR_TILE_SIZE / 2 + MAP4_FLOOR_TILE_EDGE_MARGIN &&
-                Math.abs(player.root.position.z - item.z) < MAP4_FLOOR_TILE_SIZE / 2 + MAP4_FLOOR_TILE_EDGE_MARGIN &&
-                Math.abs(player.root.position.y - tileY) < MAP4_ELEVATION_SNAP_TOLERANCE
-              ) {
-                player.root.position.y = tileY;
-                grounded = true;
-                break;
-              }
-            }
-          }
-          if (!grounded) player.root.position.y = 0;
+          player.root.position.y = map4GroundY(player.root.position, customItemsRef.current);
         }
 
         // Slide each gate open as the player nears its door, closed again
@@ -7524,6 +7824,21 @@ function CombatArena({
           camera.lookAt(camLookAt);
         }
         wasTopDownView = topDownViewRef.current;
+      }
+
+      // Keep every bot standing ON the ground: Map 4's floor tiles/stairs
+      // lift it the same way they lift the player (see map4GroundY), then
+      // its feet (or, mid-collapse, whatever part of the body is lowest) are
+      // planted on that height — see groundFighterFeet. Runs last, after
+      // every bone-driving step of the tick (mixer, off-hand IK), so it
+      // measures the pose that's actually about to render. A finished death
+      // (faded out) is left alone rather than re-measured every frame.
+      for (let i = 0; i < bots.length; i++) {
+        const rig = bots[i];
+        const st = botStates[i];
+        if (!rig || st.deathT > DEATH_TOTAL_DURATION) continue;
+        if (mapId === 4 && !st.dead) rig.root.position.y = map4GroundY(rig.root.position, customItemsRef.current);
+        groundFighterFeet(rig, st.dead);
       }
 
       // The sky sphere is centered at the world origin, but the arena is
